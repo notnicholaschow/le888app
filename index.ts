@@ -1,5 +1,5 @@
 // ============================================================================
-// TR666 Points - Cloudflare Worker backend (hardened)
+// LE888 Points - Cloudflare Worker backend (hardened)
 // One Worker handles: player page, admin page, player APIs, admin APIs,
 // and static assets. No Telegram. Players sign in with username + password.
 //
@@ -472,7 +472,7 @@ const VIP_RANKS = [
   { name: 'Ruby', deposit: 6000, weekly: 60, upgrade: 18 },
   { name: 'Diamond', deposit: 12000, weekly: 100, upgrade: 30 },
   { name: 'Royal', deposit: 25000, weekly: 160, upgrade: 48 },
-  { name: 'TR666 King', deposit: 50000, weekly: 250, upgrade: 75 },
+  { name: 'LE888 King', deposit: 50000, weekly: 250, upgrade: 75 },
 ] as const;
 // Badge image key per rank (same order as VIP_RANKS). Served at /img/<key>.webp.
 const VIP_RANK_KEYS = ['bronze', 'silver', 'gold', 'ruby', 'diamond', 'royal', 'king'] as const;
@@ -604,7 +604,7 @@ const INSTALL_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a0a0f">
-<title>Install TR666</title>
+<title>Install LE888</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -688,8 +688,8 @@ const INSTALL_HTML = `<!doctype html>
 <body>
   <div class="wrap">
     <div class="card">
-      <img class="crest" src="/icon-192.png" alt="TR666">
-      <h1>TR666</h1>
+      <img class="crest" src="/icon-192.png" alt="LE888">
+      <h1>LE888</h1>
       <div class="rule"></div>
       <p class="sub">Install the app on your phone</p>
 
@@ -718,7 +718,7 @@ const INSTALL_HTML = `<!doctype html>
         <p class="hint">On Android, please use <b style="color:#e7c56b">Chrome</b>.</p>
         <div class="step"><div class="num">1</div><p>Tap the <b>menu</b> (the three dots at the top right of Chrome).</p></div>
         <div class="step"><div class="num">2</div><p>Tap <b>Install and create shortcut</b> (may also say <b>Add to Home screen</b> or <b>Install app</b>).</p></div>
-        <div class="step"><div class="num">3</div><p>Tap <b>Install</b> (or <b>Add</b>). The TR666 icon appears on your home screen.</p></div>
+        <div class="step"><div class="num">3</div><p>Tap <b>Install</b> (or <b>Add</b>). The LE888 icon appears on your home screen.</p></div>
         <a class="cta" href="/">Open the app now</a>
         <div id="vidbox-a">
           <div class="vidlabel">Watch: install guide</div>
@@ -735,7 +735,7 @@ const INSTALL_HTML = `<!doctype html>
         <div class="step"><div class="num">1</div><p>Open <b class="hostname">this website</b> in Safari.</p></div>
         <div class="step"><div class="num">2</div><p>Tap the <b>Share</b> button (a square with an arrow pointing up).</p></div>
         <div class="step"><div class="num">3</div><p>Scroll down and tap <b>Add to Home Screen</b>.</p></div>
-        <div class="step"><div class="num">4</div><p>Tap <b>Add</b>. The TR666 icon appears on your home screen.</p></div>
+        <div class="step"><div class="num">4</div><p>Tap <b>Add</b>. The LE888 icon appears on your home screen.</p></div>
         <a class="cta" href="/">Open in Safari now</a>
         <div id="vidbox">
           <div class="vidlabel">Watch: 30-second guide</div>
@@ -815,11 +815,11 @@ export default {
       // Optional iPhone tutorial video, played inline on the install page.
       // Served from R2 or /public/ios-install.mp4.
       if (request.method === 'GET' && url.pathname === '/media/ios-install.mp4') {
-        return await serveDownload(request, env, IOS_VIDEO_R2_KEY, 'ios-install.mp4', 'TR666-install.mp4', 'video/mp4', false);
+        return await serveDownload(request, env, IOS_VIDEO_R2_KEY, 'ios-install.mp4', 'LE888-install.mp4', 'video/mp4', false);
       }
       // Optional Android tutorial video, played inline on the install page.
       if (request.method === 'GET' && url.pathname === '/media/android-install.mp4') {
-        return await serveDownload(request, env, ANDROID_VIDEO_R2_KEY, 'android-install.mp4', 'TR666-install.mp4', 'video/mp4', false);
+        return await serveDownload(request, env, ANDROID_VIDEO_R2_KEY, 'android-install.mp4', 'LE888-install.mp4', 'video/mp4', false);
       }
 
       if (request.method === 'GET' && (url.pathname === '/admin' || url.pathname === '/admin/')) {
@@ -867,7 +867,7 @@ async function serveDownload(request: Request, env: Env, key: string, assetPath:
     }
   }
 
-  // 2) Static asset committed to /public (e.g. /public/TR666.apk).
+  // 2) Static asset committed to /public (e.g. /public/LE888.apk).
   try {
     const a = await env.ASSETS.fetch(new Request(new URL('/' + assetPath, request.url).toString(), request));
     if (a.ok) {
@@ -910,14 +910,14 @@ function clientIp(request: Request): string {
 // True when a request comes from the installed app rather than a plain browser.
 // - Android APK (TWA) sends X-Requested-With with our package name automatically.
 // - The PWA (iPhone home-screen app / installed Android PWA) reports standalone
-//   mode via the X-TR666-App header our own client sets.
+//   mode via the X-LE888-App header our own client sets.
 // This is a CLIENT-PROVIDED signal, so it can be spoofed by a technical user. It
 // only ever decides whether an app-only promo may be claimed — it can never move
 // points or money — so the money invariants are unaffected either way.
 function isAppRequest(request: Request): boolean {
   const xrw = (request.headers.get('X-Requested-With') || '').toLowerCase();
   if (xrw.indexOf('com.tr666app.official') !== -1) return true;
-  if ((request.headers.get('X-TR666-App') || '') === '1') return true;
+  if ((request.headers.get('X-LE888-App') || '') === '1') return true;
   return false;
 }
 
@@ -1742,7 +1742,7 @@ const AUTO_TEMPLATES: Record<string, { name: string; content: string }> = {
   },
   withdrawal_approved: {
     name: 'Auto · Withdrawal approved',
-    content: '🎉 Congratulations! Your withdrawal of SGD {amount} has been approved. ✅<br><br>Thank you for choosing TR666 🐻 — we hope you play here with us again! 🎰<br><br>🎉 恭喜！您 SGD {amount} 的提款申请已批准。✅<br><br>感谢您选择 TR666 🐻，期待您再次光临游玩！🎰',
+    content: '🎉 Congratulations! Your withdrawal of SGD {amount} has been approved. ✅<br><br>Thank you for choosing LE888 🐻 — we hope you play here with us again! 🎰<br><br>🎉 恭喜！您 SGD {amount} 的提款申请已批准。✅<br><br>感谢您选择 LE888 🐻，期待您再次光临游玩！🎰',
   },
   game_id_changed: {
     name: 'Auto · Game ID changed',
@@ -1750,7 +1750,7 @@ const AUTO_TEMPLATES: Record<string, { name: string; content: string }> = {
   },
   welcome: {
     name: 'Auto · Welcome (new player)',
-    content: '👋 Welcome to TR666, {name}! 🐻<br>Your Player ID is <b>{player_id}</b>. Deposit and play to earn points and rewards. Good luck! 🎰<br><br>👋 欢迎加入 TR666，{name}！🐻<br>你的玩家编号是 <b>{player_id}</b>。充值并游玩即可赚取积分和奖励。祝你好运！🎰',
+    content: '👋 Welcome to LE888, {name}! 🐻<br>Your Player ID is <b>{player_id}</b>. Deposit and play to earn points and rewards. Good luck! 🎰<br><br>👋 欢迎加入 LE888，{name}！🐻<br>你的玩家编号是 <b>{player_id}</b>。充值并游玩即可赚取积分和奖励。祝你好运！🎰',
   },
   first_deposit: {
     name: 'Auto · First deposit',
@@ -2047,7 +2047,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // App-only promos can only be claimed from the installed app. A browser
       // claim is refused here (never a balance change, just a gate).
       if (pr.app_only && !isAppRequest(request)) {
-        return fail('APP_ONLY', 'Please open the TR666 app to claim this promo. Tap "Install" to get it.', 403, rid);
+        return fail('APP_ONLY', 'Please open the LE888 app to claim this promo. Tap "Install" to get it.', 403, rid);
       }
 
       let unlockId: number | null = null;
@@ -4347,7 +4347,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime(\'now\'), 0, 1) ' +
         'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1',
       ).bind(pid).run();
-      try { await pushToPlayer(env, pid, { title: 'TR666 Support', body: 'You have a new message.' }, { title: 'TR666 客服', body: '你有一条新消息。' }); } catch { /* best-effort */ }
+      try { await pushToPlayer(env, pid, { title: 'LE888 Support', body: 'You have a new message.' }, { title: 'LE888 客服', body: '你有一条新消息。' }); } catch { /* best-effort */ }
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -4368,8 +4368,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       try {
         const preview = text ? (text.length > 80 ? text.slice(0, 77) + '...' : text) : '\ud83d\udcf7 Image';
         await pushToPlayer(env, pid,
-          { title: 'TR666 Support', body: preview },
-          { title: 'TR666 \u5ba2\u670d', body: preview });
+          { title: 'LE888 Support', body: preview },
+          { title: 'LE888 \u5ba2\u670d', body: preview });
       } catch { /* best-effort */ }
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
@@ -4383,7 +4383,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       let sent = 0;
       for (const s of (results || []) as any[]) {
         const text = s.lang === 'zh' && messageZh ? messageZh : message;
-        const status = await sendWebPush(env, s, JSON.stringify({ title: 'TR666', body: text }));
+        const status = await sendWebPush(env, s, JSON.stringify({ title: 'LE888', body: text }));
         if (status >= 200 && status < 300) sent++;
         else if (status === 404 || status === 410) await env.DB.prepare('DELETE FROM push_subs WHERE id = ?').bind(s.id).run();
       }
@@ -4458,8 +4458,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       }
       const bodyEn = 'Our login link has changed. Tap to open: ' + url;
       const bodyZh = '我们的登录网址已更改。点击打开：' + url;   // 我们的登录网址已更改。点击打开：
-      const payloadEn = JSON.stringify({ title: 'TR666 — New link', body: bodyEn, url, kind: 'domain' });
-      const payloadZh = JSON.stringify({ title: 'TR666 — 新网址', body: bodyZh, url, kind: 'domain' });   // 新网址
+      const payloadEn = JSON.stringify({ title: 'LE888 — New link', body: bodyEn, url, kind: 'domain' });
+      const payloadZh = JSON.stringify({ title: 'LE888 — 新网址', body: bodyZh, url, kind: 'domain' });   // 新网址
       let sent = 0, total = 0;
       try {
         const { results } = await env.DB.prepare('SELECT id, endpoint, p256dh, auth, lang FROM push_subs').all();
