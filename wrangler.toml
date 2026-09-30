@@ -1,58 +1,35 @@
-# ============================================================================
-# Cloudflare Worker config — NEW standalone app (cloned, fully decoupled)
-#
-# Everything marked REPLACE_ME is yours to change. Nothing here points at the
-# original app: new worker name, new database, new bucket.
-# ============================================================================
-
-# Your worker's name. Becomes part of the default *.workers.dev URL.
-# Pick your new brand slug later; "myapp" is fine for now.
-name = "myapp"
-
-# The backend entry file (kept at repo root, same as your upload).
+name = "le888app"
 main = "index.ts"
-
-# A recent date is fine. Do not set this to a future date.
 compatibility_date = "2026-09-01"
 
-# ---- Static files (index.html, admin.html, sw.js, icons, images) ----
-# They live in the ./public folder (see README for the layout).
-# run_worker_first = true is REQUIRED: your backend must run before assets so
-# it can add security headers and route /admin, /install, /media itself.
-# (Needs a recent Wrangler — the package.json below pins one.)
+# ---- Static files (index.html, admin.html, sw.js, icons) ----
 [assets]
 directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
+html_handling = "none"
+not_found_handling = "single-page-application"
 
-# ---- Database (D1) ----
-# 1) Run:  npx wrangler d1 create myapp-db
-# 2) Paste the database_id it prints below.
+# ---- Your database (already created + filled) ----
 [[d1_databases]]
 binding = "DB"
-database_name = "myapp-db"
-database_id = "REPLACE_ME_WITH_YOUR_NEW_D1_DATABASE_ID"
+database_name = "le888-db"
+database_id = "32eef1de-d554-42dd-8c3c-bbec2a593eb4"
 
-# ---- Image storage (R2) — chat images, QR, banners, receipts ----
-# Run:  npx wrangler r2 bucket create myapp-images
-[[r2_buckets]]
-binding = "CHAT_IMAGES"
-bucket_name = "myapp-images"
-
-# ---- Daily background job (check-in / VIP reminders, chat cleanup) ----
-# 04:00 UTC = 12:00 Singapore time. Change if you want a different hour.
+# ---- Daily background job (04:00 UTC = 12:00 Singapore time) ----
 [triggers]
 crons = ["0 4 * * *"]
 
-# ---- Secrets are NOT stored here (they are set with `wrangler secret put`) ----
-#   SESSION_SECRET        (required)  signs login tokens
-#   ADMIN_SETUP_SECRET    (required)  lets you create the first admin
-#   VAPID_PUBLIC_KEY      (optional)  push notifications
-#   VAPID_PRIVATE_KEY     (optional)  push notifications
-# See the README for the exact commands.
+# ---- Image storage (R2) — OPTIONAL, add later for chat images / QR / banners.
+# When you're ready:
+#   1) run:  npx wrangler r2 bucket create le888-images
+#   2) delete the # at the start of the 3 lines below
+#   3) run:  npm run deploy   (again)
+# [[r2_buckets]]
+# binding = "CHAT_IMAGES"
+# bucket_name = "le888-images"
 
-# ---- Custom domain (add AFTER the first deploy) ----
-# Uncomment and set your new domain, then redeploy:
+# ---- Custom domain (add AFTER first deploy) ----
 # routes = [
 #   { pattern = "app.YOURNEWDOMAIN.com", custom_domain = true }
 # ]
