@@ -1,5 +1,5 @@
 /* ============================================================================
-   TR666 service worker
+   LE888 service worker
    - Versioned cache; old caches cleaned on activate.
    - NEVER caches API responses (all /api/*) or any non-GET request.
    - NEVER caches the admin app.
@@ -74,7 +74,7 @@ self.addEventListener('push', function (e) {
   var data = {};
   try { data = e.data ? e.data.json() : {}; } catch (err) {}
   e.waitUntil(Promise.all([
-    self.registration.showNotification(data.title || 'TR666', {
+    self.registration.showNotification(data.title || 'LE888', {
       body: data.body || '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',

@@ -22,22 +22,29 @@
    One family (Manrope). Layered solid surfaces. Controlled gold.
    ============================================================ */
 :root {
+  /* ---- LE888 visual system (aligned to le888win.com: deep black + orange) ---- */
   /* surface levels (page -> elevated) */
-  --bg: #050505;
-  --s-primary: #111111;
-  --s-raised: #1a1a1c;
-  --s-interactive: #242426;
-  --s-elevated: #2c2c2f;
+  --bg: #060606;
+  --s-primary: #101012;
+  --s-raised: #17171a;
+  --s-interactive: #202024;
+  --s-elevated: #29292e;
   /* text */
-  --text: #f7f7f7;
-  --text-2: #94949d;
-  --text-muted: #9a9aa4;
-  /* accents */
-  --gold: #ff8a1f;
-  --gold-soft: #2a1808;
+  --text: #ffffff;
+  --text-2: #a6a6ae;
+  --text-muted: #78787f;
+  /* accents — LE888 orange */
+  --gold: #ff8a1f;          /* primary orange (kept name for compatibility) */
+  --gold-soft: rgba(255,138,31,.12);
+  --orange: #ff8a1f;        /* alias used by new components */
+  --orange-2: #ffa347;
+  --orange-deep: #d9781a;
+  --orange-soft: rgba(255,138,31,.12);
   --pos: #43d98b;
   --neg: #ff667d;
-  --border: #2a2a2e;
+  --border: #232327;        /* subtler hairline */
+  --border-strong: #2f2f35;
+  --border-orange: rgba(255,138,31,.35);
   /* per-game placeholder fills */
   --g-wheel: #30261b;
   --g-plinko: #20272d;
@@ -46,7 +53,8 @@
   /* spacing scale */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px;
   /* radius scale */
-  --r-chip: 9px; --r-btn: 16px; --r-card: 20px; --r-feature: 26px; --r-modal: 30px;
+  --r-chip: 9px; --r-btn: 16px; --r-card: 18px; --r-feature: 22px; --r-modal: 28px;
+  --radius-sm: 10px; --radius-md: 14px; --radius-lg: 18px; --radius-xl: 22px;
   --nav-h: 72px;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -1090,6 +1098,89 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   .page-title { font-size: 30px; }
 }
 @media (min-width: 620px) { .shell, .bottom-nav { max-width: 460px; } }
+
+/* ============================================================
+   LE888 REDESIGN — home hierarchy + branded components
+   Frontend-only. All JS hooks (IDs / data-attrs) are preserved;
+   these rules restyle and re-lay-out existing elements.
+   ============================================================ */
+
+/* ---------- LE888 APP HEADER (menu · logo · chat) ---------- */
+.header { justify-content: space-between; }
+.brand { flex: 0 1 auto; justify-content: center; }
+.brand-logo { height: 46px; max-width: 190px; }
+.hdr-icon-btn { position: relative; flex: none; width: 42px; height: 42px; border-radius: 13px;
+  display: grid; place-items: center; cursor: pointer; color: var(--text);
+  background: var(--s-raised); border: 1px solid var(--border);
+  transition: transform .12s ease, background .15s ease, border-color .15s ease; }
+.hdr-icon-btn svg { width: 22px; height: 22px; }
+.hdr-icon-btn:active { transform: scale(.93); background: var(--s-interactive); }
+@media (hover: hover) { .hdr-icon-btn:hover { border-color: var(--border-orange); color: var(--gold); } }
+.hdr-icon-btn .chat-badge { position: absolute; top: -5px; right: -4px; }
+
+/* ---------- HERO PROMO BANNER ---------- */
+.hero { position: relative; margin-top: var(--s5); border-radius: var(--r-feature); overflow: hidden;
+  border: 1px solid var(--border); aspect-ratio: 16 / 7; min-height: 150px;
+  background: linear-gradient(120deg, #241706 0%, #14100b 46%, #0c0c10 100%); }
+.hero-slide { position: absolute; inset: 0; }
+.hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; z-index: 0; }
+/* readability scrim so copy stays legible with or without an image */
+.hero::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(90deg, rgba(6,6,8,.86) 0%, rgba(6,6,8,.5) 46%, rgba(6,6,8,.08) 100%); }
+.hero::after { content: ""; position: absolute; right: -30%; top: -40%; width: 75%; height: 180%; z-index: 0;
+  border-radius: 50%; background: radial-gradient(circle, rgba(255,138,31,.22), transparent 68%); pointer-events: none; }
+.hero-copy { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column;
+  justify-content: center; gap: 5px; padding: 0 var(--s5); }
+.hero-kicker { font-size: 11px; font-weight: 800; letter-spacing: .16em; color: var(--gold); }
+.hero-title { font-size: 27px; font-weight: 800; letter-spacing: -.02em; color: #fff; line-height: 1.02; }
+.hero-sub { font-size: 13px; font-weight: 600; color: var(--text-2); max-width: 74%; }
+.hero-dots { position: absolute; right: 14px; bottom: 12px; z-index: 3; display: flex; gap: 5px; }
+.hero-dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(255,255,255,.32); transition: width .2s; }
+.hero-dots i.on { width: 16px; background: var(--gold); }
+
+/* ---------- REWARD WALLET ---------- */
+.wallet { display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
+  margin-top: var(--s4); padding: 15px 18px; border-radius: var(--r-card);
+  background: linear-gradient(180deg, #1b160f 0%, #101012 100%);
+  border: 1px solid var(--border-orange); box-shadow: 0 10px 26px -14px rgba(0,0,0,.9); }
+.wallet-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wallet-label { font-size: 11px; }
+.wallet-value { font-weight: 800; font-size: 33px; line-height: 1; letter-spacing: -.02em;
+  color: var(--gold); font-variant-numeric: tabular-nums; }
+.wallet-submit { min-height: 48px; padding: 0 22px; border-radius: 14px; font-size: 15px; flex: none; }
+
+/* ---------- QUICK ACTIONS ---------- */
+.qa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: var(--s4); }
+.qa-tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 9px; min-height: 84px; padding: 14px 6px; border-radius: var(--r-card); cursor: pointer;
+  background: var(--s-raised); border: 1px solid var(--border); color: var(--text); text-align: center;
+  -webkit-user-select: none; user-select: none; transition: transform .12s ease, background .15s ease, border-color .15s ease; }
+.qa-tile:active { transform: scale(.96); background: var(--s-interactive); }
+@media (hover: hover) { .qa-tile:hover { border-color: var(--border-orange); } }
+.qa-tile:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.qa-ico { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center;
+  background: var(--orange-soft); color: var(--gold); }
+.qa-ico svg { width: 22px; height: 22px; }
+.qa-label { font-size: 12px; font-weight: 700; letter-spacing: -.01em; color: var(--text); line-height: 1.1; }
+.qa-tile .dw-dot { top: 11px; right: 11px; }
+
+/* ---------- MEMBER CARD (compact; no gold editorial strip) ---------- */
+.player-card { margin-top: var(--s6); padding: var(--s4) var(--s5); }
+.player-card::before { display: none; }         /* remove editorial gold strip */
+.player-card::after { content: ""; position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(90deg, rgba(6,6,8,.55), rgba(6,6,8,.85)); pointer-events: none; }
+.player-card > * { position: relative; z-index: 1; }
+.pc-avatar { width: 52px; height: 52px; border-radius: 14px; font-size: 19px; }
+.pc-name { font-size: 20px; }
+.pc-emblem { width: 82px; height: 82px; top: 8px; right: 16px; }
+.pc-balance { margin-top: var(--s4); }
+.pc-balance .bal-num { font-size: 40px; }
+.pc-stats { margin-top: var(--s4); }
+@media (max-width: 360px) {
+  .qa-grid { gap: 8px; } .qa-ico { width: 38px; height: 38px; } .qa-label { font-size: 11px; }
+  .hero-title { font-size: 23px; } .wallet-value { font-size: 28px; }
+  .pc-balance .bal-num { font-size: 36px; }
+}
 </style>
 </head>
 <body>
@@ -1132,25 +1223,94 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 <div id="app" class="hidden">
   <div class="shell">
 
-  <!-- Sticky header -->
+  <!-- ============ LE888 APP HEADER (menu · logo · chat) ============ -->
   <div class="header">
+    <!-- LEFT: menu shortcut -> opens Settings (auto-wired via [data-nav]) -->
+    <button type="button" class="hdr-icon-btn" id="nav-menu" data-nav="settings" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <!-- CENTER: LE888 logo (dominant) -->
     <div class="brand">
       <img class="brand-logo" src="/img/LE888-180PX-LOGO.webp" alt="LE888">
     </div>
-    <div class="header-right">
-      <div class="reward-readout">
-        <div class="label" data-i18n="Reward Credits">Reward Credits</div>
-        <div class="reward-value" id="rewardValue">0.00</div>
-      </div>
-      <button class="submit-btn" id="submitRewardBtn"><span data-i18n="Submit">Submit</span>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9"/><path d="M8.5 4l4 4-4 4"/></svg>
-      </button>
-    </div>
+    <!-- RIGHT: support/chat -> openChat() (wired in JS) -->
+    <button type="button" class="hdr-icon-btn" id="headerChat" aria-label="Support chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-11.9 7.6L4 20l1-4.9A8.4 8.4 0 1 1 21 11.5Z"/></svg>
+      <span class="chat-badge hidden" id="headerChatBadge">0</span>
+    </button>
   </div>
 
   <!-- ============ PLAY TAB ============ -->
   <div id="tab-games">
-    <!-- Player card (editorial) -->
+    <!-- ============ HERO PROMO BANNER ============ -->
+    <!-- Static presentation only (no backend banner system). Drop images at
+         /img/promo-1.webp etc. later; a branded gradient shows until then. -->
+    <div class="hero">
+      <div class="hero-slide">
+        <img class="hero-img" src="/img/promo-1.webp" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <div class="hero-copy">
+          <span class="hero-kicker" data-i18n="hero.kicker">LE888 REWARDS</span>
+          <span class="hero-title" data-i18n="hero.title">Play. Win. Claim.</span>
+          <span class="hero-sub" data-i18n="hero.sub">Turn your points into reward credits</span>
+        </div>
+      </div>
+      <div class="hero-dots" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+    </div>
+
+    <!-- ============ REWARD WALLET (reward credits + submit) ============ -->
+    <div class="wallet">
+      <div class="wallet-main">
+        <span class="wallet-label label" data-i18n="Reward Credits">Reward Credits</span>
+        <span class="wallet-value" id="rewardValue">0.00</span>
+      </div>
+      <button class="submit-btn wallet-submit" id="submitRewardBtn"><span data-i18n="Submit">Submit</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9"/><path d="M8.5 4l4 4-4 4"/></svg>
+      </button>
+    </div>
+
+    <!-- Frozen while a VIP Free Credit is open. Toggled by render(). -->
+    <div class="credit-lock-bar hidden" id="creditLockBar">
+      <span class="clb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9" rx="2.2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg></span>
+      <span class="clb-txt">
+        <b data-i18n="Submit your VIP Free Credit">Submit your VIP Free Credit</b>
+        <small data-i18n="Playing and claiming are paused until you submit it and staff approve.">Playing and claiming are paused until you submit it and staff approve.</small>
+      </span>
+      <button type="button" class="clb-cta" id="creditLockCta" data-i18n="Submit now">Submit now</button>
+    </div>
+
+    <!-- ============ QUICK ACTIONS ============ -->
+    <!-- Each tile triggers an EXISTING feature. Withdraw/Deposit/RTP reuse the
+         original buttons (IDs + handlers preserved). Earn/VIP/History use
+         data-nav, auto-wired to switchTab() by the existing [data-nav] loop. -->
+    <div class="qa-grid">
+      <button class="qa-tile" id="withdrawHomeBtn" aria-haspopup="dialog">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7 7 7-7"/></svg></span>
+        <span class="qa-label" data-i18n="Withdraw">Withdraw</span>
+      </button>
+      <button class="qa-tile hidden" id="depositBtn" aria-haspopup="dialog">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.4"/><path d="M3 10h18"/><path d="M7 15h3"/></svg></span>
+        <span class="qa-label" data-i18n="deposit.title">Deposit</span>
+        <span class="dw-dot hidden" id="depDot"></span>
+      </button>
+      <button class="qa-tile" id="rtpEntryBtn">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 16l3.5-4 3 2.5L20 7"/></svg></span>
+        <span class="qa-label" data-i18n="Game RTP">Game RTP</span>
+      </button>
+      <button class="qa-tile" data-nav="earn" aria-label="Earn">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
+        <span class="qa-label" data-i18n="Earn">Earn</span>
+      </button>
+      <button class="qa-tile" data-nav="vip" aria-label="VIP">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
+        <span class="qa-label" data-i18n="VIP">VIP</span>
+      </button>
+      <button class="qa-tile" data-nav="history" aria-label="History">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
+        <span class="qa-label" data-i18n="nav.history">History</span>
+      </button>
+    </div>
+
+    <!-- ============ MEMBER CARD (compact) ============ -->
     <div class="player-card">
       <div class="pc-top">
         <div class="pc-avatar" id="playerAvatar">--</div>
@@ -1189,35 +1349,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     <!-- legacy hooks kept for JS compatibility -->
     <div id="pointsHeader" class="hidden"></div>
 
-    <!-- Frozen while a VIP Free Credit is open. Toggled by render(). -->
-    <div class="credit-lock-bar hidden" id="creditLockBar">
-      <span class="clb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9" rx="2.2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg></span>
-      <span class="clb-txt">
-        <b data-i18n="Submit your VIP Free Credit">Submit your VIP Free Credit</b>
-        <small data-i18n="Playing and claiming are paused until you submit it and staff approve.">Playing and claiming are paused until you submit it and staff approve.</small>
-      </span>
-      <button type="button" class="clb-cta" id="creditLockCta" data-i18n="Submit now">Submit now</button>
-    </div>
-
-    <!-- Deposit action row (opens PayNow reference popup) -->
-    <div class="dw-row">
-      <button class="dw-btn dw-deposit hidden" id="depositBtn" aria-haspopup="dialog">
-        <span class="dw-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.4"/><path d="M3 10h18"/><path d="M7 15h3"/></svg></span>
-        <span class="dw-label"><b data-i18n="deposit.title">Deposit</b><small data-i18n="deposit.sub2">PayNow details</small></span>
-        <span class="dw-dot hidden" id="depDot"></span>
-      </button>
-      <button class="dw-btn dw-withdraw" id="withdrawHomeBtn" aria-haspopup="dialog">
-        <span class="dw-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7 7 7-7"/></svg></span>
-        <span class="dw-label"><b data-i18n="Withdraw">Withdraw</b><small data-i18n="withdraw.sub">To your bank</small></span>
-      </button>
-    </div>
-
-    <button class="rtp-entry" id="rtpEntryBtn">
-      <span class="dw-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 16l3.5-4 3 2.5L20 7"/></svg></span>
-      <span class="rtp-entry-txt"><b data-i18n="Game RTP">Game RTP</b><small data-i18n="rtp.entrySub">Today's payout rates by game</small></span>
-      <span class="rtp-entry-chev">&rsaquo;</span>
-    </button>
-
+    <!-- ============ REWARD GAMES ============ -->
     <div class="section-head">
       <span class="section-title" data-i18n="Play">Play</span>
       <span class="section-link" id="playSubLabel">Win into your <b>Reward Credits</b></span>
@@ -1841,6 +1973,10 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   // Semantic keys (nav/settings) carry explicit en; all other keys are the
   // English source string itself, so en falls back to the key.
   var TL = {
+    /* LE888 redesign — hero banner copy */
+    'hero.kicker': { en: 'LE888 REWARDS', zh: 'LE888 奖励' },
+    'hero.title': { en: 'Play. Win. Claim.', zh: '畅玩 · 赢奖 · 领取' },
+    'hero.sub': { en: 'Turn your points into reward credits', zh: '把积分变成奖励额度' },
     'nav.play': { en: 'PLAY', zh: '游戏' }, 'nav.history': { en: 'History', zh: '记录' },
     'nav.earn': { en: 'Earn', zh: '赚取' }, 'nav.vip': { en: 'VIP', zh: '会员' }, 'nav.settings': { en: 'Settings', zh: '设置' },
     'settings.title': { en: 'Settings', zh: '设置' }, 'settings.playerId': { en: 'Player ID', zh: '玩家编号' }, 'settings.rank': { en: 'Rank', zh: '等级' },
@@ -2318,6 +2454,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   }
   (function () {
     var open = $('msgOpenBtn'); if (open) open.onclick = openChat;
+    var hdrChat = $('headerChat'); if (hdrChat) hdrChat.onclick = openChat; // LE888 header support icon
     var fab = $('chatFab');
     if (fab) fab.onclick = function () {
       if ($('chatOverlay').classList.contains('show')) closeChat(); else openChat();
