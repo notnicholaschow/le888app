@@ -446,7 +446,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       Domains</button>
     <button class="side-link" data-tab="rtp">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-6M22 20H2"/></svg>
-      Game RTP</button>
+      Slot Games</button>
     <button class="side-link" data-tab="settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 4v2M12 18v2M5 7l1.5 1M17.5 16l1.5 1M5 17l1.5-1M17.5 8l1.5-1M4 12h2M18 12h2"/></svg>
       Settings</button>
@@ -813,9 +813,43 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 
     <section id="tab-rtp" class="hidden">
       <div class="page-head">
-        <h1>Game RTP</h1>
-        <p>Show players each game's RTP. Add your platforms, add their games in order, then paste the RTP column from Excel to update them all at once.</p>
+        <h1>Slot Games</h1>
+        <p>Manage the Slot Games list players see, and the Game RTP tables.</p>
       </div>
+
+      <!-- ===== Slot Games launcher (admin-managed) ===== -->
+      <div class="card">
+        <h2 style="margin-top:0">🎰 Slot Games list (Play Now)</h2>
+        <p class="muted" style="margin:0 0 10px">These appear on the app's <b>Slot Game</b> page. Each one's <b>Play Now</b> button opens the link you set below. Use the arrows to reorder.</p>
+        <div id="slotList" class="muted">Loading&hellip;</div>
+        <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
+        <label for="slotName">Platform name</label>
+        <input id="slotName" maxlength="80" placeholder="e.g. 918KISS" autocomplete="off">
+        <label style="margin-top:8px">Logo (optional)</label>
+        <div class="row" style="align-items:center">
+          <img id="slotLogoPrev" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:contain;background:#111;display:none">
+          <input type="file" id="slotLogoFile" accept="image/*" style="flex:1">
+        </div>
+        <label style="margin-top:8px" for="slotKind">Type</label>
+        <select id="slotKind" style="width:100%">
+          <option value="app">App (download / launch)</option>
+          <option value="web">Website</option>
+        </select>
+        <label style="margin-top:8px" for="slotUrl">Play link — where "Play Now" goes</label>
+        <input id="slotUrl" maxlength="500" placeholder="https://…  (download page, website, or agent link)" autocomplete="off">
+        <label style="margin-top:8px" for="slotPkg">Android package (optional — for auto-open later)</label>
+        <input id="slotPkg" maxlength="120" placeholder="e.g. com.mega888.app  (leave blank if unsure)" autocomplete="off">
+        <input type="hidden" id="slotId"><input type="hidden" id="slotLogoUrl">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="slotActive" checked style="width:auto"> Active (shown to players)</label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" id="slotSave">Save slot game</button>
+          <button class="btn ghost small" id="slotReset">New / clear</button>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border,#222);margin:20px 0 4px">
+      <div class="page-head"><h1 style="font-size:20px">Game RTP tables</h1>
+        <p>Show players each game's RTP. Add platforms, add their games in order, then paste the RTP column from Excel to update them all at once.</p></div>
 
       <div class="card">
         <h2 style="margin-top:0">Platforms</h2>
@@ -976,7 +1010,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var SECTION_LABELS = {
     players: 'Players', earn: 'Earn', activity: 'Point activity', credits: 'Credit activity',
     deposits: 'Deposits', games: 'Games', rules: 'Withdraw rules', vip: 'VIP bonuses',
-    templates: 'Templates', domains: 'Domains', rtp: 'Game RTP', settings: 'Settings', view_app: 'View app (act as player)'
+    templates: 'Templates', domains: 'Domains', rtp: 'Slot Games & RTP', settings: 'Settings', view_app: 'View app (act as player)'
   };
   // Keys shown in the Access checklist = the tabs plus non-tab action permissions.
   var PERM_CHECKLIST = GATED_TABS.concat(['view_app']);
@@ -3347,7 +3381,90 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var rtpCurPf = null;      // { id, name }
   var rtpGamesCache = [];
 
+  // ---- Slot Games launcher (admin-managed list of Play Now platforms) ----
+  var slotCache = [];
+  function loadSlots() {
+    slotInitForms();
+    api('/api/admin/slots/list', {}).then(function (r) {
+      slotCache = (r && r.platforms) || [];
+      renderSlots();
+    });
+  }
+  function renderSlots() {
+    var box = $('slotList');
+    if (!box) return;
+    if (!slotCache.length) { box.innerHTML = '<span class="muted">No slot games yet. Add your first one below.</span>'; return; }
+    box.innerHTML = slotCache.map(function (p, i) {
+      var logo = p.logo_url ? '<img src="' + esc(p.logo_url) + '" style="width:26px;height:26px;border-radius:6px;object-fit:contain;background:#111;vertical-align:middle;margin-right:8px">' : '';
+      var tag = '<span class="muted">(' + (p.kind === 'web' ? 'Website' : 'App') + (Number(p.active) ? '' : ', hidden') + ')</span>';
+      return '<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--border,#222);border-radius:10px;margin-bottom:6px">' +
+        '<div style="flex:1;min-width:0">' + logo + '<b>' + esc(p.name) + '</b> ' + tag + '</div>' +
+        '<button class="btn ghost small" data-sup="' + p.id + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+        '<button class="btn ghost small" data-sdown="' + p.id + '"' + (i === slotCache.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+        '<button class="btn ghost small" data-sedit="' + p.id + '">Edit</button>' +
+        '<button class="btn ghost small" data-sdel="' + p.id + '">Del</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sedit]'), function (el) { el.onclick = function () { slotEdit(Number(el.getAttribute('data-sedit'))); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sdel]'), function (el) { el.onclick = function () { slotDel(Number(el.getAttribute('data-sdel'))); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sup]'), function (el) { el.onclick = function () { slotReorder(Number(el.getAttribute('data-sup')), 'up'); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sdown]'), function (el) { el.onclick = function () { slotReorder(Number(el.getAttribute('data-sdown')), 'down'); }; });
+  }
+  function slotEdit(id) {
+    var p = slotCache.filter(function (x) { return x.id === id; })[0]; if (!p) return;
+    $('slotId').value = p.id; $('slotName').value = p.name; $('slotLogoUrl').value = p.logo_url || '';
+    $('slotKind').value = (p.kind === 'web' ? 'web' : 'app'); $('slotUrl').value = p.play_url || ''; $('slotPkg').value = p.android_package || '';
+    $('slotActive').checked = Number(p.active) === 1;
+    var prev = $('slotLogoPrev'); if (p.logo_url) { prev.src = p.logo_url; prev.style.display = ''; } else { prev.style.display = 'none'; }
+    $('slotName').focus();
+  }
+  function slotReset() {
+    $('slotId').value = ''; $('slotName').value = ''; $('slotLogoUrl').value = ''; $('slotKind').value = 'app';
+    $('slotUrl').value = ''; $('slotPkg').value = ''; $('slotActive').checked = true;
+    $('slotLogoPrev').style.display = 'none'; $('slotLogoFile').value = '';
+  }
+  function slotDel(id) {
+    var p = slotCache.filter(function (x) { return x.id === id; })[0]; if (!p) return;
+    if (!confirm('Delete slot game "' + p.name + '"? This cannot be undone.')) return;
+    api('/api/admin/slots/delete', { id: id }).then(function (r) {
+      if (!r.ok) { toast(r.error || 'Delete failed.', true); return; }
+      toast('Slot game deleted.'); loadSlots();
+    });
+  }
+  function slotReorder(id, dir) {
+    api('/api/admin/slots/reorder', { id: id, dir: dir }).then(function (r) {
+      if (!r.ok) { toast(r.error || 'Reorder failed.', true); return; }
+      loadSlots();
+    });
+  }
+  function slotInitForms() {
+    if (slotInitForms._done) return; slotInitForms._done = true;
+    $('slotLogoFile').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return; toast('Uploading logo…');
+      rtpUpload(f).then(function (r) {
+        if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
+        $('slotLogoUrl').value = r.url; var prev = $('slotLogoPrev'); prev.src = r.url; prev.style.display = '';
+        toast('Logo ready. Press Save slot game.');
+      }).catch(function () { toast('Upload failed.', true); });
+    };
+    $('slotSave').onclick = function () {
+      var name = $('slotName').value.trim();
+      if (!name) { toast('Enter a platform name.', true); return; }
+      busy($('slotSave'), true);
+      api('/api/admin/slots/save', {
+        id: Number($('slotId').value) || 0, name: name, logo_url: $('slotLogoUrl').value,
+        kind: $('slotKind').value, play_url: $('slotUrl').value.trim(),
+        android_package: $('slotPkg').value.trim(), active: $('slotActive').checked ? 1 : 0
+      }).then(function (r) {
+        busy($('slotSave'), false);
+        if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
+        toast('Slot game saved.'); slotReset(); loadSlots();
+      }).catch(function () { busy($('slotSave'), false); toast('Network error.', true); });
+    };
+    $('slotReset').onclick = slotReset;
+  }
+
   function loadRtp() {
+    loadSlots();
     rtpInitForms();
     api('/api/admin/rtp/platforms', {}).then(function (r) {
       rtpPfCache = (r && r.platforms) || [];

@@ -1181,6 +1181,28 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   .hero-title { font-size: 23px; } .wallet-value { font-size: 28px; }
   .pc-balance .bal-num { font-size: 36px; }
 }
+
+/* Logo taps to Home */
+.brand[data-nav] { cursor: pointer; }
+
+/* ---------- SLOT GAMES page ---------- */
+.slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: var(--s4); }
+.slot-card { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
+  background: var(--s-raised); border: 1px solid var(--border); border-radius: var(--r-card);
+  padding: 16px 12px 14px; overflow: hidden; }
+.slot-card .slot-kind { position: absolute; top: 9px; right: 9px; font-size: 9px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; padding: 3px 7px; border-radius: 6px; background: var(--orange-soft); color: var(--gold); }
+.slot-card .slot-kind.web { background: rgba(67,217,139,.14); color: var(--pos); }
+.slot-logo { width: 66px; height: 66px; border-radius: 16px; object-fit: contain; background: #0e0e11;
+  border: 1px solid var(--border); margin-bottom: 10px; }
+.slot-logo-ph { width: 66px; height: 66px; border-radius: 16px; display: grid; place-items: center; margin-bottom: 10px;
+  background: var(--orange-soft); color: var(--gold); font-weight: 800; font-size: 22px; letter-spacing: -.02em; }
+.slot-name { font-weight: 800; font-size: 15px; color: var(--text); letter-spacing: -.01em; margin-bottom: 12px; line-height: 1.1; }
+.slot-play { width: 100%; min-height: 40px; border: 0; border-radius: 12px; cursor: pointer; font-weight: 800; font-size: 13.5px;
+  color: #171100; background: linear-gradient(to bottom, #ffb04d 0%, #fb922a 64%, #d9781a 100%);
+  box-shadow: 0 5px 12px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.4); transition: transform .1s ease; }
+.slot-play:active { transform: translateY(1px) scale(.99); }
+.slot-play.disabled { background: var(--s-interactive); color: var(--text-muted); box-shadow: none; cursor: default; }
 </style>
 </head>
 <body>
@@ -1223,14 +1245,10 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 <div id="app" class="hidden">
   <div class="shell">
 
-  <!-- ============ LE888 APP HEADER (menu · logo · chat) ============ -->
+  <!-- ============ LE888 APP HEADER (logo · chat) ============ -->
   <div class="header">
-    <!-- LEFT: menu shortcut -> opens Settings (auto-wired via [data-nav]) -->
-    <button type="button" class="hdr-icon-btn" id="nav-menu" data-nav="settings" aria-label="Menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-    </button>
-    <!-- CENTER: LE888 logo (dominant) -->
-    <div class="brand">
+    <!-- LEFT: LE888 logo (tap = Home; auto-wired via [data-nav]) -->
+    <div class="brand" data-nav="games" role="button" tabindex="0" aria-label="Home">
       <img class="brand-logo" src="/img/LE888-180PX-LOGO.webp" alt="LE888">
     </div>
     <!-- RIGHT: support/chat -> openChat() (wired in JS) -->
@@ -1282,31 +1300,19 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     <!-- Each tile triggers an EXISTING feature. Withdraw/Deposit/RTP reuse the
          original buttons (IDs + handlers preserved). Earn/VIP/History use
          data-nav, auto-wired to switchTab() by the existing [data-nav] loop. -->
-    <div class="qa-grid">
-      <button class="qa-tile" id="withdrawHomeBtn" aria-haspopup="dialog">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7 7 7-7"/></svg></span>
-        <span class="qa-label" data-i18n="Withdraw">Withdraw</span>
-      </button>
+    <div class="qa-grid qa-grid-3">
       <button class="qa-tile hidden" id="depositBtn" aria-haspopup="dialog">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.4"/><path d="M3 10h18"/><path d="M7 15h3"/></svg></span>
         <span class="qa-label" data-i18n="deposit.title">Deposit</span>
         <span class="dw-dot hidden" id="depDot"></span>
       </button>
-      <button class="qa-tile" id="rtpEntryBtn">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 16l3.5-4 3 2.5L20 7"/></svg></span>
-        <span class="qa-label" data-i18n="Game RTP">Game RTP</span>
+      <button class="qa-tile" id="withdrawHomeBtn" aria-haspopup="dialog">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7 7 7-7"/></svg></span>
+        <span class="qa-label" data-i18n="Withdraw">Withdraw</span>
       </button>
-      <button class="qa-tile" data-nav="earn" aria-label="Earn">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
-        <span class="qa-label" data-i18n="Earn">Earn</span>
-      </button>
-      <button class="qa-tile" data-nav="vip" aria-label="VIP">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
-        <span class="qa-label" data-i18n="VIP">VIP</span>
-      </button>
-      <button class="qa-tile" data-nav="history" aria-label="History">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
-        <span class="qa-label" data-i18n="nav.history">History</span>
+      <button class="qa-tile" id="slotGameBtn">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"/><path d="M8.5 16.5h7"/></svg></span>
+        <span class="qa-label" data-i18n="Slot Game">Slot Game</span>
       </button>
     </div>
 
@@ -1454,7 +1460,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
   <!-- ============ EARN TAB ============ -->
   <div id="tab-earn" class="hidden">
-    <div class="section-head"><span class="page-title" data-i18n="Earn">Earn</span></div>
+    <div class="section-head"><span class="page-title" data-i18n="nav.earn">Promo</span></div>
     <div class="announce hidden" id="announceCard">
       <div class="label" data-i18n="Announcement">Announcement</div>
       <div id="announceText" class="announce-body"></div>
@@ -1683,18 +1689,33 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     </div>
   </div>
 
+  <!-- ============ SLOT GAMES page (reached from the Slot Game tile) ============ -->
+  <div id="tab-slot" class="hidden">
+    <div class="rtp-head">
+      <button class="rtp-back" id="slotBackBtn" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span class="page-title" style="font-size:26px" data-i18n="Slot Games">Slot Games</span>
+    </div>
+    <div class="slot-grid" id="slotGrid"><div class="rtp-empty" data-i18n="Loading">Loading&hellip;</div></div>
+    <!-- View RTP rates: reuses the existing RTP page via openRtp() (#rtpEntryBtn) -->
+    <button class="rtp-entry" id="rtpEntryBtn" style="margin-top:16px">
+      <span class="dw-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 16l3.5-4 3 2.5L20 7"/></svg></span>
+      <span class="rtp-entry-txt"><b data-i18n="Game RTP">Game RTP</b><small data-i18n="rtp.entrySub">Today's payout rates by game</small></span>
+      <span class="rtp-entry-chev">&rsaquo;</span>
+    </button>
+  </div>
+
   </div><!-- /shell -->
 </div><!-- /app -->
 
-<!-- Bottom navigation — at <body> level, fixed to the bottom. The page is
-     always kept scrollable (lockFullHeight) so iOS standalone always grants
-     the FULL window height, which keeps this flush on every page. -->
+<!-- Bottom navigation — at <body> level, fixed to the bottom. -->
 <nav class="bottom-nav">
   <button class="nav-btn" id="nav-history" data-nav="history">
     <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg><span class="nav-dot hidden" id="histDot"></span></span><span data-i18n="nav.history">History</span>
   </button>
   <button class="nav-btn" id="nav-earn" data-nav="earn">
-    <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span><span data-i18n="nav.earn">Earn</span>
+    <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span><span data-i18n="nav.earn">Promo</span>
   </button>
   <button class="nav-btn nav-center active" id="nav-games" data-nav="games" aria-label="Play">
     <span class="nav-center-ring"><img class="nav-center-logo" src="/img/logo-mark.webp" alt="Play"></span>
@@ -1977,8 +1998,17 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     'hero.kicker': { en: 'LE888 REWARDS', zh: 'LE888 奖励' },
     'hero.title': { en: 'Play. Win. Claim.', zh: '畅玩 · 赢奖 · 领取' },
     'hero.sub': { en: 'Turn your points into reward credits', zh: '把积分变成奖励额度' },
+    /* LE888 — Slot Games */
+    'Slot Game': { en: 'Slot Game', zh: '老虎机' },
+    'Slot Games': { en: 'Slot Games', zh: '老虎机游戏' },
+    'Play Now': { en: 'Play Now', zh: '立即游戏' },
+    'App': { en: 'App', zh: '应用' },
+    'Web': { en: 'Web', zh: '网站' },
+    'Coming soon': { en: 'Coming soon', zh: '即将推出' },
+    'slot.empty': { en: 'No slot games yet. Check back soon.', zh: '暂无游戏，敬请期待。' },
+    'Could not load.': { en: 'Could not load.', zh: '加载失败。' },
     'nav.play': { en: 'PLAY', zh: '游戏' }, 'nav.history': { en: 'History', zh: '记录' },
-    'nav.earn': { en: 'Earn', zh: '赚取' }, 'nav.vip': { en: 'VIP', zh: '会员' }, 'nav.settings': { en: 'Settings', zh: '设置' },
+    'nav.earn': { en: 'Promo', zh: '促销' }, 'nav.vip': { en: 'VIP', zh: '会员' }, 'nav.settings': { en: 'Settings', zh: '设置' },
     'settings.title': { en: 'Settings', zh: '设置' }, 'settings.playerId': { en: 'Player ID', zh: '玩家编号' }, 'settings.rank': { en: 'Rank', zh: '等级' },
     'settings.preferences': { en: 'Preferences', zh: '偏好设置' }, 'settings.language': { en: 'Language', zh: '语言' },
     'settings.sound': { en: 'Sound & vibration', zh: '声音与震动' }, 'settings.soundHint': { en: 'Haptic feedback when you play & win', zh: '游戏与中奖时的触感反馈' },
@@ -2814,6 +2844,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   function switchTab(name) {
     var rtpPage = $('tab-rtp');
     if (rtpPage) rtpPage.classList.add('hidden'); // leaving RTP page closes it
+    var slotPage = $('tab-slot');
+    if (slotPage) slotPage.classList.add('hidden'); // leaving Slot page closes it
     TABS.forEach(function (t) {
       $('tab-' + t).classList.toggle('hidden', t !== name);
       $('nav-' + t).classList.toggle('active', t === name);
@@ -2866,10 +2898,74 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
       $('tab-' + t).classList.add('hidden');
       $('nav-' + t).classList.remove('active');
     });
+    var slotPage = $('tab-slot'); if (slotPage) slotPage.classList.add('hidden');
     $('tab-rtp').classList.remove('hidden');
     lockFullHeight();
     if (!IS_STANDALONE) window.scrollTo(0, 0);
     loadRtp();
+  }
+
+  // ------------------------------------------------------------------
+  // Slot Games launcher page (admin-managed list; opens play links)
+  // ------------------------------------------------------------------
+  var slotData = null;
+  function openSlots() {
+    TABS.forEach(function (t) {
+      $('tab-' + t).classList.add('hidden');
+      $('nav-' + t).classList.remove('active');
+    });
+    var rtpPage = $('tab-rtp'); if (rtpPage) rtpPage.classList.add('hidden');
+    $('tab-slot').classList.remove('hidden');
+    lockFullHeight();
+    if (!IS_STANDALONE) window.scrollTo(0, 0);
+    loadSlots();
+  }
+  function loadSlots() {
+    if (slotData) { renderSlots(); return; }
+    $('slotGrid').innerHTML = '<div class="rtp-empty">' + tr('Loading') + '&hellip;</div>';
+    api('/api/slots/list', {}).then(function (r) {
+      slotData = (r && r.platforms) || [];
+      renderSlots();
+    }).catch(function () { $('slotGrid').innerHTML = '<div class="rtp-empty">' + tr('Could not load.') + '</div>'; });
+  }
+  function slotInitial(name) { return (String(name || '?').trim().charAt(0) || '?').toUpperCase(); }
+  function renderSlots() {
+    var grid = $('slotGrid');
+    if (!slotData || !slotData.length) {
+      grid.innerHTML = '<div class="rtp-empty">' + tr('slot.empty') + '</div>';
+      return;
+    }
+    grid.innerHTML = slotData.map(function (p, i) {
+      var logo = p.logo_url
+        ? '<img class="slot-logo" src="' + esc(p.logo_url) + '" alt="" onerror="this.outerHTML=\'<div class=&quot;slot-logo-ph&quot;>' + esc(slotInitial(p.name)) + '</div>\'">'
+        : '<div class="slot-logo-ph">' + esc(slotInitial(p.name)) + '</div>';
+      var kind = (p.kind === 'web')
+        ? '<span class="slot-kind web">' + tr('Web') + '</span>'
+        : '<span class="slot-kind">' + tr('App') + '</span>';
+      var canPlay = !!(p.play_url);
+      var btn = canPlay
+        ? '<button class="slot-play" data-slot="' + i + '">' + tr('Play Now') + '</button>'
+        : '<button class="slot-play disabled" disabled>' + tr('Coming soon') + '</button>';
+      return '<div class="slot-card">' + kind + logo +
+        '<div class="slot-name">' + esc(p.name) + '</div>' + btn + '</div>';
+    }).join('');
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-slot]'), function (b) {
+      b.onclick = function () { slotPlay(slotData[Number(b.getAttribute('data-slot'))]); };
+    });
+  }
+  function slotPlay(p) {
+    if (!p || !p.play_url) return;
+    var url = p.play_url;
+    var isAndroid = /Android/i.test(navigator.userAgent || '');
+    // Android + a package set: try to open the installed app, fall back to the link.
+    if (isAndroid && p.android_package) {
+      try {
+        window.location.href = 'intent://#Intent;package=' + p.android_package +
+          ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+        return;
+      } catch (e) { /* fall through to normal open */ }
+    }
+    try { window.open(url, '_blank', 'noopener'); } catch (e) { window.location.href = url; }
   }
 
   function loadRtp() {
@@ -2986,6 +3082,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
   (function () {
     var entry = $('rtpEntryBtn'); if (entry) entry.onclick = openRtp;
+    var slotBtn = $('slotGameBtn'); if (slotBtn) slotBtn.onclick = openSlots;
+    var slotBack = $('slotBackBtn'); if (slotBack) slotBack.onclick = function () { switchTab('games'); };
     var back = $('rtpBackBtn'); if (back) back.onclick = function () { switchTab('games'); };
     var tP = $('rtpTabPlatform'); if (tP) tP.onclick = function () { rtpMode = 'platform'; renderRtpMode(); };
     var tC = $('rtpTabCompare'); if (tC) tC.onclick = function () { rtpMode = 'compare'; renderRtpMode(); };
