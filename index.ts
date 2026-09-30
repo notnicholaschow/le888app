@@ -1934,6 +1934,14 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
     } catch { return json({ ok: true, platforms: [], games: [] }, 200, rid); }
   }
 
+  // ---- Slot Games (admin-managed launcher list) — display/link only ----
+  if (path === '/api/slots/list') {
+    try {
+      const sr = await env.DB.prepare('SELECT id, name, logo_url, kind, play_url, android_package FROM slot_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
+      return json({ ok: true, platforms: sr.results || [] }, 200, rid);
+    } catch { return json({ ok: true, platforms: [] }, 200, rid); }
+  }
+
   if (path.startsWith('/api/admin/')) return handleAdminApi(path, request, env, rid);
   return handlePlayerApi(path, request, env, rid);
 }
@@ -2968,6 +2976,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     '/api/admin/rtp/platforms': 'rtp', '/api/admin/rtp/platform/save': 'rtp', '/api/admin/rtp/platform/delete': 'rtp',
     '/api/admin/rtp/games': 'rtp', '/api/admin/rtp/game/save': 'rtp', '/api/admin/rtp/game/delete': 'rtp',
     '/api/admin/rtp/bulk-add': 'rtp', '/api/admin/rtp/bulk-import': 'rtp', '/api/admin/rtp/paste': 'rtp',
+    // Slot Games launcher (same "rtp" section — the slot/games area).
+    '/api/admin/slots/list': 'rtp', '/api/admin/slots/save': 'rtp', '/api/admin/slots/delete': 'rtp', '/api/admin/slots/reorder': 'rtp',
     // "View app" (act as player) — grantable to trusted staff.
     '/api/admin/player/impersonate': 'view_app',
   };
@@ -4026,6 +4036,69 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
       await env.DB.batch(ordered.map((p, i) =>
         env.DB.prepare('UPDATE rtp_platforms SET sort_order = ? WHERE id = ?').bind(i, p.id),
+      ));
+      return json({ ok: true }, 200, rid);
+    }
+
+    // ---- Slot Games launcher: platforms + play links (display/link only) ----
+    // No points, no money — this only stores what "Play Now" opens.
+    case '/api/admin/slots/list': {
+      try {
+        const sr = await env.DB.prepare(
+          'SELECT id, name, logo_url, kind, play_url, android_package, sort_order, active FROM slot_platforms ORDER BY sort_order ASC, id ASC',
+        ).all();
+        return json({ ok: true, platforms: sr.results || [] }, 200, rid);
+      } catch { return json({ ok: true, platforms: [], needs_migration: true }, 200, rid); }
+    }
+
+    case '/api/admin/slots/save': {
+      const id = Number(body.id) || 0;
+      const name = String(body.name || '').trim().slice(0, 80);
+      const logo = String(body.logo_url || '').trim().slice(0, 300);
+      const kind = String(body.kind) === 'web' ? 'web' : 'app';
+      const playUrl = String(body.play_url || '').trim().slice(0, 500);
+      const pkg = String(body.android_package || '').trim().slice(0, 120);
+      const active = Number(body.active) ? 1 : 0;
+      if (!name) return fail('BAD_REQUEST', 'A platform name is required.', 400, rid);
+      if (logo && !(isRtpImage(logo) || /^https:\/\//i.test(logo))) return fail('BAD_IMAGE', 'Logo must be an uploaded image or an https link.', 400, rid);
+      if (playUrl && !/^https?:\/\//i.test(playUrl)) return fail('BAD_URL', 'Play link must start with http:// or https://', 400, rid);
+      if (pkg && !/^[a-zA-Z0-9._]+$/.test(pkg)) return fail('BAD_PACKAGE', 'Android package looks invalid (letters, numbers and dots only).', 400, rid);
+      try {
+        if (id) {
+          await env.DB.prepare('UPDATE slot_platforms SET name=?, logo_url=?, kind=?, play_url=?, android_package=?, active=? WHERE id=?')
+            .bind(name, logo || null, kind, playUrl || null, pkg || null, active, id).run();
+        } else {
+          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM slot_platforms').first<{ n: number }>();
+          await env.DB.prepare('INSERT INTO slot_platforms (name, logo_url, kind, play_url, android_package, sort_order, active) VALUES (?,?,?,?,?,?,?)')
+            .bind(name, logo || null, kind, playUrl || null, pkg || null, m?.n || 1, active).run();
+        }
+      } catch { return fail('NEEDS_MIGRATION', 'Run the slot_platforms table SQL first.', 503, rid); }
+      return json({ ok: true }, 200, rid);
+    }
+
+    case '/api/admin/slots/delete': {
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      try { await env.DB.prepare('DELETE FROM slot_platforms WHERE id=?').bind(id).run(); } catch { /* table gone */ }
+      return json({ ok: true }, 200, rid);
+    }
+
+    case '/api/admin/slots/reorder': {
+      const id = Number(body.id);
+      const dir = String(body.dir) === 'up' ? 'up' : 'down';
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      let ordered: { id: number }[];
+      try {
+        const r = await env.DB.prepare('SELECT id FROM slot_platforms ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
+        ordered = r.results || [];
+      } catch { return fail('NEEDS_MIGRATION', 'Slot table is not set up yet.', 409, rid); }
+      const idx = ordered.findIndex((p) => p.id === id);
+      if (idx < 0) return fail('NOT_FOUND', 'Platform not found.', 404, rid);
+      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid);
+      const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
+      await env.DB.batch(ordered.map((p, i) =>
+        env.DB.prepare('UPDATE slot_platforms SET sort_order = ? WHERE id = ?').bind(i, p.id),
       ));
       return json({ ok: true }, 200, rid);
     }
