@@ -1404,7 +1404,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
          original buttons (IDs + handlers preserved). Earn/VIP/History use
          data-nav, auto-wired to switchTab() by the existing [data-nav] loop. -->
     <div class="qa-grid">
-      <button class="qa-tile hidden" id="depositBtn" aria-haspopup="dialog">
+      <button class="qa-tile" id="depositBtn" aria-haspopup="dialog">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0l-4-4m4 4l4-4"/><rect x="4" y="16" width="16" height="4" rx="1.5"/></svg></span>
         <span class="qa-label" data-i18n="deposit.title">Deposit</span>
         <span class="dw-dot hidden" id="depDot"></span>
@@ -1413,13 +1413,13 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V7m0 0l-4 4m4-4l4 4"/><rect x="4" y="3" width="16" height="2.4" rx="1.2"/></svg></span>
         <span class="qa-label" data-i18n="Withdrawal">Withdrawal</span>
       </button>
-      <button class="qa-tile" data-nav="earn" aria-label="Promotions">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
-        <span class="qa-label" data-i18n="Promotions">Promotions</span>
-      </button>
       <button class="qa-tile" data-nav="vip" aria-label="VIP">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
         <span class="qa-label" data-i18n="VIP">VIP</span>
+      </button>
+      <button class="qa-tile" data-nav="earn" aria-label="Promotions">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
+        <span class="qa-label" data-i18n="Promotions">Promotions</span>
       </button>
       <button class="qa-tile" data-nav="history" aria-label="History">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
@@ -1472,8 +1472,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
     <!-- ============ REWARD GAMES ============ -->
     <div class="section-head">
-      <span class="section-title" data-i18n="Play">Play</span>
-      <span class="section-link" id="playSubLabel">Win into your <b>Reward Credits</b></span>
+      <span class="section-title" data-i18n="Mini Games">Mini Games</span>
+      <span class="section-link" id="playSubLabel" data-i18n="Play & Earn Points"><b>Play &amp; Earn Points</b></span>
     </div>
 
     <div class="arcade-grid">
@@ -1830,6 +1830,10 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
       <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9h12v-9"/></svg></span>
       <span data-i18n="nav.play">Home</span>
     </button>
+    <button type="button" class="drawer-link" id="drawerSlots">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"/><path d="M8.5 16.5h7"/></svg></span>
+      <span data-i18n="Slot Games">Slot Games</span>
+    </button>
     <button type="button" class="drawer-link" data-nav="earn">
       <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
       <span data-i18n="nav.earn">Promo</span>
@@ -2144,6 +2148,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     'game.spin': { en: 'LE888 SPIN', zh: 'LE888 老虎机' }, 'game.spin.sub': { en: 'Spin. Match. Win.', zh: '转动 · 匹配 · 赢奖' },
     'game.vault': { en: 'LUCKY VAULT', zh: '幸运金库' }, 'game.vault.sub': { en: 'Choose. Unlock. Win.', zh: '选择 · 解锁 · 赢奖' },
     'Match 3 same symbols to win': { en: 'Match 3 same symbols to win', zh: '集齐 3 个相同符号即可获奖' },
+    'Withdrawal': { en: 'Withdrawal', zh: '提款' }, 'Promotions': { en: 'Promotions', zh: '优惠' }, 'RTP': { en: 'RTP', zh: 'RTP' },
+    'Mini Games': { en: 'Mini Games', zh: '小游戏' }, 'Play & Earn Points': { en: 'Play & Earn Points', zh: '畅玩赚积分' },
     'Tap any card to begin': { en: 'Tap any card to begin', zh: '点任意一张牌开始' },
     'Tap a vault to open it': { en: 'Tap a vault to open it', zh: '点一个金库开启' },
     /* LE888 — Slot Games */
@@ -2373,15 +2379,10 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     }
     updatePlaySub();
   }
-  // Play page subtitle: shows the live deposit rate ("Deposit SGD15 for 1 point").
+  // Mini Games section subtitle.
   function updatePlaySub() {
     var el = $('playSubLabel'); if (!el) return;
-    var rate = state.settings ? Math.floor(Number(state.settings.deposit_point_rate) || 0) : 0;
-    if (rate > 0) {
-      el.innerHTML = prefs.lang === 'zh' ? ('充值 SGD' + rate + ' 得 1 积分') : ('Deposit SGD' + rate + ' for 1 point');
-    } else {
-      el.innerHTML = prefs.lang === 'zh' ? '赢取你的<b>奖励余额</b>' : 'Win into your <b>Reward Credits</b>';
-    }
+    el.innerHTML = prefs.lang === 'zh' ? '<b>畅玩赚积分</b>' : '<b>Play &amp; Earn Points</b>';
   }
   function applyPrefs() {
     document.body.classList.toggle('reduce-motion', !!prefs.motion);
@@ -2640,6 +2641,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     if (bg) bg.onclick = closeD;
     if (dx) dx.onclick = closeD;
     Array.prototype.forEach.call(dw.querySelectorAll('[data-nav]'), function (b) { b.addEventListener('click', closeD); });
+    var dslot = $('drawerSlots'); if (dslot) dslot.onclick = function () { closeD(); if (typeof openSlots === 'function') openSlots(); };
   })();
 
   /* ---- LE888 hero banner carousel (5 slides, dots + auto-advance) ---- */
@@ -2747,7 +2749,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   }
   function refreshDepositStrip() {
     var b = $('depositBtn'); if (!b) return;
-    b.classList.toggle('hidden', !depositConfigured());
+    b.classList.remove('hidden'); // Deposit tile always visible (6-button grid)
   }
 
   // ---- Red notification dots ----------------------------------------
