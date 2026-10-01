@@ -1942,6 +1942,14 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
     } catch { return json({ ok: true, platforms: [] }, 200, rid); }
   }
 
+  // ---- Home banners (admin-managed carousel) — display/link only ----
+  if (path === '/api/banners/list') {
+    try {
+      const br = await env.DB.prepare('SELECT id, image_url, link_url FROM banners WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
+      return json({ ok: true, banners: br.results || [] }, 200, rid);
+    } catch { return json({ ok: true, banners: [] }, 200, rid); }
+  }
+
   if (path.startsWith('/api/admin/')) return handleAdminApi(path, request, env, rid);
   return handlePlayerApi(path, request, env, rid);
 }
@@ -2978,6 +2986,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     '/api/admin/rtp/bulk-add': 'rtp', '/api/admin/rtp/bulk-import': 'rtp', '/api/admin/rtp/paste': 'rtp',
     // Slot Games launcher (same "rtp" section — the slot/games area).
     '/api/admin/slots/list': 'rtp', '/api/admin/slots/save': 'rtp', '/api/admin/slots/delete': 'rtp', '/api/admin/slots/reorder': 'rtp',
+    // Home banners (site display — grouped under "settings").
+    '/api/admin/banners/list': 'settings', '/api/admin/banners/save': 'settings', '/api/admin/banners/delete': 'settings', '/api/admin/banners/reorder': 'settings',
     // "View app" (act as player) — grantable to trusted staff.
     '/api/admin/player/impersonate': 'view_app',
   };
@@ -4099,6 +4109,60 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
       await env.DB.batch(ordered.map((p, i) =>
         env.DB.prepare('UPDATE slot_platforms SET sort_order = ? WHERE id = ?').bind(i, p.id),
+      ));
+      return json({ ok: true }, 200, rid);
+    }
+
+    // ---- Home banners: carousel images (display/link only) ----
+    case '/api/admin/banners/list': {
+      try {
+        const br = await env.DB.prepare('SELECT id, image_url, link_url, sort_order, active FROM banners ORDER BY sort_order ASC, id ASC').all();
+        return json({ ok: true, banners: br.results || [] }, 200, rid);
+      } catch { return json({ ok: true, banners: [], needs_migration: true }, 200, rid); }
+    }
+
+    case '/api/admin/banners/save': {
+      const id = Number(body.id) || 0;
+      const img = String(body.image_url || '').trim().slice(0, 300);
+      const link = String(body.link_url || '').trim().slice(0, 500);
+      const active = Number(body.active) ? 1 : 0;
+      if (!img) return fail('BAD_REQUEST', 'A banner image is required.', 400, rid);
+      if (!(isRtpImage(img) || /^https:\/\//i.test(img))) return fail('BAD_IMAGE', 'Banner must be an uploaded image or an https link.', 400, rid);
+      if (link && !/^https?:\/\//i.test(link)) return fail('BAD_URL', 'Link must start with http:// or https://', 400, rid);
+      try {
+        if (id) {
+          await env.DB.prepare('UPDATE banners SET image_url=?, link_url=?, active=? WHERE id=?').bind(img, link || null, active, id).run();
+        } else {
+          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM banners').first<{ n: number }>();
+          await env.DB.prepare('INSERT INTO banners (image_url, link_url, sort_order, active) VALUES (?,?,?,?)').bind(img, link || null, m?.n || 1, active).run();
+        }
+      } catch { return fail('NEEDS_MIGRATION', 'Run the banners table SQL first.', 503, rid); }
+      return json({ ok: true }, 200, rid);
+    }
+
+    case '/api/admin/banners/delete': {
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      try { await env.DB.prepare('DELETE FROM banners WHERE id=?').bind(id).run(); } catch { /* table gone */ }
+      return json({ ok: true }, 200, rid);
+    }
+
+    case '/api/admin/banners/reorder': {
+      const id = Number(body.id);
+      const dir = String(body.dir) === 'up' ? 'up' : 'down';
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      let ordered: { id: number }[];
+      try {
+        const r = await env.DB.prepare('SELECT id FROM banners ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
+        ordered = r.results || [];
+      } catch { return fail('NEEDS_MIGRATION', 'Banners table is not set up yet.', 409, rid); }
+      const idx = ordered.findIndex((p) => p.id === id);
+      if (idx < 0) return fail('NOT_FOUND', 'Banner not found.', 404, rid);
+      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid);
+      const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
+      await env.DB.batch(ordered.map((p, i) =>
+        env.DB.prepare('UPDATE banners SET sort_order = ? WHERE id = ?').bind(i, p.id),
       ));
       return json({ ok: true }, 200, rid);
     }
