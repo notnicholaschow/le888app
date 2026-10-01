@@ -913,7 +913,8 @@ body.install-open #chatFab { bottom: calc(var(--nav-h) + env(safe-area-inset-bot
 /* Only the middle scrolls. min-height:0 is what lets a flex child shrink. */
 .overlay #overlayStage { flex: 1 1 auto; min-height: 0; overflow-y: auto;
   -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
-@keyframes sheetup { from { transform: translateY(40px); opacity: .6; } }
+/* LE888 pop-up: soft fade + gentle scale (replaces the old slide-up) */
+@keyframes sheetup { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .overlay .sheet-grip { width: 40px; height: 4px; border-radius: 999px; background: rgba(255,255,255,.16); margin: 0 auto var(--s4); }
 .overlay h3 { font-weight: 800; font-size: 14px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold); margin-bottom: var(--s3); }
 /* the game object sits inside a soft radial spotlight so it never floats on flat black */
@@ -1184,6 +1185,10 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 /* Logo taps to Home */
 .brand[data-nav] { cursor: pointer; }
+
+/* Pop-up motion: gentle grow from the sheet's own edge, calmer easing */
+.overlay .stage, .vip-modal { transform-origin: bottom center; animation-duration: .3s !important;
+  animation-timing-function: cubic-bezier(.22,1,.36,1) !important; }
 
 /* ---------- SLOT GAMES page ---------- */
 .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: var(--s4); }
