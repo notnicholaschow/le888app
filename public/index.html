@@ -1136,8 +1136,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .hero-dots i.on { width: 16px; background: var(--gold); }
 
 /* Logo placeholder in the header (shows when the logo image is missing) */
-.brand-ph { place-items: center; min-width: 64px; height: 34px; padding: 0 12px; border-radius: 9px;
-  border: 1px dashed rgba(255,138,31,.5); color: var(--gold); font-weight: 800; font-size: 13px; letter-spacing: .08em; }
+.brand-ph { align-items: baseline; font-weight: 800; font-size: 24px; letter-spacing: .01em; color: #fff; line-height: 1; }
+.brand-ph b { color: var(--gold); font-weight: 800; }
 
 /* ---------- Bottom bar removed; nav lives in the side menu ---------- */
 .bottom-nav { display: none !important; }
@@ -1169,6 +1169,11 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .drawer-ico { flex: none; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
   background: var(--orange-soft); color: var(--gold); }
 .drawer-ico svg { width: 21px; height: 21px; }
+.drawer-sep { height: 1px; background: var(--border); margin: 10px 6px; }
+.drawer-link-danger { color: var(--neg); }
+.drawer-link-danger .drawer-ico { color: var(--neg); background: rgba(255,102,125,.12); }
+.drawer-lang { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; }
+.drawer-lang-label { font-weight: 700; font-size: 15.5px; color: var(--text); }
 
 /* ---------- REWARD WALLET ---------- */
 .wallet { display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
@@ -1350,9 +1355,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     </button>
     <!-- CENTER: logo placeholder (shows your logo image, or a LOGO box if missing) -->
     <div class="brand" data-nav="games" role="button" tabindex="0" aria-label="Home">
-      <img class="brand-logo" src="/img/LE888-180PX-LOGO.webp" alt="LE888"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
-      <span class="brand-ph" style="display:none" aria-hidden="true">LOGO</span>
+      <img class="brand-logo" src="data:image/webp;base64,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" alt="LE888"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">
+      <span class="brand-ph" style="display:none" aria-hidden="true">LE<b>888</b></span>
     </div>
     <!-- RIGHT: live chat -> openChat() (wired in JS) -->
     <button type="button" class="hdr-icon-btn" id="headerChat" aria-label="Live chat">
@@ -1443,7 +1448,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
              profile. Painting "UNRANKED" here made the badge flash before the
              true rank replaced it. renderRankBadge() reveals it. -->
         <span class="pc-rank hidden" id="playerRankBadge"></span>
-        <img class="pc-emblem hidden" id="playerRankEmblem" src="/img/norank.webp" alt="" aria-hidden="true">
+        <img class="pc-emblem hidden" id="playerRankEmblem" src="/img/norank.webp" alt="" aria-hidden="true" onerror="this.style.display='none'">
       </div>
       <div class="pc-balance">
         <span class="balance-num bal-num" id="pointsValue">0</span><span class="bal-unit" data-i18n="PTS">PTS</span>
@@ -1678,7 +1683,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
           <div class="set-name" id="setName">Player</div>
           <div class="set-username" id="setUsername"></div>
         </div>
-        <img class="set-emblem" id="setEmblem" src="/img/norank.webp" alt="" aria-hidden="true">
+        <img class="set-emblem" id="setEmblem" src="/img/norank.webp" alt="" aria-hidden="true" onerror="this.style.display='none'">
       </div>
       <div class="set-rows">
         <div class="set-row"><span class="set-label" data-i18n="settings.playerId">Player ID</span><span class="set-value" id="setPlayerId">--</span></div>
@@ -1828,27 +1833,39 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   <nav class="drawer-nav">
     <button type="button" class="drawer-link" data-nav="games">
       <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9h12v-9"/></svg></span>
-      <span data-i18n="nav.play">Home</span>
+      <span data-i18n="nav.play">Play</span>
     </button>
     <button type="button" class="drawer-link" id="drawerSlots">
       <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"/><path d="M8.5 16.5h7"/></svg></span>
       <span data-i18n="Slot Games">Slot Games</span>
     </button>
-    <button type="button" class="drawer-link" data-nav="earn">
-      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
-      <span data-i18n="nav.earn">Promo</span>
+    <button type="button" class="drawer-link" id="drawerAccount">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.5 3.1-5.5 7-5.5s7 2 7 5.5"/></svg></span>
+      <span data-i18n="My Account">My Account</span>
     </button>
-    <button type="button" class="drawer-link" data-nav="history">
-      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
-      <span data-i18n="nav.history">History</span>
+    <button type="button" class="drawer-link" id="drawerIds">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="12" r="2"/><path d="M13 10.5h5M13 13.5h3"/></svg></span>
+      <span data-i18n="My Deposit IDs">My Deposit IDs</span>
     </button>
-    <button type="button" class="drawer-link" data-nav="vip">
-      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
-      <span data-i18n="nav.vip">VIP</span>
+    <button type="button" class="drawer-link" id="drawerPw">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9" rx="2.2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg></span>
+      <span data-i18n="Change Password">Change Password</span>
     </button>
-    <button type="button" class="drawer-link" data-nav="settings">
-      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M4.7 7.5l1.7 1M17.6 15.5l1.7 1M4.7 16.5l1.7-1M17.6 8.5l1.7-1M3.5 12h2M18.5 12h2"/></svg></span>
-      <span data-i18n="nav.settings">Settings</span>
+    <button type="button" class="drawer-link" id="drawerInstall">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg></span>
+      <span data-i18n="Download App">Download App</span>
+    </button>
+    <div class="drawer-lang">
+      <span class="drawer-lang-label" data-i18n="settings.language">Language</span>
+      <div class="lang-seg">
+        <button type="button" class="lang-btn active" data-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lang="zh">中文</button>
+      </div>
+    </div>
+    <div class="drawer-sep"></div>
+    <button type="button" class="drawer-link drawer-link-danger" id="drawerLogout">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3"/><path d="M15 16l4-4-4-4"/><path d="M19 12H9"/></svg></span>
+      <span data-i18n="settings.signout">Log out</span>
     </button>
   </nav>
 </aside>
@@ -2150,6 +2167,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     'Match 3 same symbols to win': { en: 'Match 3 same symbols to win', zh: '集齐 3 个相同符号即可获奖' },
     'Withdrawal': { en: 'Withdrawal', zh: '提款' }, 'Promotions': { en: 'Promotions', zh: '优惠' }, 'RTP': { en: 'RTP', zh: 'RTP' },
     'Mini Games': { en: 'Mini Games', zh: '小游戏' }, 'Play & Earn Points': { en: 'Play & Earn Points', zh: '畅玩赚积分' },
+    'Live Chat': { en: 'Live Chat', zh: '在线客服' },
+    'My Account': { en: 'My Account', zh: '我的账户' }, 'My Deposit IDs': { en: 'My Deposit IDs', zh: '我的充值ID' },
+    'Change Password': { en: 'Change Password', zh: '修改密码' }, 'Download App': { en: 'Download App', zh: '下载应用' },
     'Tap any card to begin': { en: 'Tap any card to begin', zh: '点任意一张牌开始' },
     'Tap a vault to open it': { en: 'Tap a vault to open it', zh: '点一个金库开启' },
     /* LE888 — Slot Games */
@@ -2641,7 +2661,17 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     if (bg) bg.onclick = closeD;
     if (dx) dx.onclick = closeD;
     Array.prototype.forEach.call(dw.querySelectorAll('[data-nav]'), function (b) { b.addEventListener('click', closeD); });
-    var dslot = $('drawerSlots'); if (dslot) dslot.onclick = function () { closeD(); if (typeof openSlots === 'function') openSlots(); };
+    function wire(id, fn) { var el = $(id); if (el) el.onclick = function () { closeD(); fn(); }; }
+    function openSettingsAt(anchor) {
+      switchTab('settings');
+      if (anchor) { setTimeout(function () { var a = $(anchor); if (a && a.scrollIntoView) { try { a.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { a.scrollIntoView(); } } }, 90); }
+    }
+    wire('drawerSlots', function () { openSlots(); });
+    wire('drawerAccount', function () { openSettingsAt(null); });
+    wire('drawerIds', function () { openSettingsAt('gameIdCard'); });
+    wire('drawerPw', function () { openSettingsAt('cpCurrent'); });
+    wire('drawerInstall', function () { try { window.open('/install', '_blank'); } catch (e) { location.href = '/install'; } });
+    wire('drawerLogout', function () { signOut(); });
   })();
 
   /* ---- LE888 hero banner carousel (5 slides, dots + auto-advance) ---- */
