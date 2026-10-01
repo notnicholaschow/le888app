@@ -330,6 +330,78 @@ input, select, textarea { font-size: 16px; }
 .info-strip .info-ico svg { width: 15px; height: 15px; }
 .info-strip .arcade-status { font-size: 12.5px; color: var(--text-2); line-height: 1.4; }
 
+/* ============================================================
+   HOME (redesign 01) — player row · balance card · check-in
+   ============================================================ */
+/* ---- Player row (tap = account) ---- */
+.home-player { position: relative; display: flex; align-items: center; gap: var(--s3); width: 100%;
+  margin-top: var(--s4); text-align: left; cursor: pointer;
+  background: var(--s-primary); border: 1px solid var(--border); border-radius: var(--r-card);
+  padding: 14px 16px; color: var(--text); transition: border-color .15s, transform .12s; }
+.home-player:active { transform: scale(.99); }
+@media (hover: hover) { .home-player:hover { border-color: var(--border-orange); } }
+.home-player .hp-avatar { width: 52px; height: 52px; flex: none; border-radius: 15px; }
+.hp-ident { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hp-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hp-name { font-weight: 800; font-size: 19px; letter-spacing: -.02em; color: var(--text); line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-vip { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; background: var(--gold-soft); color: var(--gold); }
+.hp-username { font-size: 13px; color: var(--text-2); margin-top: 1px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-greet { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.hp-emblem { width: 56px; height: 56px; object-fit: contain; flex: none;
+  filter: drop-shadow(0 4px 9px rgba(0,0,0,.55)); }
+.hp-chev { flex: none; font-size: 26px; line-height: 1; color: var(--text-muted); margin-left: 2px; }
+
+/* ---- Balance card (points + reward credits) ---- */
+.bal-card { margin-top: var(--s3); background: var(--s-primary);
+  border: 1px solid var(--border); border-radius: var(--r-card); padding: 16px 18px; }
+.bal-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bal-left { min-width: 0; }
+.bal-left .label { display: block; }
+.bal-pts { display: flex; align-items: baseline; gap: 6px; margin-top: 5px; }
+.bal-card .bal-num { font-weight: 800; font-size: 40px; letter-spacing: -.03em; line-height: .95; color: var(--text);
+  font-variant-numeric: tabular-nums; }
+.bal-card .bal-unit { font-weight: 700; font-size: 13px; color: var(--gold); letter-spacing: .01em; }
+.bal-rv { font-weight: 800; font-size: 26px; letter-spacing: -.02em; line-height: 1; color: var(--text);
+  margin-top: 6px; font-variant-numeric: tabular-nums; }
+.bal-add { flex: none; width: 44px; height: 44px; border-radius: 14px; cursor: pointer;
+  border: 1px solid rgba(255,175,105,.45); color: #171100;
+  background: linear-gradient(to bottom, #ffb866 0%, #f5922b 62%, #c26e12 100%);
+  box-shadow: 0 7px 14px rgba(0,0,0,.42), 0 2px 0 #7a3d08, inset 0 1px 0 rgba(255,255,255,.4);
+  display: grid; place-items: center; transition: transform .12s; }
+.bal-add svg { width: 22px; height: 22px; }
+.bal-add:active { transform: translateY(2px) scale(.97); }
+.bal-div { height: 1px; background: var(--border); margin: 14px 0; }
+
+/* ---- Quick actions: 4-up (higher specificity to beat base .qa-grid 3-col) ---- */
+.qa-grid.qa-grid-4 { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.qa-grid.qa-grid-4 .qa-ico { width: 38px; height: 38px; }
+.qa-grid.qa-grid-4 .qa-label { font-size: 11px; }
+
+/* ---- Popular games: horizontal scroller ---- */
+.pop-games { display: flex; gap: var(--s3); overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity; padding: 2px 0 6px; margin: 0 calc(var(--s5) * -1); padding-left: var(--s5); padding-right: var(--s5); }
+.pop-games::-webkit-scrollbar { display: none; }
+.pop-games .game-card { flex: 0 0 62%; max-width: 230px; scroll-snap-align: start; }
+@media (min-width: 430px) { .pop-games .game-card { flex-basis: 56%; } }
+
+/* ---- Daily check-in card ---- */
+.checkin-card { display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer;
+  margin-top: var(--s5); text-align: left; color: var(--text);
+  background: linear-gradient(180deg, #1c150b, #140f08); border: 1px solid var(--border-orange);
+  border-radius: var(--r-card); padding: 14px 16px; transition: transform .12s; }
+.checkin-card:active { transform: scale(.99); }
+.checkin-card .ci-ico { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--gold-soft); color: var(--gold); }
+.checkin-card .ci-ico svg { width: 22px; height: 22px; }
+.checkin-card .ci-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.checkin-card .ci-txt b { font-size: 15px; color: var(--text); }
+.checkin-card .ci-txt small { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+.checkin-card .ci-cta { flex: none; font-weight: 800; font-size: 12.5px; padding: 9px 15px; border-radius: 999px;
+  background: var(--gold); color: #1a1508; }
+
 /* ============ BUTTONS ============ */
 .btn { position: relative; display: block; width: 100%; border: 1px solid rgba(255,180,110,.5); border-radius: var(--r-btn); cursor: pointer; min-height: 52px; padding: 15px;
   font-weight: 800; font-size: 15px; letter-spacing: -.01em; color: #171100;
@@ -1368,31 +1440,49 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
   <!-- ============ PLAY TAB ============ -->
   <div id="tab-games">
-    <!-- ============ HERO BANNER CAROUSEL (5 image placeholders) ============ -->
-    <!-- Swipeable carousel of 5 banner slots. Drop images at
-         /img/banners/1.webp … 5.webp. Each slot shows a numbered placeholder
-         until its image exists. Dots + auto-advance wired in JS. -->
-    <div class="hero" id="hero">
-      <div class="hero-track" id="heroTrack">
-        <div class="hero-slide"><img class="hero-img" src="/img/banners/1.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 1</span></div>
-        <div class="hero-slide"><img class="hero-img" src="/img/banners/2.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 2</span></div>
-        <div class="hero-slide"><img class="hero-img" src="/img/banners/3.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 3</span></div>
-        <div class="hero-slide"><img class="hero-img" src="/img/banners/4.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 4</span></div>
-        <div class="hero-slide"><img class="hero-img" src="/img/banners/5.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 5</span></div>
+    <!-- ============ PLAYER CARD (top) — tap = account/settings ============ -->
+    <button type="button" class="home-player" data-nav="settings" aria-label="Open account">
+      <span class="hp-avatar pc-avatar" id="playerAvatar">--</span>
+      <span class="hp-ident">
+        <span class="hp-top">
+          <span class="hp-name" id="userLine">Player</span>
+          <span class="hp-vip hidden" id="playerRankBadge"></span>
+        </span>
+        <span class="hp-username" id="playerUsername"></span>
+        <span class="hp-greet" data-i18n="Good to see you back!">Good to see you back!</span>
+      </span>
+      <img class="hp-emblem hidden" id="playerRankEmblem" src="/img/norank.webp" alt="" aria-hidden="true" onerror="this.style.display='none'">
+      <span class="hp-chev">&rsaquo;</span>
+    </button>
+
+    <!-- ============ BALANCE CARD (points + reward credits) ============ -->
+    <div class="bal-card">
+      <div class="bal-row">
+        <div class="bal-left">
+          <span class="label" data-i18n="Total Points">Total Points</span>
+          <div class="bal-pts"><span class="balance-num bal-num" id="pointsValue">0</span> <span class="bal-unit" data-i18n="PTS">PTS</span></div>
+        </div>
+        <button type="button" class="bal-add" id="homeDepositBtn" aria-label="Deposit points">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
-      <div class="hero-dots" id="heroDots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+      <div class="bal-div"></div>
+      <div class="bal-row">
+        <div class="bal-left">
+          <span class="label" data-i18n="Reward Credits">Reward Credits</span>
+          <div class="bal-rv" id="rewardValue">0.00</div>
+        </div>
+        <button class="submit-btn wallet-submit" id="submitRewardBtn"><span data-i18n="Submit">Submit</span>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9"/><path d="M8.5 4l4 4-4 4"/></svg>
+        </button>
+      </div>
     </div>
 
-    <!-- ============ REWARD WALLET (reward credits + submit) ============ -->
-    <div class="wallet">
-      <div class="wallet-main">
-        <span class="wallet-label label" data-i18n="Reward Credits">Reward Credits</span>
-        <span class="wallet-value" id="rewardValue">0.00</span>
-      </div>
-      <button class="submit-btn wallet-submit" id="submitRewardBtn"><span data-i18n="Submit">Submit</span>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9"/><path d="M8.5 4l4 4-4 4"/></svg>
-      </button>
-    </div>
+    <!-- Hidden hooks kept so existing JS (profile/streak/signout) keeps working -->
+    <div id="pointsHeader" class="hidden"></div>
+    <div class="hidden" id="streakBlock"><span id="streakValue">0</span><span class="streak-pill hidden" id="streakPill"></span></div>
+    <span class="hidden" id="playerIdValue">--</span>
+    <button type="button" class="hidden" id="signoutBtn" aria-label="Sign out"></button>
 
     <!-- Frozen while a VIP Free Credit is open. Toggled by render(). -->
     <div class="credit-lock-bar hidden" id="creditLockBar">
@@ -1404,11 +1494,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
       <button type="button" class="clb-cta" id="creditLockCta" data-i18n="Submit now">Submit now</button>
     </div>
 
-    <!-- ============ QUICK ACTIONS ============ -->
-    <!-- Each tile triggers an EXISTING feature. Withdraw/Deposit/RTP reuse the
-         original buttons (IDs + handlers preserved). Earn/VIP/History use
-         data-nav, auto-wired to switchTab() by the existing [data-nav] loop. -->
-    <div class="qa-grid">
+    <!-- ============ QUICK ACTIONS (4) ============ -->
+    <div class="qa-grid qa-grid-4">
       <button class="qa-tile" id="depositBtn" aria-haspopup="dialog">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0l-4-4m4 4l4-4"/><rect x="4" y="16" width="16" height="4" rx="1.5"/></svg></span>
         <span class="qa-label" data-i18n="deposit.title">Deposit</span>
@@ -1416,72 +1503,35 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
       </button>
       <button class="qa-tile" id="withdrawHomeBtn" aria-haspopup="dialog">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V7m0 0l-4 4m4-4l4 4"/><rect x="4" y="3" width="16" height="2.4" rx="1.2"/></svg></span>
-        <span class="qa-label" data-i18n="Withdrawal">Withdrawal</span>
+        <span class="qa-label" data-i18n="Withdrawal">Withdraw</span>
+      </button>
+      <button class="qa-tile" data-nav="earn" aria-label="Rewards">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
+        <span class="qa-label" data-i18n="Rewards">Rewards</span>
       </button>
       <button class="qa-tile" data-nav="vip" aria-label="VIP">
         <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
         <span class="qa-label" data-i18n="VIP">VIP</span>
       </button>
-      <button class="qa-tile" data-nav="earn" aria-label="Promotions">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
-        <span class="qa-label" data-i18n="Promotions">Promotions</span>
-      </button>
-      <button class="qa-tile" data-nav="history" aria-label="History">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
-        <span class="qa-label" data-i18n="nav.history">History</span>
-      </button>
-      <button class="qa-tile" id="rtpEntryBtn">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-6M20 20v-9"/></svg></span>
-        <span class="qa-label" data-i18n="RTP">RTP</span>
-      </button>
     </div>
 
-    <!-- ============ MEMBER CARD (compact) ============ -->
-    <div class="player-card">
-      <div class="pc-top">
-        <div class="pc-avatar" id="playerAvatar">--</div>
-        <div class="pc-ident">
-          <div class="pc-name" id="userLine">Player</div>
-          <div class="pc-username" id="playerUsername"></div>
-        </div>
-        <!-- Starts hidden and empty on purpose: the real rank arrives with the
-             profile. Painting "UNRANKED" here made the badge flash before the
-             true rank replaced it. renderRankBadge() reveals it. -->
-        <span class="pc-rank hidden" id="playerRankBadge"></span>
-        <img class="pc-emblem hidden" id="playerRankEmblem" src="/img/norank.webp" alt="" aria-hidden="true" onerror="this.style.display='none'">
+    <!-- ============ FEATURED BANNER (admin-managed carousel) ============ -->
+    <div class="hero" id="hero">
+      <div class="hero-track" id="heroTrack">
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/1.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 1</span></div>
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/2.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 2</span></div>
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/3.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 3</span></div>
       </div>
-      <div class="pc-balance">
-        <span class="balance-num bal-num" id="pointsValue">0</span><span class="bal-unit" data-i18n="PTS">PTS</span>
-        <div class="label" data-i18n="Available points">Available points</div>
-      </div>
-      <div class="pc-stats">
-        <div class="stat-block">
-          <div class="label" data-i18n="Player ID">Player ID</div>
-          <div class="stat-val" id="playerIdValue">--</div>
-        </div>
-        <div class="stat-block" id="streakBlock">
-          <div class="label" data-i18n="Current streak">Current streak</div>
-          <div class="stat-val">
-            <svg viewBox="0 0 14 16" fill="currentColor" aria-hidden="true"><path d="M7 .5C7.6 3 9.6 4 9.6 7c0 .8-.3 1.5-.6 2 .1-.7.3-1.6.3-2.6 2.2 1.6 2.8 3.7 2.8 5.3A5.1 5.1 0 1 1 2 11c0-1.7 1-3.2 2.1-4.4.3 1.3 1 1.9 1.8 2.1C5 7.6 4.6 6.2 4.6 4.9 4.6 2.9 5.7 1.4 7 .5Z"/></svg>
-            <span id="streakValue">0</span>
-          </div>
-          <span class="streak-pill hidden" id="streakPill"></span>
-        </div>
-        <button class="pc-account" id="signoutBtn" aria-label="Sign out">
-          <svg viewBox="0 0 19 19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 16H4.5A1.5 1.5 0 0 1 3 14.5v-10A1.5 1.5 0 0 1 4.5 3h3"/><path d="M12 13l3.5-3.5L12 6"/><path d="M15.5 9.5h-8"/></svg>
-        </button>
-      </div>
+      <div class="hero-dots" id="heroDots" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
     </div>
-    <!-- legacy hooks kept for JS compatibility -->
-    <div id="pointsHeader" class="hidden"></div>
 
-    <!-- ============ REWARD GAMES ============ -->
+    <!-- ============ POPULAR GAMES (horizontal) ============ -->
     <div class="section-head">
-      <span class="section-title" data-i18n="Mini Games">Mini Games</span>
+      <span class="section-title" data-i18n="Popular Games">Popular Games</span>
       <span class="section-link" id="playSubLabel" data-i18n="Play & Earn Points"><b>Play &amp; Earn Points</b></span>
     </div>
 
-    <div class="arcade-grid">
+    <div class="pop-games">
 
       <!-- LE888 FLIP  (engine: scratch) -->
       <div class="game-card" data-game="scratch">
@@ -1556,6 +1606,16 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
       </div>
 
     </div>
+
+    <!-- ============ DAILY CHECK-IN (links to the Promo/Check-in tab) ============ -->
+    <button type="button" class="checkin-card" data-nav="earn">
+      <span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M8.5 14l2.2 2.2L15.5 12"/></svg></span>
+      <span class="ci-txt">
+        <b data-i18n="Daily Check-in">Daily Check-in</b>
+        <small data-i18n="Claim your daily reward">Claim your daily reward</small>
+      </span>
+      <span class="ci-cta" data-i18n="Check In">Check In</span>
+    </button>
 
     <div class="info-strip">
       <span class="info-ico">
@@ -2172,6 +2232,15 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     'Change Password': { en: 'Change Password', zh: '修改密码' }, 'Download App': { en: 'Download App', zh: '下载应用' },
     'Tap any card to begin': { en: 'Tap any card to begin', zh: '点任意一张牌开始' },
     'Tap a vault to open it': { en: 'Tap a vault to open it', zh: '点一个金库开启' },
+    /* LE888 — Home (redesign) */
+    'Total Points': { en: 'Total Points', zh: '总积分' },
+    'Reward Credits': { en: 'Reward Credits', zh: '奖励余额' },
+    'Good to see you back!': { en: 'Good to see you back!', zh: '欢迎回来！' },
+    'Popular Games': { en: 'Popular Games', zh: '热门游戏' },
+    'Rewards': { en: 'Rewards', zh: '奖励' },
+    'Daily Check-in': { en: 'Daily Check-in', zh: '每日签到' },
+    'Claim your daily reward': { en: 'Claim your daily reward', zh: '领取每日奖励' },
+    'Check In': { en: 'Check In', zh: '签到' },
     /* LE888 — Slot Games */
     'Slot Game': { en: 'Slot Game', zh: '老虎机' },
     'Slot Games': { en: 'Slot Games', zh: '老虎机游戏' },
@@ -2848,6 +2917,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   (function () {
     var b = $('depositBtn'); if (!b) return;
     b.onclick = function () { if (depositConfigured()) openDeposit(); else toast(tr('deposit.none')); };
+    var hb = $('homeDepositBtn'); if (hb) hb.onclick = b.onclick; // "+" on the points card = deposit
     $('depCloseBtn').onclick = closeDeposit;
     $('depositOverlay').addEventListener('click', function (e) { if (e.target === $('depositOverlay')) closeDeposit(); });
     $('depCopy').onclick = function () { copyText((state.settings || {}).deposit_paynow || ''); flashDone($('depCopy'), CHECK_SVG); };
