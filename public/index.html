@@ -1119,25 +1119,56 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 @media (hover: hover) { .hdr-icon-btn:hover { border-color: var(--border-orange); color: var(--gold); } }
 .hdr-icon-btn .chat-badge { position: absolute; top: -5px; right: -4px; }
 
-/* ---------- HERO PROMO BANNER ---------- */
+/* ---------- HERO BANNER CAROUSEL (5 image placeholders) ---------- */
 .hero { position: relative; margin-top: var(--s5); border-radius: var(--r-feature); overflow: hidden;
-  border: 1px solid var(--border); aspect-ratio: 16 / 7; min-height: 150px;
+  border: 1px solid var(--border); }
+.hero-track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.hero-track::-webkit-scrollbar { display: none; }
+.hero-slide { position: relative; flex: 0 0 100%; scroll-snap-align: center; aspect-ratio: 16 / 7; min-height: 150px;
+  display: grid; place-items: center; overflow: hidden;
   background: linear-gradient(120deg, #241706 0%, #14100b 46%, #0c0c10 100%); }
-.hero-slide { position: absolute; inset: 0; }
-.hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; z-index: 0; }
-/* readability scrim so copy stays legible with or without an image */
-.hero::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: linear-gradient(90deg, rgba(6,6,8,.86) 0%, rgba(6,6,8,.5) 46%, rgba(6,6,8,.08) 100%); }
-.hero::after { content: ""; position: absolute; right: -30%; top: -40%; width: 75%; height: 180%; z-index: 0;
-  border-radius: 50%; background: radial-gradient(circle, rgba(255,138,31,.22), transparent 68%); pointer-events: none; }
-.hero-copy { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column;
-  justify-content: center; gap: 5px; padding: 0 var(--s5); }
-.hero-kicker { font-size: 11px; font-weight: 800; letter-spacing: .16em; color: var(--gold); }
-.hero-title { font-size: 27px; font-weight: 800; letter-spacing: -.02em; color: #fff; line-height: 1.02; }
-.hero-sub { font-size: 13px; font-weight: 600; color: var(--text-2); max-width: 74%; }
-.hero-dots { position: absolute; right: 14px; bottom: 12px; z-index: 3; display: flex; gap: 5px; }
-.hero-dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(255,255,255,.32); transition: width .2s; }
+.hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; z-index: 1; }
+.hero-ph { position: relative; z-index: 0; font-weight: 800; font-size: 15px; letter-spacing: .04em;
+  color: var(--text-muted); border: 1px dashed rgba(255,138,31,.4); border-radius: 10px; padding: 8px 16px; }
+.hero-dots { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; z-index: 3; display: flex; gap: 5px; }
+.hero-dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(255,255,255,.35); transition: width .2s; cursor: pointer; }
 .hero-dots i.on { width: 16px; background: var(--gold); }
+
+/* Logo placeholder in the header (shows when the logo image is missing) */
+.brand-ph { place-items: center; min-width: 64px; height: 34px; padding: 0 12px; border-radius: 9px;
+  border: 1px dashed rgba(255,138,31,.5); color: var(--gold); font-weight: 800; font-size: 13px; letter-spacing: .08em; }
+
+/* ---------- Bottom bar removed; nav lives in the side menu ---------- */
+.bottom-nav { display: none !important; }
+:root { --nav-h: 10px; }
+.brand[data-nav] { cursor: pointer; }
+
+/* ---------- SIDE MENU (drawer) ---------- */
+.drawer-bg { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.6);
+  opacity: 0; visibility: hidden; transition: opacity .22s ease, visibility .22s ease; }
+.drawer-bg.show { opacity: 1; visibility: visible; }
+.drawer { position: fixed; top: 0; left: 0; bottom: 0; z-index: 91; width: 82%; max-width: 322px;
+  background: var(--s-primary); border-right: 1px solid var(--border);
+  padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 20px);
+  transform: translateX(-102%); transition: transform .26s cubic-bezier(.2,.8,.3,1);
+  box-shadow: 0 0 44px rgba(0,0,0,.6); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.drawer.show { transform: none; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 14px; border-bottom: 1px solid var(--border); }
+.drawer-brand { font-weight: 800; font-size: 22px; letter-spacing: .02em; color: #fff; }
+.drawer-brand b { color: var(--gold); }
+.drawer-x { flex: none; width: 38px; height: 38px; border: 0; background: var(--s-raised); color: var(--text-2);
+  border-radius: 11px; font-size: 22px; line-height: 1; cursor: pointer; }
+.drawer-x:active { transform: scale(.94); }
+.drawer-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.drawer-link { display: flex; align-items: center; gap: 13px; width: 100%; background: none; border: 0;
+  color: var(--text); font-family: inherit; font-weight: 700; font-size: 15.5px; text-align: left;
+  padding: 12px; border-radius: 13px; cursor: pointer; transition: background .15s ease; }
+.drawer-link:active { background: var(--s-interactive); }
+@media (hover: hover) { .drawer-link:hover { background: var(--s-raised); } }
+.drawer-ico { flex: none; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+  background: var(--orange-soft); color: var(--gold); }
+.drawer-ico svg { width: 21px; height: 21px; }
 
 /* ---------- REWARD WALLET ---------- */
 .wallet { display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
@@ -1311,14 +1342,20 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 <div id="app" class="hidden">
   <div class="shell">
 
-  <!-- ============ LE888 APP HEADER (logo · chat) ============ -->
+  <!-- ============ LE888 APP HEADER (menu · logo · live chat) ============ -->
   <div class="header">
-    <!-- LEFT: LE888 logo (tap = Home; auto-wired via [data-nav]) -->
+    <!-- LEFT: hamburger -> opens the side menu (wired in JS) -->
+    <button type="button" class="hdr-icon-btn" id="menuBtn" aria-label="Open menu" aria-haspopup="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <!-- CENTER: logo placeholder (shows your logo image, or a LOGO box if missing) -->
     <div class="brand" data-nav="games" role="button" tabindex="0" aria-label="Home">
-      <img class="brand-logo" src="/img/LE888-180PX-LOGO.webp" alt="LE888">
+      <img class="brand-logo" src="/img/LE888-180PX-LOGO.webp" alt="LE888"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+      <span class="brand-ph" style="display:none" aria-hidden="true">LOGO</span>
     </div>
-    <!-- RIGHT: support/chat -> openChat() (wired in JS) -->
-    <button type="button" class="hdr-icon-btn" id="headerChat" aria-label="Support chat">
+    <!-- RIGHT: live chat -> openChat() (wired in JS) -->
+    <button type="button" class="hdr-icon-btn" id="headerChat" aria-label="Live chat">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-11.9 7.6L4 20l1-4.9A8.4 8.4 0 1 1 21 11.5Z"/></svg>
       <span class="chat-badge hidden" id="headerChatBadge">0</span>
     </button>
@@ -1326,19 +1363,19 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
   <!-- ============ PLAY TAB ============ -->
   <div id="tab-games">
-    <!-- ============ HERO PROMO BANNER ============ -->
-    <!-- Static presentation only (no backend banner system). Drop images at
-         /img/promo-1.webp etc. later; a branded gradient shows until then. -->
-    <div class="hero">
-      <div class="hero-slide">
-        <img class="hero-img" src="/img/promo-1.webp" alt="" aria-hidden="true" onerror="this.style.display='none'">
-        <div class="hero-copy">
-          <span class="hero-kicker" data-i18n="hero.kicker">LE888 REWARDS</span>
-          <span class="hero-title" data-i18n="hero.title">Play. Win. Claim.</span>
-          <span class="hero-sub" data-i18n="hero.sub">Turn your points into reward credits</span>
-        </div>
+    <!-- ============ HERO BANNER CAROUSEL (5 image placeholders) ============ -->
+    <!-- Swipeable carousel of 5 banner slots. Drop images at
+         /img/banners/1.webp … 5.webp. Each slot shows a numbered placeholder
+         until its image exists. Dots + auto-advance wired in JS. -->
+    <div class="hero" id="hero">
+      <div class="hero-track" id="heroTrack">
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/1.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 1</span></div>
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/2.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 2</span></div>
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/3.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 3</span></div>
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/4.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 4</span></div>
+        <div class="hero-slide"><img class="hero-img" src="/img/banners/5.webp" alt="" onerror="this.style.display='none'"><span class="hero-ph">Banner 5</span></div>
       </div>
-      <div class="hero-dots" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+      <div class="hero-dots" id="heroDots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></div>
     </div>
 
     <!-- ============ REWARD WALLET (reward credits + submit) ============ -->
@@ -1366,19 +1403,31 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     <!-- Each tile triggers an EXISTING feature. Withdraw/Deposit/RTP reuse the
          original buttons (IDs + handlers preserved). Earn/VIP/History use
          data-nav, auto-wired to switchTab() by the existing [data-nav] loop. -->
-    <div class="qa-grid qa-grid-3">
+    <div class="qa-grid">
       <button class="qa-tile hidden" id="depositBtn" aria-haspopup="dialog">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.4"/><path d="M3 10h18"/><path d="M7 15h3"/></svg></span>
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0l-4-4m4 4l4-4"/><rect x="4" y="16" width="16" height="4" rx="1.5"/></svg></span>
         <span class="qa-label" data-i18n="deposit.title">Deposit</span>
         <span class="dw-dot hidden" id="depDot"></span>
       </button>
       <button class="qa-tile" id="withdrawHomeBtn" aria-haspopup="dialog">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7 7 7-7"/></svg></span>
-        <span class="qa-label" data-i18n="Withdraw">Withdraw</span>
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V7m0 0l-4 4m4-4l4 4"/><rect x="4" y="3" width="16" height="2.4" rx="1.2"/></svg></span>
+        <span class="qa-label" data-i18n="Withdrawal">Withdrawal</span>
       </button>
-      <button class="qa-tile" id="slotGameBtn">
-        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01"/><path d="M8.5 16.5h7"/></svg></span>
-        <span class="qa-label" data-i18n="Slot Game">Slot Game</span>
+      <button class="qa-tile" data-nav="earn" aria-label="Promotions">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
+        <span class="qa-label" data-i18n="Promotions">Promotions</span>
+      </button>
+      <button class="qa-tile" data-nav="vip" aria-label="VIP">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
+        <span class="qa-label" data-i18n="VIP">VIP</span>
+      </button>
+      <button class="qa-tile" data-nav="history" aria-label="History">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
+        <span class="qa-label" data-i18n="nav.history">History</span>
+      </button>
+      <button class="qa-tile" id="rtpEntryBtn">
+        <span class="qa-ico qa-ico-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-6M20 20v-9"/></svg></span>
+        <span class="qa-label" data-i18n="RTP">RTP</span>
       </button>
     </div>
 
@@ -1764,18 +1813,43 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
       <span class="page-title" style="font-size:26px" data-i18n="Slot Games">Slot Games</span>
     </div>
     <div class="slot-grid" id="slotGrid"><div class="rtp-empty" data-i18n="Loading">Loading&hellip;</div></div>
-    <!-- View RTP rates: reuses the existing RTP page via openRtp() (#rtpEntryBtn) -->
-    <button class="rtp-entry" id="rtpEntryBtn" style="margin-top:16px">
-      <span class="dw-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 16l3.5-4 3 2.5L20 7"/></svg></span>
-      <span class="rtp-entry-txt"><b data-i18n="Game RTP">Game RTP</b><small data-i18n="rtp.entrySub">Today's payout rates by game</small></span>
-      <span class="rtp-entry-chev">&rsaquo;</span>
-    </button>
   </div>
 
   </div><!-- /shell -->
 </div><!-- /app -->
 
-<!-- Bottom navigation — at <body> level, fixed to the bottom. -->
+<!-- ============ SIDE MENU (drawer) — full navigation ============ -->
+<div class="drawer-bg" id="drawerBg" aria-hidden="true"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-label="Menu" aria-modal="true">
+  <div class="drawer-head">
+    <span class="drawer-brand">LE<b>888</b></span>
+    <button type="button" class="drawer-x" id="drawerClose" aria-label="Close menu">&times;</button>
+  </div>
+  <nav class="drawer-nav">
+    <button type="button" class="drawer-link" data-nav="games">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9h12v-9"/></svg></span>
+      <span data-i18n="nav.play">Home</span>
+    </button>
+    <button type="button" class="drawer-link" data-nav="earn">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2.5"/><path d="M3.5 13h17"/><path d="M12 9V6.5"/><path d="M12 6.5c-1.6-2.4-5-1.6-5 .5 0 1 1 1.6 2.4 1.6H12"/><path d="M12 6.5c1.6-2.4 5-1.6 5 .5 0 1-1 1.6-2.4 1.6H12"/></svg></span>
+      <span data-i18n="nav.earn">Promo</span>
+    </button>
+    <button type="button" class="drawer-link" data-nav="history">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg></span>
+      <span data-i18n="nav.history">History</span>
+    </button>
+    <button type="button" class="drawer-link" data-nav="vip">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 L2.8 8 L8 12 L12 5 L16 12 L21.2 8 L20 17 Z"/><path d="M4 17h16"/></svg></span>
+      <span data-i18n="nav.vip">VIP</span>
+    </button>
+    <button type="button" class="drawer-link" data-nav="settings">
+      <span class="drawer-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M4.7 7.5l1.7 1M17.6 15.5l1.7 1M4.7 16.5l1.7-1M17.6 8.5l1.7-1M3.5 12h2M18.5 12h2"/></svg></span>
+      <span data-i18n="nav.settings">Settings</span>
+    </button>
+  </nav>
+</aside>
+
+<!-- Bottom navigation — kept in the DOM (switchTab reads #nav-*) but hidden via CSS. -->
 <nav class="bottom-nav">
   <button class="nav-btn" id="nav-history" data-nav="history">
     <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M5.5 3.5V6H8"/><path d="M12 8v4l2.8 1.6"/></svg><span class="nav-dot hidden" id="histDot"></span></span><span data-i18n="nav.history">History</span>
@@ -2556,6 +2630,40 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     $('chatOverlay').classList.remove('show');
     clearInterval(chatTimer); chatTimer = null;
   }
+  /* ---- LE888 side menu (drawer) open/close ---- */
+  (function () {
+    var mb = $('menuBtn'), dw = $('drawer'), bg = $('drawerBg'), dx = $('drawerClose');
+    if (!dw) return;
+    function openD() { dw.classList.add('show'); if (bg) bg.classList.add('show'); }
+    function closeD() { dw.classList.remove('show'); if (bg) bg.classList.remove('show'); }
+    if (mb) mb.onclick = openD;
+    if (bg) bg.onclick = closeD;
+    if (dx) dx.onclick = closeD;
+    Array.prototype.forEach.call(dw.querySelectorAll('[data-nav]'), function (b) { b.addEventListener('click', closeD); });
+  })();
+
+  /* ---- LE888 hero banner carousel (5 slides, dots + auto-advance) ---- */
+  (function () {
+    var track = $('heroTrack'); if (!track) return;
+    var dots = $('heroDots') ? Array.prototype.slice.call($('heroDots').children) : [];
+    var n = track.children.length, cur = 0, timer = null;
+    function go(i) { cur = (i + n) % n; track.scrollTo({ left: track.clientWidth * cur, behavior: 'smooth' }); setDots(); }
+    function setDots() { dots.forEach(function (d, i) { d.classList.toggle('on', i === cur); }); }
+    // keep dots in sync when the user swipes
+    var raf = null;
+    track.addEventListener('scroll', function () {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(function () {
+        var i = Math.round(track.scrollLeft / track.clientWidth);
+        if (i !== cur) { cur = i; setDots(); }
+      });
+    });
+    dots.forEach(function (d, i) { d.addEventListener('click', function () { go(i); restart(); }); });
+    function restart() { if (timer) clearInterval(timer); timer = setInterval(function () { go(cur + 1); }, 4500); }
+    restart();
+    document.addEventListener('visibilitychange', function () { if (document.hidden) { if (timer) clearInterval(timer); } else restart(); });
+  })();
+
   (function () {
     var open = $('msgOpenBtn'); if (open) open.onclick = openChat;
     var hdrChat = $('headerChat'); if (hdrChat) hdrChat.onclick = openChat; // LE888 header support icon
