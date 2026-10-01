@@ -898,6 +898,29 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 
     <section id="tab-settings" class="hidden">
       <div class="page-head"><h1>Settings</h1><p>Player app configuration</p></div>
+
+      <!-- ===== Home Banners (carousel) ===== -->
+      <div class="card">
+        <h2 style="margin-top:0">&#128444;&#65039; Home Banners (carousel)</h2>
+        <p class="muted" style="margin:0 0 4px">These show in the sliding banner at the top of the app's home screen. Use the arrows to reorder.</p>
+        <p class="muted" style="margin:0 0 10px;color:var(--gold,#e7c56b)"><b>Recommended image size: 1080 &times; 470 px</b> (wide banner, about 16:7). JPG, PNG or WebP. Keep each under ~300&nbsp;KB.</p>
+        <div id="bnList" class="muted">Loading&hellip;</div>
+        <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
+        <label>Banner image</label>
+        <div class="row" style="align-items:center">
+          <img id="bnPrev" alt="" style="width:120px;height:52px;border-radius:8px;object-fit:cover;background:#111;display:none">
+          <input type="file" id="bnFile" accept="image/*" style="flex:1">
+        </div>
+        <label style="margin-top:8px" for="bnLink">Link when tapped (optional)</label>
+        <input id="bnLink" maxlength="500" placeholder="https://&hellip;  (leave blank for no link)" autocomplete="off">
+        <input type="hidden" id="bnId"><input type="hidden" id="bnUrl">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="bnActive" checked style="width:auto"> Active (shown to players)</label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" id="bnSave">Save banner</button>
+          <button class="btn ghost small" id="bnReset">New / clear</button>
+        </div>
+      </div>
+
       <div class="card">
         <label for="sAnnounce">Announcement shown in the player app</label>
         <textarea id="sAnnounce" rows="2"></textarea>
@@ -3099,7 +3122,68 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   // ------------------------------------------------------------------
   // Settings
   // ------------------------------------------------------------------
+  // ---- Home Banners (carousel) ----
+  var bnCache = [];
+  function loadBanners() {
+    bnInitForms();
+    api('/api/admin/banners/list', {}).then(function (r) { bnCache = (r && r.banners) || []; renderBanners(); });
+  }
+  function renderBanners() {
+    var box = $('bnList'); if (!box) return;
+    if (!bnCache.length) { box.innerHTML = '<span class="muted">No banners yet. Add your first one below.</span>'; return; }
+    box.innerHTML = bnCache.map(function (b, i) {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border,#222);border-radius:10px;margin-bottom:6px">' +
+        '<img src="' + esc(b.image_url) + '" style="width:92px;height:40px;object-fit:cover;border-radius:6px;background:#111">' +
+        '<div style="flex:1;min-width:0" class="muted">' + (Number(b.active) ? 'Active' : 'Hidden') + (b.link_url ? ' &middot; linked' : '') + '</div>' +
+        '<button class="btn ghost small" data-bup="' + b.id + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+        '<button class="btn ghost small" data-bdown="' + b.id + '"' + (i === bnCache.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+        '<button class="btn ghost small" data-bedit="' + b.id + '">Edit</button>' +
+        '<button class="btn ghost small" data-bdel="' + b.id + '">Del</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-bedit]'), function (el) { el.onclick = function () { bnEdit(Number(el.getAttribute('data-bedit'))); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-bdel]'), function (el) { el.onclick = function () { bnDel(Number(el.getAttribute('data-bdel'))); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-bup]'), function (el) { el.onclick = function () { bnReorder(Number(el.getAttribute('data-bup')), 'up'); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-bdown]'), function (el) { el.onclick = function () { bnReorder(Number(el.getAttribute('data-bdown')), 'down'); }; });
+  }
+  function bnEdit(id) {
+    var b = bnCache.filter(function (x) { return x.id === id; })[0]; if (!b) return;
+    $('bnId').value = b.id; $('bnUrl').value = b.image_url || ''; $('bnLink').value = b.link_url || '';
+    $('bnActive').checked = Number(b.active) === 1;
+    var prev = $('bnPrev'); if (b.image_url) { prev.src = b.image_url; prev.style.display = ''; } else { prev.style.display = 'none'; }
+  }
+  function bnReset() { $('bnId').value = ''; $('bnUrl').value = ''; $('bnLink').value = ''; $('bnActive').checked = true; $('bnPrev').style.display = 'none'; $('bnFile').value = ''; }
+  function bnDel(id) {
+    if (!confirm('Delete this banner? This cannot be undone.')) return;
+    api('/api/admin/banners/delete', { id: id }).then(function (r) { if (!r.ok) { toast(r.error || 'Delete failed.', true); return; } toast('Banner deleted.'); loadBanners(); });
+  }
+  function bnReorder(id, dir) { api('/api/admin/banners/reorder', { id: id, dir: dir }).then(function (r) { if (!r.ok) { toast(r.error || 'Reorder failed.', true); return; } loadBanners(); }); }
+  function bnInitForms() {
+    if (bnInitForms._done) return; bnInitForms._done = true;
+    $('bnFile').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return; toast('Uploading banner…');
+      rtpUpload(f).then(function (r) {
+        if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
+        $('bnUrl').value = r.url; var prev = $('bnPrev'); prev.src = r.url; prev.style.display = '';
+        toast('Image ready. Press Save banner.');
+      }).catch(function () { toast('Upload failed.', true); });
+    };
+    $('bnSave').onclick = function () {
+      if (!$('bnUrl').value) { toast('Choose a banner image first.', true); return; }
+      busy($('bnSave'), true);
+      api('/api/admin/banners/save', { id: Number($('bnId').value) || 0, image_url: $('bnUrl').value, link_url: $('bnLink').value.trim(), active: $('bnActive').checked ? 1 : 0 }).then(function (r) {
+        busy($('bnSave'), false);
+        if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
+        toast('Banner saved.'); bnReset(); loadBanners();
+      }).catch(function () { busy($('bnSave'), false); toast('Network error.', true); });
+    };
+    $('bnReset').onclick = bnReset;
+  }
+
+  // ------------------------------------------------------------------
+  // Settings
+  // ------------------------------------------------------------------
   function loadSettings() {
+    loadBanners();
     api('/api/admin/settings/get').then(function (res) {
       if (!res.ok) return;
       var s = res.settings;

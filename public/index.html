@@ -2674,27 +2674,46 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     wire('drawerLogout', function () { signOut(); });
   })();
 
-  /* ---- LE888 hero banner carousel (5 slides, dots + auto-advance) ---- */
-  (function () {
+  /* ---- LE888 hero banner carousel (admin-managed, dots + auto-advance) ---- */
+  var heroTimer = null;
+  function initHero() {
     var track = $('heroTrack'); if (!track) return;
-    var dots = $('heroDots') ? Array.prototype.slice.call($('heroDots').children) : [];
-    var n = track.children.length, cur = 0, timer = null;
-    function go(i) { cur = (i + n) % n; track.scrollTo({ left: track.clientWidth * cur, behavior: 'smooth' }); setDots(); }
+    var dotsWrap = $('heroDots');
+    var dots = dotsWrap ? Array.prototype.slice.call(dotsWrap.children) : [];
+    var n = track.children.length, cur = 0;
+    if (heroTimer) { clearInterval(heroTimer); heroTimer = null; }
+    if (dotsWrap) dotsWrap.style.display = n > 1 ? '' : 'none';
+    if (n <= 1) return; // nothing to rotate
     function setDots() { dots.forEach(function (d, i) { d.classList.toggle('on', i === cur); }); }
-    // keep dots in sync when the user swipes
+    function go(i) { cur = (i + n) % n; track.scrollTo({ left: track.clientWidth * cur, behavior: 'smooth' }); setDots(); }
     var raf = null;
-    track.addEventListener('scroll', function () {
+    track.onscroll = function () {
       if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(function () {
-        var i = Math.round(track.scrollLeft / track.clientWidth);
-        if (i !== cur) { cur = i; setDots(); }
-      });
-    });
-    dots.forEach(function (d, i) { d.addEventListener('click', function () { go(i); restart(); }); });
-    function restart() { if (timer) clearInterval(timer); timer = setInterval(function () { go(cur + 1); }, 4500); }
+      raf = requestAnimationFrame(function () { var i = Math.round(track.scrollLeft / track.clientWidth); if (i !== cur) { cur = i; setDots(); } });
+    };
+    dots.forEach(function (d, i) { d.onclick = function () { go(i); restart(); }; });
+    function restart() { if (heroTimer) clearInterval(heroTimer); heroTimer = setInterval(function () { go(cur + 1); }, 4500); }
     restart();
-    document.addEventListener('visibilitychange', function () { if (document.hidden) { if (timer) clearInterval(timer); } else restart(); });
-  })();
+  }
+  // Load banners the admin set; if none, keep the built-in placeholder slides.
+  function loadBanners() {
+    api('/api/banners/list', {}).then(function (r) {
+      var list = (r && r.banners) || [];
+      var track = $('heroTrack'), dotsWrap = $('heroDots');
+      if (track && list.length) {
+        track.innerHTML = list.map(function (b) {
+          var img = '<img class="hero-img" src="' + esc(b.image_url) + '" alt="">';
+          return b.link_url
+            ? '<a class="hero-slide" href="' + esc(b.link_url) + '" target="_blank" rel="noopener">' + img + '</a>'
+            : '<div class="hero-slide">' + img + '</div>';
+        }).join('');
+        if (dotsWrap) dotsWrap.innerHTML = list.map(function (_, i) { return '<i' + (i === 0 ? ' class="on"' : '') + '></i>'; }).join('');
+      }
+      initHero();
+    }).catch(function () { initHero(); });
+  }
+  loadBanners();
+  document.addEventListener('visibilitychange', function () { if (document.hidden && heroTimer) { clearInterval(heroTimer); heroTimer = null; } else if (!document.hidden) initHero(); });
 
   (function () {
     var open = $('msgOpenBtn'); if (open) open.onclick = openChat;
