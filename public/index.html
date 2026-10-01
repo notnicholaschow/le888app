@@ -1190,6 +1190,67 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .overlay .stage, .vip-modal { transform-origin: bottom center; animation-duration: .3s !important;
   animation-timing-function: cubic-bezier(.22,1,.36,1) !important; }
 
+/* ============================================================
+   LE888 MINI-GAME SCREENS (FLIP / DROP / SPIN / VAULT)
+   Visual shells only — the server still decides every outcome.
+   All art uses /img/games/*.webp placeholders that fall back to
+   these CSS looks when the image is missing.
+   ============================================================ */
+.game-hero-art { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto 10px; }
+
+/* ---- LE888 FLIP: 12-card grid ---- */
+.flip-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; max-width: 320px; margin: 4px auto 2px; }
+.flip-grid.picked .flip-card:not(.chosen) { opacity: .4; }
+.flip-card { position: relative; aspect-ratio: 3 / 4; padding: 0; border: 0; background: none; cursor: pointer; perspective: 650px; }
+.flip-inner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .5s cubic-bezier(.2,.8,.3,1); }
+.flip-card.flipped .flip-inner { transform: rotateY(180deg); }
+.flip-back, .flip-front { position: absolute; inset: 0; border-radius: 12px; overflow: hidden;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden; display: grid; place-items: center; }
+.flip-back { background: linear-gradient(160deg, #1c1206, #0c0c10); border: 1px solid rgba(255,138,31,.4); }
+.flip-back-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.flip-back-logo { position: relative; font-weight: 800; font-size: 12px; color: #fff; letter-spacing: .02em; }
+.flip-back-logo b { color: var(--gold); }
+.flip-front { transform: rotateY(180deg); color: var(--gold); font-weight: 800; font-size: 18px;
+  background: radial-gradient(circle at 50% 40%, #241a0b, #0d0d10 72%); border: 1px solid rgba(255,138,31,.5); }
+.flip-card.win .flip-front { color: #ffd79a; box-shadow: inset 0 0 20px rgba(255,138,31,.5); }
+.flip-card:not(.flipped):active .flip-inner { transform: scale(.96); }
+
+/* ---- LUCKY VAULT: 3 doors ---- */
+.vault-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 330px; margin: 8px auto 2px; align-items: end; }
+.vault { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: none; cursor: pointer; }
+.vault-no { font-size: 12px; font-weight: 800; letter-spacing: .08em; color: var(--text-2); }
+.vault-door { position: relative; width: 100%; aspect-ratio: 1 / 1.08; border-radius: 14px; overflow: hidden;
+  display: grid; place-items: center; background: linear-gradient(160deg, #1a1a1f, #0c0c10);
+  border: 1px solid rgba(255,138,31,.4); transition: transform .15s ease, box-shadow .25s ease; }
+.vault-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.vault-dial { position: relative; width: 54%; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid rgba(255,138,31,.65); color: var(--gold); font-weight: 800; font-size: 13px;
+  box-shadow: inset 0 0 14px rgba(255,138,31,.3); transition: opacity .2s ease; }
+.vault-prize { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0;
+  font-weight: 800; font-size: 20px; color: var(--gold); transition: opacity .25s ease; }
+.vault.open .vault-dial { opacity: 0; }
+.vault.open .vault-prize { opacity: 1; }
+.vault.open .vault-door { box-shadow: 0 0 22px rgba(255,138,31,.45); }
+.vault.win .vault-door { border-color: var(--gold); }
+.vault-row.picked .vault:not(.chosen) { opacity: .4; }
+.vault:active .vault-door { transform: scale(.97); }
+
+/* ---- LE888 SPIN: 3 reels + paytable ---- */
+.reels { display: flex; justify-content: center; gap: 8px; max-width: 320px; margin: 6px auto 2px; padding: 12px;
+  border-radius: 18px; background: linear-gradient(180deg, #15151b, #0b0b0f);
+  border: 1px solid rgba(255,138,31,.35); box-shadow: inset 0 0 30px rgba(0,0,0,.6); transition: box-shadow .25s ease; }
+.reels.win { box-shadow: 0 0 26px rgba(255,138,31,.5), inset 0 0 30px rgba(255,138,31,.18); }
+.reel { flex: 1; aspect-ratio: 1; border-radius: 12px; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(180deg, #ececf2, #b6b6be); box-shadow: inset 0 2px 6px rgba(0,0,0,.25); transition: transform .18s ease; }
+.reel.reel-pop { transform: scale(1.07); }
+.reel-sym { font-weight: 800; font-size: 30px; color: #20202a; }
+.pay-tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; max-width: 330px; margin: 12px auto 2px; }
+.tier { background: var(--s-raised); border: 1px solid var(--border); border-radius: 12px; padding: 9px 4px; text-align: center; }
+.tier-val { display: block; font-weight: 800; font-size: 14px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.tier-nm { display: block; margin-top: 2px; font-size: 9px; font-weight: 800; letter-spacing: .06em; color: var(--text-2); }
+.tier.t0 .tier-val { color: #ff5d5d; } .tier.t1 .tier-val { color: #b58bff; }
+.tier.t2 .tier-val { color: #7ea8ff; } .tier.t3 .tier-val { color: var(--gold); }
+
 /* ---------- SLOT GAMES page ---------- */
 .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: var(--s4); }
 .slot-card { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
@@ -1368,73 +1429,73 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
     <div class="arcade-grid">
 
-      <!-- LUCKY WHEEL -->
-      <div class="game-card" data-game="wheel">
-        <div class="game-media" data-game="wheel">
-          <img class="game-image" src="/img/wheel.webp" alt="Lucky Wheel">
-          <span class="cost-chip">
-            <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
-            <span class="cost-num" data-cost>1</span><span class="cost-unit" data-i18n="PTS">PTS</span>
-          </span>
-        </div>
-        <div class="game-info">
-          <div class="game-info-text">
-            <div class="game-title" data-i18n="Lucky Wheel">Lucky Wheel</div>
-            <div class="game-desc" data-i18n="Spin to win">Spin to win</div>
-          </div>
-          <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
-        </div>
-      </div>
-
-      <!-- PLINKO -->
-      <div class="game-card" data-game="plinko">
-        <div class="game-media" data-game="plinko">
-          <img class="game-image" src="/img/plinko.webp" alt="Plinko Drop">
-          <span class="cost-chip">
-            <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
-            <span class="cost-num" data-cost>2</span><span class="cost-unit" data-i18n="PTS">PTS</span>
-          </span>
-        </div>
-        <div class="game-info">
-          <div class="game-info-text">
-            <div class="game-title" data-i18n="Plinko Drop">Plinko Drop</div>
-            <div class="game-desc" data-i18n="Drop and land">Drop and land</div>
-          </div>
-          <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
-        </div>
-      </div>
-
-      <!-- GOLDEN EGG -->
-      <div class="game-card" data-game="egg">
-        <div class="game-media" data-game="egg">
-          <img class="game-image" src="/img/egg.webp" alt="Golden Egg">
-          <span class="cost-chip">
-            <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
-            <span class="cost-num" data-cost>5</span><span class="cost-unit" data-i18n="PTS">PTS</span>
-          </span>
-        </div>
-        <div class="game-info">
-          <div class="game-info-text">
-            <div class="game-title" data-i18n="Golden Egg">Golden Egg</div>
-            <div class="game-desc" data-i18n="Crack it open">Crack it open</div>
-          </div>
-          <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
-        </div>
-      </div>
-
-      <!-- SCRATCH CARD -->
+      <!-- LE888 FLIP  (engine: scratch) -->
       <div class="game-card" data-game="scratch">
         <div class="game-media" data-game="scratch">
-          <img class="game-image" src="/img/scratch.webp" alt="Scratch Card">
+          <img class="game-image" src="/img/games/flip.webp" alt="" onerror="this.style.display='none'">
           <span class="cost-chip">
             <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
-            <span class="cost-num" data-cost>12</span><span class="cost-unit" data-i18n="PTS">PTS</span>
+            <span class="cost-num" data-cost>10</span><span class="cost-unit" data-i18n="PTS">PTS</span>
           </span>
         </div>
         <div class="game-info">
           <div class="game-info-text">
-            <div class="game-title" data-i18n="Scratch Card">Scratch Card</div>
-            <div class="game-desc" data-i18n="Scratch to reveal">Scratch to reveal</div>
+            <div class="game-title" data-i18n="game.flip">LE888 FLIP</div>
+            <div class="game-desc" data-i18n="game.flip.sub">Pick. Flip. Win.</div>
+          </div>
+          <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
+        </div>
+      </div>
+
+      <!-- ORANGE DROP  (engine: plinko) -->
+      <div class="game-card" data-game="plinko">
+        <div class="game-media" data-game="plinko">
+          <img class="game-image" src="/img/games/drop.webp" alt="" onerror="this.style.display='none'">
+          <span class="cost-chip">
+            <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
+            <span class="cost-num" data-cost>15</span><span class="cost-unit" data-i18n="PTS">PTS</span>
+          </span>
+        </div>
+        <div class="game-info">
+          <div class="game-info-text">
+            <div class="game-title" data-i18n="game.drop">ORANGE DROP</div>
+            <div class="game-desc" data-i18n="game.drop.sub">Drop. Bounce. Win.</div>
+          </div>
+          <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
+        </div>
+      </div>
+
+      <!-- LE888 SPIN  (engine: wheel) -->
+      <div class="game-card" data-game="wheel">
+        <div class="game-media" data-game="wheel">
+          <img class="game-image" src="/img/games/spin.webp" alt="" onerror="this.style.display='none'">
+          <span class="cost-chip">
+            <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
+            <span class="cost-num" data-cost>50</span><span class="cost-unit" data-i18n="PTS">PTS</span>
+          </span>
+        </div>
+        <div class="game-info">
+          <div class="game-info-text">
+            <div class="game-title" data-i18n="game.spin">LE888 SPIN</div>
+            <div class="game-desc" data-i18n="game.spin.sub">Spin. Match. Win.</div>
+          </div>
+          <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
+        </div>
+      </div>
+
+      <!-- LUCKY VAULT  (engine: egg) -->
+      <div class="game-card" data-game="egg">
+        <div class="game-media" data-game="egg">
+          <img class="game-image" src="/img/games/vault.webp" alt="" onerror="this.style.display='none'">
+          <span class="cost-chip">
+            <svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" fill="#ff8a1f"/></svg>
+            <span class="cost-num" data-cost>50</span><span class="cost-unit" data-i18n="PTS">PTS</span>
+          </span>
+        </div>
+        <div class="game-info">
+          <div class="game-info-text">
+            <div class="game-title" data-i18n="game.vault">LUCKY VAULT</div>
+            <div class="game-desc" data-i18n="game.vault.sub">Choose. Unlock. Win.</div>
           </div>
           <span class="play-btn"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M4 2.5v9l7-4.5z"/></svg></span>
         </div>
@@ -2003,6 +2064,14 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     'hero.kicker': { en: 'LE888 REWARDS', zh: 'LE888 奖励' },
     'hero.title': { en: 'Play. Win. Claim.', zh: '畅玩 · 赢奖 · 领取' },
     'hero.sub': { en: 'Turn your points into reward credits', zh: '把积分变成奖励额度' },
+    /* LE888 — mini-game names + taglines */
+    'game.flip': { en: 'LE888 FLIP', zh: 'LE888 翻牌' }, 'game.flip.sub': { en: 'Pick. Flip. Win.', zh: '选牌 · 翻开 · 赢奖' },
+    'game.drop': { en: 'ORANGE DROP', zh: '橙色掉落' }, 'game.drop.sub': { en: 'Drop. Bounce. Win.', zh: '掉落 · 弹跳 · 赢奖' },
+    'game.spin': { en: 'LE888 SPIN', zh: 'LE888 老虎机' }, 'game.spin.sub': { en: 'Spin. Match. Win.', zh: '转动 · 匹配 · 赢奖' },
+    'game.vault': { en: 'LUCKY VAULT', zh: '幸运金库' }, 'game.vault.sub': { en: 'Choose. Unlock. Win.', zh: '选择 · 解锁 · 赢奖' },
+    'Match 3 same symbols to win': { en: 'Match 3 same symbols to win', zh: '集齐 3 个相同符号即可获奖' },
+    'Tap any card to begin': { en: 'Tap any card to begin', zh: '点任意一张牌开始' },
+    'Tap a vault to open it': { en: 'Tap a vault to open it', zh: '点一个金库开启' },
     /* LE888 — Slot Games */
     'Slot Game': { en: 'Slot Game', zh: '老虎机' },
     'Slot Games': { en: 'Slot Games', zh: '老虎机游戏' },
@@ -4561,69 +4630,66 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     else if (game === 'scratch') gameScratch();
   }
 
-  // ---- Lucky Wheel (costs 1 PT) - segments: TRY, 1.88, 2.88, 3.88 ----
+  // ---- LE888 SPIN \u2014 3-reel slot (engine key: 'wheel') ----
+  // The server still decides win/lose + amount (same /api/arcade/play 'wheel'
+  // draw, same odds/prizes/cost). The reels are only a reveal: a win lands 3
+  // matching symbols, a loss lands a non-matching combo. The prize tiles are a
+  // read-only paytable built from the live prize list \u2014 never a separate payout.
   function gameWheel() {
-    openOverlay('LUCKY WHEEL');
-    // Segments are built from the live prize list. 0.00 is shown as TRY.
-    // A short list is doubled so the wheel still looks like a wheel, and the
-    // count is kept even so the gold/black segments alternate cleanly.
-    var base = gamePrizes('wheel').map(function (v) { return v === '0.00' ? 'TRY' : v; });
-    if (!base.length) base = ['TRY'];
-    var SEG = base.slice();
-    while (SEG.length < 8 && SEG.length + base.length <= 12) SEG = SEG.concat(base);
-    if (SEG.length % 2) SEG = SEG.concat(base);
-    if (SEG.length > 12) SEG = SEG.slice(0, 12);
-    var segN = SEG.length;
-    var fills = [], txtCols = [];
-    for (var fi = 0; fi < segN; fi++) {
-      fills.push(fi % 2 ? '#ff8a1f' : '#242426');
-      txtCols.push(fi % 2 ? '#1a1405' : '#ff8a1f');
-    }
-    var segFont = segN > 8 ? 10 : 13;
-    var seg = 360 / segN, r = 110, cx = 120, cy = 120;
-    var paths = '';
-    for (var i = 0; i < segN; i++) {
-      var a0 = (i * seg - 90) * Math.PI / 180, a1 = ((i + 1) * seg - 90) * Math.PI / 180;
-      var x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
-      var x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
-      var am = ((i + 0.5) * seg - 90) * Math.PI / 180;
-      var lx = cx + r * 0.66 * Math.cos(am), ly = cy + r * 0.66 * Math.sin(am);
-      paths += '<path d="M' + cx + ',' + cy + ' L' + x0.toFixed(1) + ',' + y0.toFixed(1) +
-        ' A' + r + ',' + r + ' 0 0 1 ' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' Z" fill="' + fills[i] + '" stroke="#050505" stroke-width="1.5"/>' +
-        '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" fill="' + txtCols[i] + '" font-size="' + segFont + '" font-weight="800" font-family="Manrope,sans-serif" text-anchor="middle" dominant-baseline="middle">' + SEG[i] + '</text>';
-    }
-    var COST = (state.game_costs && state.game_costs.wheel) || 1;
+    openOverlay('LE888 SPIN');
+    var COST = (state.game_costs && state.game_costs.wheel) || 50;
+    var SYMS = ['8', 'LE', '\u2666', '\u265b']; // 8, LE, diamond, crown
+    function randSym() { return SYMS[Math.floor(Math.random() * SYMS.length)]; }
+    // Paytable tiles from the live prize list (top 4 distinct), labelled.
+    var prizes = gamePrizes('wheel').filter(function (v) { return v !== '0.00'; })
+      .map(Number).filter(function (n) { return !isNaN(n); }).sort(function (a, b) { return b - a; });
+    var TIER_NM = ['MEGA', 'MAJOR', 'MINOR', 'MINI'];
+    var tiers = TIER_NM.map(function (nm, i) {
+      var val = prizes[i] != null ? prizes[i].toFixed(2) : '\u2014';
+      return '<div class="tier t' + i + '"><span class="tier-val">' + val + '</span><span class="tier-nm">' + nm + '</span></div>';
+    }).join('');
     $('overlayStage').innerHTML =
-      '<div id="wheelWrap"><div id="wheelPointer"></div>' +
-      '<svg id="wheelSvg" viewBox="0 0 240 240">' +
-      '<defs><radialGradient id="wheelHub" cx="40%" cy="34%" r="78%"><stop offset="0%" stop-color="#3b3b41"/><stop offset="100%" stop-color="#0c0c10"/></radialGradient></defs>' + paths +
-      '<circle cx="120" cy="120" r="113" fill="none" stroke="rgba(255,138,31,.5)" stroke-width="2"/>' +
-      '<circle cx="120" cy="120" r="30" fill="url(#wheelHub)" stroke="#ff8a1f" stroke-width="3"/>' +
-      '<circle cx="120" cy="120" r="30" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1"/>' +
-      '<text x="120" y="121" fill="#ff8a1f" font-size="12" font-weight="800" font-family="Manrope,sans-serif" text-anchor="middle" dominant-baseline="middle">' + tr('SPIN') + '</text>' +
-      '</svg></div>' +
-      multBarHTML() +
-      '<button class="btn" id="spinBtn" style="margin-top:14px"></button>';
-    var totalRot = 0;
+      '<img class="game-hero-art" src="/img/games/spin-title.webp" alt="" onerror="this.style.display=\'none\'">' +
+      '<div class="reels" id="reels">' +
+        '<div class="reel"><span class="reel-sym" id="reel0">8</span></div>' +
+        '<div class="reel"><span class="reel-sym" id="reel1">LE</span></div>' +
+        '<div class="reel"><span class="reel-sym" id="reel2">\u2666</span></div>' +
+      '</div>' +
+      '<div class="pay-tiers">' + tiers + '</div>' +
+      '<button class="btn" id="spinBtn" style="margin-top:14px"></button>' +
+      '<p class="panel-note" id="spinHint" style="margin-top:8px;text-align:center"></p>' +
+      multBarHTML();
+    var reels = [$('reel0'), $('reel1'), $('reel2')];
+    var reelsWrap = $('reels');
     function updateBtn() {
       var b = $('spinBtn'); if (!b) return;
       var can = affordable(COST, playMult);
       b.disabled = Game.running || !can;
-      b.textContent = can ? (tr('Spin') + (playMult > 1 ? ' x' + playMult : '') + ' \u2022 ' + (COST * playMult) + ' ' + tr('PT')) : tr('Not enough points');
+      b.textContent = can ? (tr('SPIN') + (playMult > 1 ? ' x' + playMult : '') + ' \u2022 ' + (COST * playMult) + ' ' + tr('PT')) : tr('Not enough points');
+      var h = $('spinHint'); if (h) h.textContent = tr('Match 3 same symbols to win');
     }
     var refresh = wireMultBar(COST, updateBtn);
     function animate(res) {
       return new Promise(function (resolve) {
-        var label = res.won ? res.win : 'TRY', opts = [];
-        for (var k = 0; k < segN; k++) { if (SEG[k] === label) opts.push(k); }
-        var idx = opts.length ? opts[Math.floor(Math.random() * opts.length)] : 0;
-        // Absolute angle that puts the chosen segment under the top pointer,
-        // reached with 4 extra full turns from the wheel's current rotation.
-        var A = ((1800 - (idx * seg + seg / 2)) % 360 + 360) % 360;
-        var delta = ((A - (totalRot % 360)) % 360 + 360) % 360;
-        totalRot += 1440 + delta;
-        $('wheelSvg').style.transform = 'rotate(' + totalRot + 'deg)';
-        Game.setT(resolve, 3300);
+        reelsWrap.classList.remove('win');
+        var finals;
+        if (res.ok && res.won) { var s = randSym(); finals = [s, s, s]; }
+        else {
+          finals = [randSym(), randSym(), randSym()];
+          if (finals[0] === finals[1] && finals[1] === finals[2]) {
+            finals[2] = SYMS[(SYMS.indexOf(finals[2]) + 1) % SYMS.length];
+          }
+        }
+        var spinners = reels.map(function (r) { return Game.setI(function () { r.textContent = randSym(); }, 70); });
+        [720, 1080, 1460].forEach(function (ms, i) {
+          Game.setT(function () {
+            clearInterval(spinners[i]);
+            reels[i].textContent = finals[i];
+            reels[i].parentNode.classList.add('reel-pop');
+            Game.setT(function () { reels[i].parentNode.classList.remove('reel-pop'); }, 220);
+            if (i === 2) { if (res.ok && res.won) reelsWrap.classList.add('win'); resolve(); }
+          }, ms);
+        });
       });
     }
     $('spinBtn').onclick = function () {
@@ -4634,7 +4700,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
   // ---- Plinko (costs 2 PT) - slots mirror GAME_CONFIG.plinko in worker.ts ----
   function gamePlinko() {
-    openOverlay('PLINKO');
+    openOverlay('ORANGE DROP');
     var W = 280, H = 340;
     var SLOTS = gamePrizes('plinko');
     if (!SLOTS.length) SLOTS = PRIZE_FALLBACK.plinko.slice();
@@ -4741,221 +4807,146 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   }
 
   // ---- Smash the Egg (costs 5 PT) - prizes mirror GAME_CONFIG.egg in worker.ts ----
+  // ---- LUCKY VAULT — pick 1 of 3 vaults to open (engine key: 'egg') ----
+  // Tapping one vault = exactly ONE paid round (play_id guarded). The chosen
+  // vault opens to reveal the server's decided prize; odds/prizes/cost unchanged.
   function gameEgg() {
-    openOverlay('SMASH THE EGG');
+    openOverlay('LUCKY VAULT');
+    var COST = (state.game_costs && state.game_costs.egg) || 50;
+    var vaults = '';
+    for (var vi = 0; vi < 3; vi++) {
+      var no = '0' + (vi + 1);
+      vaults +=
+        '<button type="button" class="vault" data-v="' + vi + '">' +
+          '<span class="vault-no">' + no + '</span>' +
+          '<span class="vault-door">' +
+            '<img class="vault-img" src="/img/games/vault-door.webp" alt="" onerror="this.style.display=\'none\'">' +
+            '<span class="vault-dial">888</span>' +
+            '<span class="vault-prize"></span>' +
+          '</span>' +
+        '</button>';
+    }
     $('overlayStage').innerHTML =
-      '<div class="egg-stage"><div class="egg-glow"></div>' +
-      '<button id="eggBtn" class="egg-btn" aria-label="Smash the golden egg, tap three times">' +
-        '<svg viewBox="0 0 120 152" width="118" height="150" aria-hidden="true">' +
-          '<defs><radialGradient id="eggG" cx="40%" cy="30%" r="78%">' +
-            '<stop offset="0%" stop-color="#f6e0a0"/><stop offset="46%" stop-color="#ff8a1f"/><stop offset="100%" stop-color="#7a4210"/>' +
-          '</radialGradient></defs>' +
-          '<ellipse cx="60" cy="84" rx="46" ry="60" fill="url(#eggG)" stroke="#5c3410" stroke-width="2"/>' +
-          '<ellipse cx="46" cy="52" rx="12" ry="18" fill="rgba(255,255,255,.28)"/>' +
-          '<path class="egg-crack c1" d="M60 26 L53 56 L67 72 L57 100" fill="none" stroke="#3a2f0e" stroke-width="2.6" stroke-linejoin="round"/>' +
-          '<path class="egg-crack c2" d="M67 72 L86 80 M57 100 L38 108" fill="none" stroke="#3a2f0e" stroke-width="2.6" stroke-linejoin="round"/>' +
-          '<path class="egg-crack c3" d="M60 26 L61 10 M57 100 L60 142" fill="none" stroke="#3a2f0e" stroke-width="2.6" stroke-linejoin="round"/>' +
-        '</svg>' +
-      '</button>' +
-      '<div class="egg-pedestal"></div></div>' +
-      '<p class="panel-note" id="eggHint"></p>' +
+      '<img class="game-hero-art" src="/img/games/vault-title.webp" alt="" onerror="this.style.display=\'none\'">' +
+      '<div class="vault-row" id="vaultRow">' + vaults + '</div>' +
+      '<p class="panel-note" id="vaultHint"></p>' +
       multBarHTML() +
       '<div class="prize-strip">' + tr('Prizes') + '&nbsp; ' + prizeStrip('egg') + '</div>';
-    var COST = (state.game_costs && state.game_costs.egg) || 5;
-    var taps = 0;
-    var btn = $('eggBtn');
-    // ---- Round lifecycle -------------------------------------------------
-    // ready -> tapping -> processing -> result -> resetting -> ready
-    // ONE set of three intentional taps = exactly ONE paid round. The egg is
-    // hard-locked from the 3rd tap until a visibly fresh egg is ready, so
-    // rapid or buffered taps can never start (and pay for) another round.
-    var phase = 'ready';
-    var pressStart = 0;  // when the current physical press began
-    var readyAt = 0;     // when the fresh egg last became tappable
-    var hadRound = false;
-    function lockEgg(locked) {
-      btn.classList.toggle('egg-locked', locked);
-      btn.setAttribute('aria-disabled', locked ? 'true' : 'false');
-    }
-    // Multiplier is fixed from the FIRST tap of a round until the next egg
-    // is ready (wireMultBar re-enables chips; this re-disables them).
-    function lockMults() {
-      Array.prototype.forEach.call(document.querySelectorAll('#multRow [data-mult]'), function (c) { c.disabled = true; });
-    }
+    var row = $('vaultRow');
+    var doors = Array.prototype.slice.call(row.querySelectorAll('.vault'));
+    var locked = false, played = false, chosen = null;
     function updateHint() {
-      var el = $('eggHint'); if (!el) return;
-      if (phase === 'processing') { el.textContent = tr('Cracking…'); lockMults(); return; }
-      if (phase === 'result' || phase === 'resetting') { el.textContent = tr('Round complete • new egg coming…'); lockMults(); return; }
-      if (phase === 'tapping') { lockMults(); return; } // keep the round-start message
+      var el = $('vaultHint'); if (!el) return;
+      if (locked) { el.textContent = tr('Round complete • resetting…'); return; }
       var can = affordable(COST, playMult);
       el.textContent = can
-        ? (tr(hadRound ? 'Tap the new egg 3 times' : 'Tap the egg 3 times to smash') + (playMult > 1 ? ' x' + playMult : '') + ' • ' + (COST * playMult) + ' ' + tr('PT'))
+        ? (tr(played ? 'Pick another vault' : 'Tap a vault to open it') + (playMult > 1 ? ' x' + playMult : '') + ' • ' + (COST * playMult) + ' ' + tr('PT'))
         : tr('Not enough points');
     }
     var refresh = wireMultBar(COST, updateHint);
-    function animate(res) { return new Promise(function (resolve) { if (res.ok) btn.classList.add('smashed'); Game.setT(resolve, 320); }); }
-    // RESULT -> RESETTING -> READY. Egg stays locked the whole way; the tap
-    // counter is zeroed ONLY once the fresh egg is fully visible. Runs for
-    // wins, losses and API errors alike (never replays the paid request).
+    function animate(res) {
+      return new Promise(function (resolve) {
+        if (chosen) {
+          var p = chosen.querySelector('.vault-prize');
+          if (p) p.textContent = res.ok ? (res.won ? '+' + res.win : '—') : '—';
+          chosen.classList.add('open');
+          if (res.ok && res.won) chosen.classList.add('win');
+        }
+        Game.setT(resolve, 620);
+      });
+    }
     function onRoundDone() {
-      phase = 'result';
       updateHint();
       Game.setT(function () {
-        phase = 'resetting';
-        btn.classList.add('egg-resetting');                 // broken egg fades out
-        updateHint();
-        Game.setT(function () {
-          taps = 0;                                         // counter resets ONLY here
-          btn.className = 'egg-btn egg-locked egg-fresh';   // fresh egg fades in, still locked
-          btn.setAttribute('aria-disabled', 'true');
-          autoResetMult(COST);
-          Game.setT(function () {
-            btn.classList.remove('egg-fresh');
-            phase = 'ready';
-            readyAt = Date.now();
-            lockEgg(false);
-            refresh();                                      // re-enables multipliers + hint
-          }, 300);
-        }, 240);
-      }, 1000);                                             // prize + broken egg stay visible
+        doors.forEach(function (d) { d.classList.remove('open', 'win', 'chosen'); var p = d.querySelector('.vault-prize'); if (p) p.textContent = ''; });
+        row.classList.remove('picked');
+        autoResetMult(COST); refresh();
+        Game.setT(function () { locked = false; played = true; chosen = null; updateHint(); }, 360);
+      }, 1200);
     }
-    // Keyboard: one tap per Enter/Space press — no key-repeat rounds, and no
-    // queued activations while the egg is locked.
-    btn.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
-      if (e.repeat || phase === 'processing' || phase === 'result' || phase === 'resetting') e.preventDefault();
-    });
-    // Track when a physical press starts: a press that began BEFORE the fresh
-    // egg was ready (buffered tap / finger still held down) never counts.
-    ['pointerdown', 'touchstart', 'mousedown'].forEach(function (evt) {
-      btn.addEventListener(evt, function () { pressStart = Date.now(); }, { passive: true });
-    });
-    btn.onclick = function (e) {
-      if (phase !== 'ready' && phase !== 'tapping') return; // locked: ignore completely
-      if (Game.running) return;
-      // New rounds need a NEW intentional press (finger released after ready).
-      if (e && e.detail !== 0 && pressStart && pressStart < readyAt) return;
-      if (!affordable(COST, playMult)) { toast(tr('Not enough points.')); return; }
-      if (taps === 0) { phase = 'tapping'; lockMults(); }   // multiplier fixed for the round
-      taps++;
-      btn.classList.add('t' + taps);
-      btn.classList.remove('shaking'); void btn.offsetWidth; btn.classList.add('shaking');
-      haptic();
-      if (taps >= 3) {
-        phase = 'processing';                               // locked NOW, before the API call
-        hadRound = true;
-        lockEgg(true);
-        updateHint();
+    doors.forEach(function (door) {
+      door.onclick = function () {
+        if (locked || Game.running || chosen) return;
+        if (!affordable(COST, playMult)) { toast(tr('Not enough points.')); return; }
+        chosen = door; locked = true;
+        row.classList.add('picked'); door.classList.add('chosen');
+        haptic();
         runRound('egg', COST, animate, onRoundDone);
-      }
-    };
+      };
+    });
     updateHint();
   }
 
-  // ---- Scratch Card (cost mirrors GAME_CONFIG.scratch in worker.ts) - prizes mirror GAME_CONFIG.scratch ----
+  // ---- LE888 FLIP — pick a card, flip to reveal (engine key: 'scratch') ----
+  // 12-card grid. Tapping one card = exactly ONE paid round (play_id guarded).
+  // The chosen card flips to reveal the server's decided prize; odds/prizes/cost
+  // are unchanged (same /api/arcade/play 'scratch' draw).
   function gameScratch() {
-    openOverlay('SCRATCH CARD');
-    var COST = (state.game_costs && state.game_costs.scratch) || 12;
+    openOverlay('LE888 FLIP');
+    var COST = (state.game_costs && state.game_costs.scratch) || 10;
+    var CARDS = 12;
+    var cells = '';
+    for (var ci = 0; ci < CARDS; ci++) {
+      cells +=
+        '<button type="button" class="flip-card" data-fc="' + ci + '">' +
+          '<span class="flip-inner">' +
+            '<span class="flip-back">' +
+              '<img class="flip-back-img" src="/img/games/flip-cardback.webp" alt="" onerror="this.style.display=\'none\'">' +
+              '<span class="flip-back-logo">LE<b>888</b></span>' +
+            '</span>' +
+            '<span class="flip-front"></span>' +
+          '</span>' +
+        '</button>';
+    }
     $('overlayStage').innerHTML =
-      '<div class="scratch-card">' +
-      '<div id="scratchUnder" style="position:absolute;inset:0;border-radius:16px;display:grid;place-items:center;' +
-      'background:radial-gradient(circle at 50% 42%, #221a0d, #0d0d10 72%);border:1px solid rgba(255,138,31,.28);color:#ff8a1f;font:800 32px Manrope,sans-serif">&#9733;</div>' +
-      '<canvas id="scratchCv" class="game-canvas" width="280" height="160" style="position:absolute;inset:0"></canvas></div>' +
-      '<p class="panel-note" style="margin-top:10px" id="scratchHint"></p>' +
+      '<img class="game-hero-art" src="/img/games/flip-title.webp" alt="" onerror="this.style.display=\'none\'">' +
+      '<div class="flip-grid" id="flipGrid">' + cells + '</div>' +
+      '<p class="panel-note" style="margin-top:10px" id="flipHint"></p>' +
       multBarHTML() +
       '<div class="prize-strip">' + tr('Prizes') + '&nbsp; ' + prizeStrip('scratch') + '</div>';
-    var cv = $('scratchCv'), ctx = cv.getContext('2d');
-    function drawCover() {
-      ctx.globalCompositeOperation = 'source-over';
-      var base = ctx.createLinearGradient(0, 0, 0, 160);
-      base.addColorStop(0, '#2c2c32'); base.addColorStop(.5, '#1b1b20'); base.addColorStop(1, '#242429');
-      ctx.fillStyle = base; ctx.fillRect(0, 0, 280, 160);
-      var sheen = ctx.createLinearGradient(0, 0, 280, 160);
-      sheen.addColorStop(.38, 'rgba(255,138,31,0)'); sheen.addColorStop(.5, 'rgba(255,138,31,.16)'); sheen.addColorStop(.62, 'rgba(255,138,31,0)');
-      ctx.fillStyle = sheen; ctx.fillRect(0, 0, 280, 160);
-      ctx.strokeStyle = 'rgba(255,138,31,.4)'; ctx.lineWidth = 2; ctx.strokeRect(6, 6, 268, 148);
-      ctx.fillStyle = '#ff8a1f'; ctx.font = '800 15px Manrope, sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(tr('SCRATCH HERE'), 140, 88);
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.lineWidth = 34; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    }
-    drawCover();
-    var done = false, drawing = false, last = null, checkTick = 0;
-    // Round lock: from the moment a card reveals until a fresh card is ready
-    // AND the player lifts their finger, no scratch counts. This stops one
-    // continuous swipe from revealing card 1, then auto-scratching card 2 into
-    // a second paid round.
-    var locked = false, played = false, pressStart = 0, readyAt = Date.now();
+    var grid = $('flipGrid');
+    var cards = Array.prototype.slice.call(grid.querySelectorAll('.flip-card'));
+    var locked = false, played = false, chosen = null;
     function updateHint() {
-      if (locked) { $('scratchHint').textContent = tr('Round complete • new card coming…'); return; }
+      var el = $('flipHint'); if (!el) return;
+      if (locked) { el.textContent = tr('Round complete • new cards coming…'); return; }
       var can = affordable(COST, playMult);
-      $('scratchHint').textContent = can ? (tr(played ? 'Scratch the new card' : 'Scratch to reveal') + (playMult > 1 ? ' x' + playMult : '') + ' • ' + (COST * playMult) + ' ' + tr('PT')) : tr('Not enough points');
+      el.textContent = can
+        ? (tr(played ? 'Tap a new card' : 'Tap any card to begin') + (playMult > 1 ? ' x' + playMult : '') + ' • ' + (COST * playMult) + ' ' + tr('PT'))
+        : tr('Not enough points');
     }
     var refresh = wireMultBar(COST, updateHint);
-    function pos(e) {
-      var rect = cv.getBoundingClientRect();
-      var t = (e.touches && e.touches[0]) ? e.touches[0] : e;
-      return { x: (t.clientX - rect.left) * (280 / rect.width), y: (t.clientY - rect.top) * (160 / rect.height) };
-    }
-    // True coverage from CLEARED PIXELS (alpha), sampled for performance.
-    function clearedFraction() {
-      try {
-        var data = ctx.getImageData(0, 0, 280, 160).data;
-        var cleared = 0, total = 0;
-        for (var i = 3; i < data.length; i += 4 * 32) { total++; if (data[i] < 40) cleared++; }
-        return total ? cleared / total : 0;
-      } catch (e) { return 0; }
-    }
-    function scratch(p) {
-      if (locked || done || Game.running || !affordable(COST, playMult)) return;
-      // Only count scratches from a press that STARTED after the card was armed.
-      // A swipe that began before reveal (finger never lifted) is ignored.
-      if (pressStart && pressStart < readyAt) return;
-      if (last) { ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
-      ctx.beginPath(); ctx.arc(p.x, p.y, 17, 0, 7); ctx.fill();
-      last = p;
-      if ((++checkTick % 6) === 0 && clearedFraction() > 0.5) reveal();
-    }
-    function resetCard() {
-      done = false; last = null; checkTick = 0;
-      cv.style.transition = 'none'; cv.style.opacity = '1';
-      $('scratchUnder').innerHTML = '&#9733;';
-      drawCover();
-    }
     function animate(res) {
       return new Promise(function (resolve) {
-        if (res.ok) $('scratchUnder').textContent = res.won ? '+' + res.win : '—';
-        cv.style.transition = 'opacity .45s'; cv.style.opacity = '0';
-        Game.setT(resolve, 300);
+        if (chosen) {
+          var face = chosen.querySelector('.flip-front');
+          if (face) face.textContent = res.ok ? (res.won ? '+' + res.win : '—') : '—';
+          chosen.classList.add('flipped');
+          if (res.ok && res.won) chosen.classList.add('win');
+        }
+        Game.setT(resolve, 560);
       });
     }
-    // RESULT -> RESETTING -> READY. The card stays locked the whole way; it only
-    // re-arms once a fresh card is shown AND the player must start a new press.
     function onRoundDone() {
-      updateHint();                       // "Round complete • new card coming…"
+      updateHint();
       Game.setT(function () {
-        resetCard();                      // fresh cover, done=false (still locked)
+        cards.forEach(function (c) { c.classList.remove('flipped', 'win'); var f = c.querySelector('.flip-front'); if (f) f.textContent = ''; });
+        grid.classList.remove('picked');
         autoResetMult(COST); refresh();
-        Game.setT(function () {
-          locked = false;
-          played = true;                  // hint now reads "Scratch the new card"
-          readyAt = Date.now();           // new presses after this moment count
-          updateHint();
-        }, 350);
-      }, 1000);                           // keep the prize + revealed card visible
+        Game.setT(function () { locked = false; played = true; chosen = null; updateHint(); }, 360);
+      }, 1100);
     }
-    function reveal() {
-      if (locked || done || Game.running) return;
-      if (!affordable(COST, playMult)) { toast(tr('Not enough points.')); return; }
-      done = true; locked = true;         // lock BEFORE the paid round starts
-      runRound('scratch', COST, animate, onRoundDone);
-    }
-    cv.addEventListener('pointerdown', function (e) { pressStart = Date.now(); drawing = true; last = null; scratch(pos(e)); e.preventDefault(); });
-    cv.addEventListener('pointermove', function (e) { if (drawing) { scratch(pos(e)); e.preventDefault(); } });
-    cv.addEventListener('pointerup', function () { drawing = false; last = null; });
-    cv.addEventListener('pointercancel', function () { drawing = false; last = null; });
-    cv.addEventListener('touchstart', function (e) { pressStart = Date.now(); drawing = true; last = null; scratch(pos(e)); e.preventDefault(); }, { passive: false });
-    cv.addEventListener('touchmove', function (e) { if (drawing) { scratch(pos(e)); e.preventDefault(); } }, { passive: false });
+    cards.forEach(function (card) {
+      card.onclick = function () {
+        if (locked || Game.running || chosen) return;
+        if (!affordable(COST, playMult)) { toast(tr('Not enough points.')); return; }
+        chosen = card; locked = true;
+        grid.classList.add('picked');
+        card.classList.add('chosen');
+        haptic();
+        runRound('scratch', COST, animate, onRoundDone);
+      };
+    });
     updateHint();
   }
 
