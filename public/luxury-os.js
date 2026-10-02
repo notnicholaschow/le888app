@@ -105,13 +105,10 @@ function wireOsHome() {
   if (!stage) return;
   document.querySelector("#os-player").onclick = quickProfile;
   document.querySelector("#os-notifications").onclick = notifications;
-  document.querySelector("#os-play").onclick = () => go("game");
+  document.querySelector("#os-play").onclick = () => go("games");
   document.querySelectorAll("[data-os-index]").forEach(
     (b) =>
-      (b.onclick = () => {
-        const i = Number(b.dataset.osIndex);
-        i === state.game ? go("game") : osSelect(i);
-      }),
+      (b.onclick = () => { go("games"); }),
   );
   document
     .querySelectorAll("[data-os-step]")
