@@ -1193,8 +1193,11 @@ body.luxury-os .os-command-center {
 .drawer-pinned .brand-img,.drawer-top .brand-img{height:52px}
 @media(max-width:370px){.home-compact-header .brand-img{height:38px}}
 
-/* sticky header fix v2 — clip only the X axis so the WINDOW stays the vertical
-   scroller; then position:sticky binds to the viewport (works on iOS Safari).
-   (Full overflow:clip made .app-frame the containing block and broke sticky.) */
-.app-frame{overflow:visible!important;overflow-x:clip!important}
+/* sticky header fix v3 — Safari breaks position:sticky when ANY ancestor has a
+   clipped overflow (even overflow-x). So the header's ancestor (.app-frame) is
+   overflow:visible, and the horizontal bleed (coverflow side cards) is clipped on
+   #screen instead, which is the header's SIBLING — not an ancestor. Works in
+   Safari, Chrome, Firefox. */
+.app-frame{overflow:visible!important}
+#screen{overflow-x:clip}
 .app-frame>header{position:sticky!important;top:0!important;z-index:50}
