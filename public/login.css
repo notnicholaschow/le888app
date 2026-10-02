@@ -23,3 +23,6 @@ footer{margin-top:20px}
 @media(max-width:380px){.login-shell{width:calc(100% - 12px);margin:6px auto;min-height:calc(100svh - 12px);padding:153px 18px}.member-login{padding:22px 18px}.login-brand{top:24px}.login-brand a{font-size:53px}.scene-caption{bottom:30px}.login-help{font-size:9px}.login-help button{font-size:10px}h1{font-size:25px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 
+
+/* uploaded LE888 logo image */
+.login-brand .login-logo-img{display:block;width:min(270px,72%);height:auto;margin:0 auto;filter:drop-shadow(0 3px 14px #000)}

@@ -282,7 +282,7 @@ render = function () {
   if (state.page === "home") {
     header.classList.remove("home-compact-header");
     header.classList.add("os-home-header");
-    header.innerHTML = `<button class="icon-btn" id="os-menu" aria-label="Open Command Center" aria-controls="side-menu" aria-expanded="false">${icon("menu")}</button><button class="header-home-logo" aria-label="LE888 — Return to Home"><span class="logo">LE888</span><small>LUXURY GAMING OS</small></button><button class="icon-btn" id="os-chat" aria-label="Live Chat">${icon("chat")}<i class="chat-dot"></i></button>`;
+    header.innerHTML = `<button class="icon-btn" id="os-menu" aria-label="Open Command Center" aria-controls="side-menu" aria-expanded="false">${icon("menu")}</button><button class="header-home-logo" aria-label="LE888 — Return to Home"><img class="brand-img" src="/assets/logo888.webp" alt="LE888"></button><button class="icon-btn" id="os-chat" aria-label="Live Chat">${icon("chat")}<i class="chat-dot"></i></button>`;
     header.querySelector("#os-menu").onclick = menu;
     header.querySelector("#os-chat").onclick = () => go("chat");
     header.querySelector(".header-home-logo").onclick = () => go("home");

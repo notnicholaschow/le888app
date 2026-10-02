@@ -25,7 +25,7 @@ function wirePromotions(){
  promotionTimer=setInterval(()=>{if(!reduced&&Date.now()-lastInteraction>4500&&!interacting&&!document.hidden&&!region.contains(document.activeElement)&&!document.querySelector('dialog[open]'))slide(index+1)},4500);
 }
 // iOS-inspired presentation layer; all existing preview routes remain available.
-const brand=()=>`<div class="brand-lockup">${icon('crown')}<div class="logo">LE888</div><small>PLAY MORE TOGETHER</small></div>`;
+const brand=()=>`<img class="brand-img" src="/assets/logo888.webp" alt="LE888">`;
 state.vibration=true;state.featured=0;state.notificationsCleared=false;state.language='English';state.appearance='System';
 const side=document.createElement('dialog');side.id='side-menu';side.className='side-drawer';side.setAttribute('aria-label','Main menu');document.body.append(side);
 function closeSide(){side.close();document.body.classList.remove('drawer-open');document.querySelector('[aria-controls="side-menu"]')?.setAttribute('aria-expanded','false')}

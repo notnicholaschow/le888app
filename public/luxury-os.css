@@ -1186,3 +1186,9 @@ body.luxury-os .os-command-center {
   outline: 2px solid #efcd90;
   outline-offset: 3px;
 }
+
+/* uploaded LE888 logo image */
+.brand-img{display:block;height:44px;width:auto;margin:0 auto;object-fit:contain}
+.home-compact-header .brand-img{height:46px}
+.drawer-pinned .brand-img,.drawer-top .brand-img{height:52px}
+@media(max-width:370px){.home-compact-header .brand-img{height:38px}}
