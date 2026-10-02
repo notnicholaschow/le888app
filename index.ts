@@ -789,6 +789,56 @@ const INSTALL_HTML = `<!doctype html>
 // Entry point
 // ---------------------------------------------------------------------------
 
+// ===== STEP-1 PREVIEW ONLY — temporary demo member API ======================
+// Matches the new frontend's /api/member/* contract with DEMO data.
+// Login accepts any non-empty username+password; balances are fake; no real
+// money moves. Replace this whole function with real backend logic in step 2.
+async function handleMemberDemo(request: Request, url: URL): Promise<Response> {
+  const p = url.pathname;
+  const method = request.method.toUpperCase();
+  const COOKIE = 'le888sid';
+  const hasCookie = (request.headers.get('Cookie') || '').indexOf(COOKIE + '=') !== -1;
+  function j(data: unknown, status: number, setCookie?: string): Response {
+    const r = new Response(JSON.stringify(data), {
+      status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+    if (setCookie !== undefined) {
+      const maxAge = setCookie ? 86400 : 0;
+      r.headers.append('Set-Cookie', COOKIE + '=' + setCookie + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + maxAge);
+    }
+    return r;
+  }
+  if (p === '/api/member/login' && method === 'POST') {
+    let body: { username?: string; password?: string } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const u = String((body && body.username) || '').trim();
+    const pw = String((body && body.password) || '');
+    if (!u || !pw) return j({ error: 'Enter your username and password.' }, 400);
+    return j({ ok: true }, 200, 'demo');
+  }
+  if (p === '/api/member/me' && method === 'GET') {
+    if (!hasCookie) return j({ error: 'Please sign in.' }, 401);
+    const now = Date.now();
+    const day = 86400000;
+    return j({
+      member: { username: 'player1', id: 'demo0001preview0000', points: 2480 },
+      ledger: [
+        { delta: 1000, created_at: new Date(now - day * 6).toISOString() },
+        { delta: -200, created_at: new Date(now - day * 4).toISOString() },
+        { delta: 500, created_at: new Date(now - day * 2).toISOString() },
+        { delta: -120, created_at: new Date(now - day).toISOString() },
+        { delta: 300, created_at: new Date(now - 3600000).toISOString() },
+      ],
+    }, 200);
+  }
+  if ((p === '/api/member/logout' || p === '/api/member/password') && method === 'POST') {
+    return j({ ok: true }, 200, '');
+  }
+  return j({ error: 'Not found' }, 404);
+}
+// ===== end step-1 preview demo API ==========================================
+
 export default {
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runScheduledPushes(env));
@@ -799,6 +849,24 @@ export default {
     const rid = crypto.randomUUID();
 
     try {
+      // ===== STEP-1 PREVIEW: temporary demo member API + /login gate ==========
+      // Serves the exact new frontend with DEMO data so you can see it now.
+      // Your real backend (everything below) is untouched. In step 2 we replace
+      // handleMemberDemo() with real database-backed member data + auth.
+      if (url.pathname.startsWith('/api/member/')) {
+        return await handleMemberDemo(request, url);
+      }
+      if (request.method === 'GET' && (url.pathname === '/login' || url.pathname === '/login.html')) {
+        const res = await env.ASSETS.fetch(new Request(new URL('/login.html', request.url).toString(), request));
+        return decorateAsset(res, true);
+      }
+      if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+        const authed = (request.headers.get('Cookie') || '').indexOf('le888sid=') !== -1;
+        if (!authed) return Response.redirect(new URL('/login', request.url).toString(), 302);
+        // authed -> fall through and serve public/index.html via ASSETS below
+      }
+      // ===== end step-1 preview block =======================================
+
       if (url.pathname.startsWith('/api/')) {
         return await handleApi(request, env, ctx, rid);
       }
