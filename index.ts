@@ -789,55 +789,115 @@ const INSTALL_HTML = `<!doctype html>
 // Entry point
 // ---------------------------------------------------------------------------
 
-// ===== STEP-1 PREVIEW ONLY — temporary demo member API ======================
-// Matches the new frontend's /api/member/* contract with DEMO data.
-// Login accepts any non-empty username+password; balances are fake; no real
-// money moves. Replace this whole function with real backend logic in step 2.
-async function handleMemberDemo(request: Request, url: URL): Promise<Response> {
+// ===== Member API bridge (step 2) — new frontend (cookie session) -> your real
+// players backend. Verifies the real password, stores your signed player token in
+// an HttpOnly cookie, and returns real points + points-ledger. Reward credits stay
+// separate (not shown here). Games/deposits/withdrawals remain their own flows.
+async function handleMember(request: Request, env: Env, url: URL): Promise<Response> {
   const p = url.pathname;
   const method = request.method.toUpperCase();
   const COOKIE = 'le888sid';
-  const hasCookie = (request.headers.get('Cookie') || '').indexOf(COOKIE + '=') !== -1;
-  function j(data: unknown, status: number, setCookie?: string): Response {
+  const ip = clientIp(request);
+  function j(data: unknown, status: number, cookie?: string): Response {
     const r = new Response(JSON.stringify(data), {
       status,
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
-    if (setCookie !== undefined) {
-      const maxAge = setCookie ? 86400 : 0;
-      r.headers.append('Set-Cookie', COOKIE + '=' + setCookie + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + maxAge);
+    if (cookie !== undefined) {
+      const maxAge = cookie ? PLAYER_SESSION_SECONDS : 0;
+      r.headers.append('Set-Cookie', COOKIE + '=' + cookie + '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=' + maxAge);
     }
     return r;
   }
-  if (p === '/api/member/login' && method === 'POST') {
-    let body: { username?: string; password?: string } = {};
-    try { body = await request.json(); } catch (e) { /* ignore */ }
-    const u = String((body && body.username) || '').trim();
-    const pw = String((body && body.password) || '');
-    if (!u || !pw) return j({ error: 'Enter your username and password.' }, 400);
-    return j({ ok: true }, 200, 'demo');
+  function cookieToken(): string {
+    const c = request.headers.get('Cookie') || '';
+    for (const part of c.split(/;\s*/)) {
+      if (part.indexOf(COOKIE + '=') === 0) return part.slice(COOKIE.length + 1);
+    }
+    return '';
   }
+  async function currentPlayer(): Promise<PlayerRow | null> {
+    const tok = cookieToken();
+    if (!tok) return null;
+    const claim = await verifyToken(env, tok, 'player');
+    if (!claim) return null;
+    const row = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(Number(claim.sub)).first<PlayerRow>();
+    if (!row || (row.session_version || 1) !== claim.ver) return null;
+    return row;
+  }
+  function isoDate(s: unknown): string {
+    const v = String(s || '');
+    if (!v) return new Date().toISOString();
+    if (v.indexOf('Z') !== -1 || v.indexOf('T') !== -1) return v;
+    return v.replace(' ', 'T') + 'Z';
+  }
+
+  // ---- LOGIN (real password check; token goes into an HttpOnly cookie) ----
+  if (p === '/api/member/login' && method === 'POST') {
+    let body: { username?: unknown; password?: unknown } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const username = normalizeUsername(body.username);
+    const password = String((body && body.password) || '');
+    if (!username || !password) return j({ error: 'Invalid username or password.' }, 401);
+    const lockKey = 'login:player:' + username;
+    if ((await isLockedOut(env, lockKey)) || !(await rateLimit(env, 'login:ip:' + ip, 30, 300))) {
+      return j({ error: 'Too many attempts. Please try again later.' }, 429);
+    }
+    const row = await env.DB.prepare('SELECT * FROM players WHERE username = ?').bind(username).first<PlayerRow>();
+    if (!row || !(await verifyPassword(password, row.password))) {
+      await recordAuthFail(env, lockKey, 8, 900);
+      return j({ error: 'Invalid username or password.' }, 401);
+    }
+    if (row.status !== 'active') return j({ error: 'This account is not active. Please contact support.' }, 403);
+    await clearAuthFail(env, lockKey);
+    const token = await signToken(env, 'player', String(row.id), row.session_version || 1, PLAYER_SESSION_SECONDS);
+    return j({ ok: true }, 200, token);
+  }
+
+  // ---- ME (real points + points-ledger) ----
   if (p === '/api/member/me' && method === 'GET') {
-    if (!hasCookie) return j({ error: 'Please sign in.' }, 401);
-    const now = Date.now();
-    const day = 86400000;
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const { results } = await env.DB
+      .prepare('SELECT type, amount, note, created_at FROM point_activity WHERE player_id = ? ORDER BY id DESC LIMIT 100')
+      .bind(player.id)
+      .all<{ type: string; amount: number; note: string | null; created_at: string }>();
+    const ledger = (results || []).map((r) => ({
+      delta: Number(r.amount) || 0,
+      created_at: isoDate(r.created_at),
+      type: r.type,
+      note: r.note || '',
+    }));
     return j({
-      member: { username: 'player1', id: 'demo0001preview0000', points: 2480 },
-      ledger: [
-        { delta: 1000, created_at: new Date(now - day * 6).toISOString() },
-        { delta: -200, created_at: new Date(now - day * 4).toISOString() },
-        { delta: 500, created_at: new Date(now - day * 2).toISOString() },
-        { delta: -120, created_at: new Date(now - day).toISOString() },
-        { delta: 300, created_at: new Date(now - 3600000).toISOString() },
-      ],
+      member: { username: player.username, id: String(player.id), points: Number(player.points) || 0 },
+      ledger,
     }, 200);
   }
-  if ((p === '/api/member/logout' || p === '/api/member/password') && method === 'POST') {
+
+  // ---- LOGOUT ----
+  if (p === '/api/member/logout' && method === 'POST') {
     return j({ ok: true }, 200, '');
   }
+
+  // ---- PASSWORD (real; bumps session_version, clears cookie) ----
+  if (p === '/api/member/password' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (!(await rateLimit(env, 'pwd:' + player.id, 6, 300))) return j({ error: 'Too many attempts. Please try again later.' }, 429);
+    let body: { currentPassword?: unknown; newPassword?: unknown } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const current = String((body && body.currentPassword) || '');
+    const next = String((body && body.newPassword) || '');
+    if (next.length < 8) return j({ error: 'New password must be at least 8 characters.' }, 400);
+    if (!(await verifyPassword(current, player.password))) return j({ error: 'Current password is incorrect.' }, 401);
+    const hash = await hashPassword(next);
+    await env.DB.prepare("UPDATE players SET password = ?, session_version = session_version + 1, updated_at = datetime('now') WHERE id = ?").bind(hash, player.id).run();
+    return j({ ok: true }, 200, '');
+  }
+
   return j({ error: 'Not found' }, 404);
 }
-// ===== end step-1 preview demo API ==========================================
+// ===== end member API bridge ================================================
 
 export default {
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -849,12 +909,12 @@ export default {
     const rid = crypto.randomUUID();
 
     try {
-      // ===== STEP-1 PREVIEW: temporary demo member API + /login gate ==========
-      // Serves the exact new frontend with DEMO data so you can see it now.
-      // Your real backend (everything below) is untouched. In step 2 we replace
-      // handleMemberDemo() with real database-backed member data + auth.
+      // ===== Member API + /login gate =======================================
+      // The new frontend talks to /api/member/* (cookie session). handleMember
+      // verifies the real password, keeps your signed player token in an
+      // HttpOnly cookie, and returns real points + points-ledger from D1.
       if (url.pathname.startsWith('/api/member/')) {
-        return await handleMemberDemo(request, url);
+        return await handleMember(request, env, url);
       }
       if (request.method === 'GET' && (url.pathname === '/login' || url.pathname === '/login.html')) {
         const res = await env.ASSETS.fetch(new Request(new URL('/login.html', request.url).toString(), request));
