@@ -1187,11 +1187,6 @@ body.luxury-os .os-command-center {
   outline-offset: 3px;
 }
 
-/* uploaded LE888 logo image */
-.brand-img{display:block;height:44px;width:auto;margin:0 auto;object-fit:contain}
-.home-compact-header .brand-img{height:46px}
-.drawer-pinned .brand-img,.drawer-top .brand-img{height:52px}
-@media(max-width:370px){.home-compact-header .brand-img{height:38px}}
 
 /* sticky header fix v3 — Safari breaks position:sticky when ANY ancestor has a
    clipped overflow (even overflow-x). So the header's ancestor (.app-frame) is
@@ -1201,3 +1196,10 @@ body.luxury-os .os-command-center {
 .app-frame{overflow:visible!important}
 #screen{overflow-x:clip}
 .app-frame>header{position:sticky!important;top:0!important;z-index:50}
+
+/* LE888 logo image sizing (bigger header + sub-page headers) */
+.brand-img{display:block;height:54px;width:auto;margin:0 auto;object-fit:contain}
+.os-home-header .brand-img,.home-compact-header .brand-img{height:56px}
+.drawer-pinned .brand-img,.drawer-top .brand-img{height:52px}
+.branded-page-header .brand-img,.header-page-identity .brand-img{height:40px}
+@media(max-width:370px){.os-home-header .brand-img,.home-compact-header .brand-img{height:48px}}

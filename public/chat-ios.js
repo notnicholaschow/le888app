@@ -17,6 +17,6 @@ render=function(){
  const existingBrand=header.querySelector('.brand-lockup');
  const logoButton=document.createElement('button');logoButton.type='button';logoButton.className='header-home-logo';logoButton.setAttribute('aria-label','LE888 — Return to Home');logoButton.title='Return to Home';logoButton.onclick=()=>go('home');
  if(existingBrand){existingBrand.before(logoButton);logoButton.append(existingBrand)}
- else{const title=header.querySelector('.page-title,.game-header,.chat-header-title');if(title){const identity=document.createElement('div');identity.className='header-page-identity';title.before(identity);logoButton.innerHTML='<span class="logo">LE888</span>';identity.append(logoButton,title)}}
+ else{const title=header.querySelector('.page-title,.game-header,.chat-header-title');if(title){const identity=document.createElement('div');identity.className='header-page-identity';title.before(identity);logoButton.innerHTML='<img class="brand-img" src="/assets/logo888.webp" alt="LE888">';identity.append(logoButton,title)}}
 };
 render();
