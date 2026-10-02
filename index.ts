@@ -868,8 +868,12 @@ async function handleMember(request: Request, env: Env, url: URL): Promise<Respo
       type: r.type,
       note: r.note || '',
     }));
+    // Side-menu/profile shows the DISPLAY NAME (what the player/staff set) and a
+    // friendly LEXXXX player ID. username stays as the login handle (fallback name).
+    const displayName = (player.display_name && String(player.display_name).trim()) ? String(player.display_name).trim() : player.username;
+    const playerCode = 'LE' + String(player.id).padStart(4, '0');
     return j({
-      member: { username: player.username, id: String(player.id), points: Number(player.points) || 0 },
+      member: { username: displayName, id: playerCode, points: Number(player.points) || 0 },
       ledger,
     }, 200);
   }
