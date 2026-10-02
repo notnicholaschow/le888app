@@ -1,0 +1,47 @@
+/* Shared Black Orange Aurora for every route and modal surface. */
+:root{--aurora-light:radial-gradient(ellipse 85% 43% at -10% 14%,#e875314d,transparent 74%),radial-gradient(ellipse 73% 46% at 112% 56%,#cf75283d,transparent 76%),radial-gradient(ellipse 92% 30% at 24% 106%,#ed963442,transparent 77%),radial-gradient(ellipse 65% 27% at 77% 2%,#a644201f,transparent 75%)}
+body{background:radial-gradient(ellipse at 45% 28%,#8b461b20,transparent 60%),#080708}
+body .app-frame,body:is(.copper-home,.arcade-aurora,.ios-chat-page) .app-frame{background:#080708;isolation:isolate;overflow:clip}
+body .app-frame::before,body:is(.copper-home,.arcade-aurora,.ios-chat-page) .app-frame::before{content:"";position:fixed;inset:0 auto 0 50%;transform:translateX(-50%);width:min(460px,100vw);height:100dvh;z-index:-1;pointer-events:none;background:var(--aurora-light);background-size:125% 135%;filter:blur(29px);opacity:.9;animation:unified-aurora 22s ease-in-out infinite alternate;mix-blend-mode:normal}
+body .app-frame::after,body.copper-home .app-frame::after{content:none}
+body .app-frame>header{background:#120c0955;border-bottom:0;box-shadow:none;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+body.arcade-aurora .app-frame>header{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+body.arcade-aurora{--aurora-light:radial-gradient(ellipse 80% 48% at -8% 12%,#f27d3466,transparent 74%),radial-gradient(ellipse 76% 49% at 110% 50%,#ce692452,transparent 75%),radial-gradient(ellipse 85% 28% at 35% 102%,#ffad3d48,transparent 76%)}
+body.arcade-aurora .app-frame::after{content:"";position:fixed;inset:0 auto 0 50%;transform:translateX(-50%);width:min(460px,100vw);height:100dvh;pointer-events:none;z-index:-1;opacity:.5;background:radial-gradient(circle at 9% 22%,#ffd9a0 0 1px,transparent 2px),radial-gradient(circle at 87% 18%,#efba67 0 1px,transparent 2px),radial-gradient(circle at 19% 53%,#f5c184 0 1px,transparent 2px),radial-gradient(circle at 92% 64%,#ffbd7d 0 1px,transparent 2px),radial-gradient(circle at 15% 82%,#ffe0a1 0 1px,transparent 2px);animation:arcade-stars 6s ease-in-out infinite alternate}
+.arcade-aurora .deck-page::before{background:conic-gradient(from 195deg at 50% 70%,transparent 0deg,#ec862d13 13deg,transparent 28deg,transparent 270deg,#ffad5a17 291deg,transparent 307deg)}
+.arcade-aurora .deck-card.selected{box-shadow:0 0 7px #ffdb9b,inset 0 0 10px #ff8a1f,0 0 45px #ff8a1f4d,18px 15px 55px #c584321a}
+body .panel{background:linear-gradient(130deg,#241d18cb,#131112c9);border-color:#daba8026}
+body .form-panel input,body .form-panel select{background:#100d0dcc;border-color:#d4b2872d}
+body .tabs{background:#1f1816bd;border:1px solid #ddad7620}
+body .mission,body .rtp-card,body .tier-row{background:linear-gradient(125deg,#272018c9,#141113d6)}
+body .notice{background:#3a231343;border-color:#d49a4f35}
+body .page-intro,body .subtitle{color:#ada397}
+body .settings-row{border-color:#d7b28713}
+body .settings-row>.icon,body .menu-list .icon{color:#c5b9a9}
+body .side-drawer{background:radial-gradient(ellipse at 0% 18%,#b9662e3d,transparent 60%),radial-gradient(ellipse at 100% 70%,#b5752736,transparent 60%),linear-gradient(130deg,#211a17f5,#0d0b0cf7);border-color:#e5b7733d}
+body .drawer-pinned{background:radial-gradient(ellipse at 100% 0%,#93551d25,transparent 80%),linear-gradient(120deg,#262019f7,#191413fa);border-color:#e2b27822}
+body .drawer-grid .drawer-link{background:linear-gradient(140deg,#e7b57709,#ffffff02);border-color:#dec29319}
+body .drawer-grid .drawer-link.active{background:linear-gradient(135deg,#bc823b50,#bd85301a);border-color:#edbb6266}
+body #modal{background:radial-gradient(ellipse at 0% 0%,#d6742a24,transparent 65%),radial-gradient(ellipse at 100% 85%,#b16a202b,transparent 60%),linear-gradient(140deg,#211a16f7,#0b090af7);border-color:#d8aa624d;backdrop-filter:blur(25px)}
+body .accounts-profile-header{background:linear-gradient(130deg,#2e2119df,#1c1512eb);border-bottom-color:#d9b17421}
+body .credit-account-group{background:linear-gradient(120deg,#c88c3709,#ffffff02)}
+body .notification-row{background:linear-gradient(130deg,#54371f24,#ffffff03);border-color:#cca57522}
+body .quick-grid button{background:linear-gradient(140deg,#8c65331a,#ffffff03);border-color:#daba8026}
+/* Chat is a viewport-sized flex layout; its light stays inside that frame. */
+body.ios-chat-page .app-frame::before{position:absolute;inset:0;transform:none;width:100%;height:100%;border-radius:inherit}
+body.ios-chat-page .app-frame>header{background:#1c120d73;flex-shrink:0}
+body.ios-chat-page .chat-composer{background:linear-gradient(120deg,#21150edb,#120e0edf)}
+@keyframes unified-aurora{0%{background-position:0% 5%;opacity:.75}50%{background-position:75% 45%;opacity:1}100%{background-position:25% 100%;opacity:.85}}
+@media(min-width:700px){body .app-frame::before,body:is(.copper-home,.arcade-aurora,.ios-chat-page) .app-frame::before,body.arcade-aurora .app-frame::after{top:25px;bottom:25px;height:calc(100dvh - 50px);border-radius:40px}body.ios-chat-page .app-frame::before{inset:0;height:100%;border-radius:inherit}}
+@media(prefers-reduced-motion:reduce){body .app-frame::before,body:is(.copper-home,.arcade-aurora,.ios-chat-page) .app-frame::before,body.arcade-aurora .app-frame::after{animation:none;background-position:40% 40%}}
+
+/* Shared aurora titles and direct menu access from detail pages. */
+body .app-frame>header.detail-navigation{display:grid;grid-template-columns:82px minmax(0,1fr) 41px;gap:8px;padding-left:16px;padding-right:16px}header.detail-navigation .header-left{gap:6px;align-items:center}header.detail-navigation .header-left>button{width:38px;height:38px;flex-shrink:0}header.detail-navigation>.aurora-title{text-align:center;min-width:0;line-height:1.2;font-size:19px;overflow-wrap:normal;text-wrap:balance;font-style:normal}body .app-frame>header .aurora-title{background:linear-gradient(100deg,#ffe8b4 0%,#ffb958 24%,#fff1d3 44%,#dac1ff 64%,#ffc374 83%,#ffe8b4 100%);background-size:220% 100%;background-clip:text;-webkit-background-clip:text;color:transparent;text-shadow:none;filter:drop-shadow(0 0 6px #ffb24c65) drop-shadow(0 0 15px #b77ae53d);animation:title-aurora 9s ease-in-out infinite alternate}.ios-chat-page header.detail-navigation{grid-template-columns:43px minmax(0,1fr) 41px}.chat-header-title .aurora-title{font-size:18px}@media(max-width:370px){body .app-frame>header.detail-navigation{grid-template-columns:74px minmax(0,1fr) 35px;gap:6px;padding-left:12px;padding-right:12px}header.detail-navigation .header-left{gap:4px}header.detail-navigation .header-left>button{width:35px;height:35px}header.detail-navigation>.aurora-title{font-size:16px}.ios-chat-page header.detail-navigation{grid-template-columns:40px minmax(0,1fr) 35px}}@media(prefers-reduced-motion:reduce){body .app-frame>header .aurora-title{animation:none}}
+/* Home: visible aurora ribbons above the black base, below every control. */
+body.copper-home .app-frame::before{z-index:0;background:radial-gradient(ellipse 95% 32% at 4% 12%,#e6772870,transparent 74%),radial-gradient(ellipse 65% 40% at 100% 48%,#ce632756,transparent 76%),radial-gradient(ellipse 100% 30% at 10% 93%,#ff922b52,transparent 74%);background-size:115% 120%;filter:blur(22px);opacity:1;animation:home-light-field 18s ease-in-out infinite alternate}
+body.copper-home .app-frame::after{content:"";position:fixed;inset:0 auto 0 50%;transform:translateX(-50%);width:min(460px,100vw);height:100dvh;z-index:0;pointer-events:none;background:radial-gradient(ellipse 95% 32% at 105% 12%,transparent 52%,#ffa74638 60%,#d65d1e50 65%,transparent 76%),radial-gradient(ellipse 100% 35% at -8% 57%,transparent 51%,#ffb34e38 62%,#d86a2c38 67%,transparent 79%),radial-gradient(ellipse 85% 32% at 105% 99%,transparent 50%,#ffa13f45 61%,transparent 76%);background-size:112% 120%;filter:blur(12px);opacity:.95;mix-blend-mode:screen;animation:home-light-ribbons 23s ease-in-out infinite alternate}
+body.copper-home #screen{position:relative;z-index:1}body.copper-home .app-frame>header{z-index:10;background:#100a0633;backdrop-filter:blur(18px)}
+@keyframes home-light-field{from{background-position:0% 0%;opacity:.85}to{background-position:85% 70%;opacity:1}}
+@keyframes home-light-ribbons{0%{background-position:0% 5%;opacity:.8}50%{background-position:100% 35%;opacity:1}100%{background-position:20% 100%;opacity:.85}}
+@media(min-width:700px){body.copper-home .app-frame::before,body.copper-home .app-frame::after{top:25px;bottom:25px;height:calc(100dvh - 50px);border-radius:40px}}
+@media(prefers-reduced-motion:reduce){body.copper-home .app-frame::before,body.copper-home .app-frame::after{animation:none;background-position:40% 35%;opacity:.95}}

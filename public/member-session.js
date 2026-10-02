@@ -1,0 +1,27 @@
+// Member API is authoritative for identity and points; game settlement remains disabled.
+state.game_ids=[];state.free_ids=[];state.notificationsCleared=true;
+const memberNotice=(title,copy)=>`<div class="form-panel panel"><h2>${title}</h2><p class="subtitle" style="margin-top:15px">${copy}</p></div>`;
+profile=()=>member(true)+balance()+menuList(profileLinks);
+wallet=()=>balance()+memberNotice('Your account','PTS are allocated by your community administrator. Credit transfers and withdrawals are not available yet.')+menuList([['history','PTS History','history']]);
+account=()=>`<div class="form-panel panel"><label>Username</label><input value="${memberName()}" readonly><label>Member ID</label><input value="${memberID()}" readonly><p class="subtitle" style="margin-top:18px">Contact your administrator for account changes.</p></div>`;
+transactions=()=>`<div class="panel">${memberData.ledger.length?memberData.ledger.map(l=>`<div class="record">${icon('wallet')}<div><b>${l.delta>0?'PTS added':'PTS deducted'}</b><small>${new Date(l.created_at).toLocaleString('en-SG',{timeZone:'Asia/Singapore'})}</small></div><strong>${l.delta>0?'+':''}${Number(l.delta).toLocaleString('en-SG')} PTS</strong></div>`).join(''):'<div class="empty">No PTS activity yet.</div>'}</div>`;
+money=()=>memberNotice('Account service','Please contact your community administrator. Online deposits and withdrawals are not enabled.');
+invite=()=>memberNotice('Invite friends','Ask your community administrator to create an account for your friend.');
+rewards=()=>memberNotice('Rewards','Reward claiming is not available yet. Your current PTS balance comes from your administrator.');
+missionRows=()=>memberNotice('Missions','Missions are not available yet.');
+const memberVipPreview=vip;vip=()=>state.vipTab==='my'?memberNotice('Your membership','You are a community member. No VIP rank has been assigned.')+'<button class="text-link" data-vip-tab="all">Explore Ranks</button>':memberVipPreview();
+notifications=()=>showModal('Notifications','<p>No notifications yet.</p>');
+quickProfile=function(){modal.className='quick-profile accounts-profile';modal.innerHTML=`<div class="accounts-profile-header"><button class="modal-x" aria-label="Close profile">×</button><h2>Your profile</h2><div class="member"><div class="avatar">${icon('user')}</div><div><b>${memberName()}</b><small>ID: ${memberID()}</small></div><span class="vip-badge">MEMBER</span></div><div class="account-summary-points"><span>Available Points<strong>${memberPoints()} PTS</strong></span></div></div><div class="accounts-profile-body"><p class="subtitle">Points are managed by your administrator.</p><div class="quick-grid">${button(icon('wallet')+'My Wallet','wallet')}${button(icon('history')+'PTS History','history')}</div><button class="text-link" data-go="profile">View Full Profile</button></div>`;modal.querySelector('.modal-x').onclick=()=>modal.close();modal.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{modal.close();go(b.dataset.go);});modal.showModal();};
+async function memberLogout(){try{await memberRequest('logout',{});location.replace('/login');}catch(e){toast('Unable to sign out. Please try again.');}}
+const memberOriginalMenu=menu;menu=function(){memberOriginalMenu();side.querySelector('.drawer-logout').onclick=memberLogout;};
+const memberOriginalRender=render;render=function(){memberOriginalRender();const signout=document.querySelector('#signout');if(signout)signout.onclick=memberLogout;
+ const label=document.querySelector('.preview-label');if(label)label.textContent='MEMBER ACCOUNT · GAMES IN PREVIEW';
+ document.querySelector('.os-live-missions')?.remove();
+ if(state.page==='game')screen.insertAdjacentHTML('afterbegin','<div class="notice">Game preview only · No PTS are spent or awarded.</div>');
+ if(state.page==='submit')screen.innerHTML=memberNotice('Credit transfers','Credit transfers are not enabled. Please contact your administrator.');
+ const pw=document.querySelector('#password-form');if(pw){const next=pw.querySelector('#new-pass');next.minLength=10;next.maxLength=128;pw.insertAdjacentHTML('beforeend','<p class="subtitle">Use at least 10 characters. Updating your password signs out all your sessions.</p>');pw.onsubmit=async e=>{e.preventDefault();const button=pw.querySelector('button');button.disabled=true;try{await memberRequest('password',{currentPassword:pw.querySelector('#old-pass').value,newPassword:next.value});location.replace('/login?password=changed');}catch(err){toast(err.message);button.disabled=false;}};}
+};
+let updatingMember=false;
+async function syncMember(){if(updatingMember||document.hidden)return;updatingMember=true;try{const fresh=await memberRequest('me'),changed=fresh.member.points!==memberData.member.points||fresh.ledger.length!==memberData.ledger.length;window.memberData=fresh;if(changed&&!state.busy&&!document.querySelector('dialog[open]'))render();}catch(e){/* Login redirect is handled centrally; transient failures leave existing data visible. */}finally{updatingMember=false;}}
+document.addEventListener('visibilitychange',syncMember);window.addEventListener('focus',syncMember);window.addEventListener('pageshow',e=>{if(e.persisted){document.body.classList.add('member-loading');location.reload();}});setInterval(syncMember,30000);
+render();
