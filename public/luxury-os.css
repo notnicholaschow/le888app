@@ -1192,3 +1192,9 @@ body.luxury-os .os-command-center {
 .home-compact-header .brand-img{height:46px}
 .drawer-pinned .brand-img,.drawer-top .brand-img{height:52px}
 @media(max-width:370px){.home-compact-header .brand-img{height:38px}}
+
+/* sticky header fix — app frame becomes the scroll container (overflow:clip on
+   .app-frame breaks position:sticky on iOS). !important beats the aurora rule. */
+html,body{height:100%;overflow:hidden}
+.app-frame{height:100dvh!important;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}
+.app-frame>header{position:sticky!important;top:0!important;z-index:50}
