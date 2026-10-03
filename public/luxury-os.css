@@ -1223,3 +1223,10 @@ body.luxury-os .os-command-center {
 .bet-control.plinko-cost{justify-content:center}
 .bet-control.plinko-cost #bet-label{letter-spacing:.08em}
 .plinko-slots .pslot{font-size:11px;letter-spacing:0;white-space:nowrap}
+
+/* Orange Drop: pocket strip drawn in CSS when the prize count is not 7 (the artwork has 7 pockets) */
+.plinko-board.custom-pockets .plinko-slots{left:12%;right:12%;bottom:6.5%}
+.plinko-pockets{position:absolute;left:12%;right:12%;top:72.5%;bottom:5%;display:flex;z-index:2;background:linear-gradient(180deg,#0a0705 0%,#140e08 50%,#2b1a09 100%);border-top:2px solid #b8832f;border-bottom:2px solid #6b4312;box-shadow:inset 0 10px 18px -8px #000,0 0 0 1px #3a2a12}
+.plinko-pockets i{flex:1;position:relative;display:block}
+.plinko-pockets i+i{border-left:2px solid #e0b25a;box-shadow:inset 3px 0 6px -3px #fff0c8}
+.plinko-pockets i::after{content:'';position:absolute;left:10%;right:10%;bottom:4%;height:34%;background:radial-gradient(ellipse at 50% 100%,#ff9a2aaa,rgba(255,154,42,0) 72%);pointer-events:none}
