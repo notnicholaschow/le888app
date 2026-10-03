@@ -793,7 +793,7 @@ const INSTALL_HTML = `<!doctype html>
 // players backend. Verifies the real password, stores your signed player token in
 // an HttpOnly cookie, and returns real points + points-ledger. Reward credits stay
 // separate (not shown here). Games/deposits/withdrawals remain their own flows.
-async function handleMember(request: Request, env: Env, url: URL): Promise<Response> {
+async function handleMember(request: Request, env: Env, url: URL, ctx: ExecutionContext, rid: string): Promise<Response> {
   const p = url.pathname;
   const method = request.method.toUpperCase();
   const COOKIE = 'le888sid';
@@ -872,10 +872,50 @@ async function handleMember(request: Request, env: Env, url: URL): Promise<Respo
     // the player's USERNAME as the Player ID — matching the admin panel, where the
     // username IS the Player ID (e.g. le2805). The frontend upper-cases it for display.
     const displayName = (player.display_name && String(player.display_name).trim()) ? String(player.display_name).trim() : player.username;
+    // Game settings come from the admin-managed `game_configs` table
+    // (Admin -> Games): cost in PTS, prize labels (reward credit, SGD) and
+    // whether the game is switched on. Prize labels are the SAME strings the
+    // play response returns in `win`, so the app can map a result to a pocket.
+    const games: Record<string, { cost: number; prizes: string[]; enabled: boolean }> = {};
+    try {
+      const pg = await publicGames(env);
+      for (const g of Object.keys(pg.game_prizes)) {
+        games[g] = { cost: pg.game_costs[g], prizes: pg.game_prizes[g], enabled: !!pg.game_enabled[g] };
+      }
+    } catch (e) { /* games stay empty -> app shows them as unavailable */ }
     return j({
-      member: { username: displayName, id: player.username, points: Number(player.points) || 0 },
+      member: {
+        username: displayName,
+        id: player.username,
+        points: Number(player.points) || 0,
+        reward: centsToStr(Number(player.reward_cents) || 0),
+      },
       ledger,
+      games,
     }, 200);
+  }
+
+  // ---- PLAY (real, cookie session) ----
+  // Bridges the new app to the existing, battle-tested /api/arcade/play:
+  // same idempotent play_id, same atomic PTS deduction, same server-side
+  // prize pick from the admin's prize table. The cookie's signed token is
+  // handed over as a Bearer token so no second auth path exists.
+  if (p === '/api/member/play' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const raw = await request.text();
+    const fwd = new Request(new URL('/api/arcade/play', request.url).toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + cookieToken(),
+        'CF-Connecting-IP': ip,
+      },
+      body: raw,
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   }
 
   // ---- LOGOUT ----
@@ -918,7 +958,7 @@ export default {
       // verifies the real password, keeps your signed player token in an
       // HttpOnly cookie, and returns real points + points-ledger from D1.
       if (url.pathname.startsWith('/api/member/')) {
-        return await handleMember(request, env, url);
+        return await handleMember(request, env, url, ctx, rid);
       }
       if (request.method === 'GET' && (url.pathname === '/login' || url.pathname === '/login.html')) {
         const res = await env.ASSETS.fetch(new Request(new URL('/login.html', request.url).toString(), request));
