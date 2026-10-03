@@ -66,10 +66,10 @@ const TOTAL_WEIGHT = 100;       // prize weights must add up to exactly this
 const MAX_BODY_BYTES = 192 * 1024; // 192 KB request body cap (templates can embed images)
 
 const GAME_LABELS: Record<string, string> = {
-  wheel: 'Lucky Wheel',
-  plinko: 'Plinko',
-  egg: 'Smash the Egg',
-  scratch: 'Scratch Card',
+  wheel: 'LE888 Spin',
+  plinko: 'Orange Drop',
+  egg: 'Lucky Vault',
+  scratch: 'LE888 Flip',
 };
 
 // GC77-exact game economy. DO NOT CHANGE these values or weights.
