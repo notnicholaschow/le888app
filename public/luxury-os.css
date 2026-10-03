@@ -1230,3 +1230,6 @@ body.luxury-os .os-command-center {
 .plinko-pockets i{flex:1;position:relative;display:block}
 .plinko-pockets i+i{border-left:2px solid #e0b25a;box-shadow:inset 3px 0 6px -3px #fff0c8}
 .plinko-pockets i::after{content:'';position:absolute;left:10%;right:10%;bottom:4%;height:34%;background:radial-gradient(ellipse at 50% 100%,#ff9a2aaa,rgba(255,154,42,0) 72%);pointer-events:none}
+
+/* Orange Drop: pockets without a prize (fewer than 7 prizes set in admin) */
+.plinko-slots .pslot.off{opacity:.35}
