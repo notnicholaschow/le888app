@@ -1266,3 +1266,66 @@ body.luxury-os .os-command-center {
 .soon-panel .soon-art{width:min(300px,86%);margin:0 auto 16px;border-radius:14px;overflow:hidden;box-shadow:0 10px 30px #000a}
 .soon-panel .soon-art img{display:block;width:100%}
 .soon-panel .primary-btn{margin-top:18px}
+
+/* LUCKY CROSSING */
+.cross-wrap{margin-top:6px}
+.cross-board{position:relative;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1064/1478;border-radius:18px;overflow:hidden;box-shadow:0 12px 36px #000c;background:#0a0806}
+.cross-road{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.cross-cars{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2}
+.cross-car{position:absolute;width:34%;left:-20%;transform:translate(-50%,-50%);filter:drop-shadow(0 6px 10px #000c)}
+.cross-car.dir-r{animation:crossDriveR var(--dur,2.8s) linear forwards}
+.cross-car.dir-l{animation:crossDriveL var(--dur,2.8s) linear forwards}
+@keyframes crossDriveR{from{left:-22%}to{left:122%}}
+@keyframes crossDriveL{from{left:122%}to{left:-22%}}
+.cross-badges{position:absolute;inset:0;pointer-events:none;z-index:1}
+.cross-badge{position:absolute;left:9.5%;width:15.5%;transform:translate(-50%,-50%);display:grid;place-items:center;transition:transform .25s,filter .25s,opacity .25s}
+.cross-badge img{width:100%;display:block;filter:drop-shadow(0 3px 6px #000c)}
+.cross-badge b{position:absolute;color:#ffe3a0;font-weight:900;font-style:italic;font-size:clamp(10px,3.2vw,14px);text-shadow:0 1px 3px #000;white-space:nowrap}
+.cross-badge.safe{transform:translate(-50%,-50%) scale(1.14);filter:drop-shadow(0 0 10px #ffcf6e)}
+.cross-badge.safe b{color:#fff;text-shadow:0 0 8px #ffcf6e,0 1px 3px #000}
+.cross-chicken{position:absolute;left:50%;width:17%;transform:translate(-50%,-50%);transition:top .45s cubic-bezier(.3,.9,.4,1.1);z-index:3;filter:drop-shadow(0 8px 12px #000c);will-change:top,transform}
+.cross-chicken.hop{animation:crossHop .46s ease}
+@keyframes crossHop{0%{transform:translate(-50%,-50%) scale(1)}40%{transform:translate(-50%,-64%) scale(1.1)}100%{transform:translate(-50%,-50%) scale(1)}}
+.cross-chicken.hit{width:26%;animation:crossShake .55s ease}
+@keyframes crossShake{0%,100%{transform:translate(-50%,-50%) rotate(0)}25%{transform:translate(-55%,-50%) rotate(-9deg)}75%{transform:translate(-45%,-50%) rotate(9deg)}}
+.cross-status{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 4px 6px;color:#c9a15c;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.cross-status b{color:#ffe3a0;font-size:14px;letter-spacing:0;text-transform:none;text-align:right}
+.cross-actions{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-top:8px}
+.cross-actions .spin-btn{margin:0;width:100%}
+.cross-collect{border:1px solid #c9a15c;background:#120d08;color:#ffe3a0;border-radius:18px;font-weight:900;font-style:italic;font-size:18px;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:12px 8px;cursor:pointer}
+.cross-collect small{font-size:10px;letter-spacing:.12em;color:#c9a15c;font-style:normal;font-weight:700}
+.cross-collect:disabled{opacity:.45;cursor:default}
+.cross-collect.ready{box-shadow:0 0 18px #ffb84a66;border-color:#ffd27a;background:#1a1208}
+.cross-board .plinko-bigwin{top:45%;width:92%}
+.cross-board .plinko-coin{top:-6%;z-index:4}
+@media (prefers-reduced-motion:reduce){.cross-car,.cross-chicken.hop,.cross-chicken.hit{animation-duration:.2s}}
+
+/* LUCKY CROSSING — collect celebration */
+.cross-board.shake{animation:crossBoardShake .45s ease}
+@keyframes crossBoardShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px) rotate(-.4deg)}40%{transform:translateX(6px)}60%{transform:translateX(-4px) rotate(.3deg)}80%{transform:translateX(3px)}}
+.cross-flash{position:absolute;inset:0;background:radial-gradient(circle at 50% 45%,#ffd98aaa,#ff9a2a44 45%,transparent 72%);animation:crossFlash .95s ease-out forwards;z-index:5;pointer-events:none}
+.cross-flash.big{background:radial-gradient(circle at 50% 45%,#fff1c0dd,#ffb34799 40%,transparent 75%)}
+@keyframes crossFlash{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
+.cross-chicken.joy{animation:crossJoy 1.25s ease}
+@keyframes crossJoy{0%,100%{transform:translate(-50%,-50%) scale(1)}18%{transform:translate(-50%,-78%) scale(1.16) rotate(-7deg)}38%{transform:translate(-50%,-50%) scale(1)}56%{transform:translate(-50%,-72%) scale(1.12) rotate(7deg)}76%{transform:translate(-50%,-50%) scale(1)}}
+.cross-badge.cash{transform:translate(-50%,-50%) scale(1.3);filter:drop-shadow(0 0 16px #ffd27a) drop-shadow(0 0 28px #ff9a2a)}
+.cross-spark{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;background:radial-gradient(circle,#fff 0,#ffd27a 45%,rgba(255,210,122,0) 72%);clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%);animation:crossSpark 1.2s ease-out forwards;z-index:6;pointer-events:none}
+@keyframes crossSpark{0%{transform:translate(0,0) scale(.3) rotate(0);opacity:0}12%{opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(1.7) rotate(200deg);opacity:0}}
+.cross-float{position:absolute;transform:translate(-50%,-50%);z-index:9;color:#fff;font-weight:900;font-style:italic;font-size:clamp(17px,5.4vw,26px);text-shadow:0 0 12px #ffcf6e,0 2px 6px #000;animation:crossFloat 1.7s ease-out forwards;z-index:7;pointer-events:none;white-space:nowrap}
+@keyframes crossFloat{0%{opacity:0;transform:translate(-50%,-30%) scale(.6)}18%{opacity:1;transform:translate(-50%,-70%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-260%) scale(1)}}
+.cross-cashout{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:92%;aspect-ratio:1/1;display:grid;place-items:center;z-index:8;pointer-events:none;animation:crossPanelIn .55s cubic-bezier(.2,1.5,.4,1) both}
+.cross-cashout.out{animation:crossPanelOut .42s ease-in forwards}
+@keyframes crossPanelIn{from{opacity:0;transform:translate(-50%,-50%) scale(.25)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes crossPanelOut{to{opacity:0;transform:translate(-50%,-50%) scale(1.12)}}
+.cross-rays{position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from 0deg,rgba(255,210,122,.42) 0deg 8deg,rgba(255,210,122,0) 8deg 18deg);-webkit-mask:radial-gradient(circle,#000 15%,transparent 68%);mask:radial-gradient(circle,#000 15%,transparent 68%);animation:crossSpin 7s linear infinite}
+@keyframes crossSpin{to{transform:rotate(360deg)}}
+.cross-ribbon{position:relative;padding:16px 30px 14px;border-radius:22px;background:linear-gradient(180deg,#2d1c08,#140d06);border:2px solid #f4c35a;box-shadow:0 0 0 5px rgba(90,58,16,.4),0 20px 50px #000d,inset 0 0 34px rgba(255,154,42,.25);text-align:center;min-width:62%}
+.cross-ribbon small{display:block;font-size:12px;letter-spacing:.32em;color:#ffd27a;font-weight:800}
+.cross-ribbon b{display:block;font-size:clamp(30px,10.5vw,48px);font-style:italic;font-weight:900;color:#fff;text-shadow:0 0 16px #ffcf6e,0 3px 8px #000;margin:5px 0 3px;line-height:1}
+.cross-ribbon span{font-size:11px;letter-spacing:.22em;color:#c9a15c;font-weight:700}
+.cross-confetti{position:absolute;top:-5%;border-radius:2px;animation:crossConf linear forwards;z-index:7;pointer-events:none;opacity:.96}
+@keyframes crossConf{0%{transform:translate(0,0) rotate(0)}100%{transform:translate(var(--sx),var(--fall)) rotate(var(--r));opacity:.6}}
+.cross-firework{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:3px solid var(--c,#ffd27a);box-shadow:0 0 12px var(--c,#ffd27a),0 0 0 6px rgba(255,210,122,.15);animation:crossFw 1.2s ease-out forwards;z-index:7;pointer-events:none}
+@keyframes crossFw{0%{transform:scale(.2);opacity:0}15%{opacity:1}100%{transform:scale(13);opacity:0;border-width:1px}}
+.cross-bigwin{top:46%!important;width:94%!important}
+@media (prefers-reduced-motion:reduce){.cross-rays{animation:none}.cross-confetti,.cross-firework,.cross-spark{animation-duration:.5s}}

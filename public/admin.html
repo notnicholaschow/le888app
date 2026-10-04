@@ -3873,7 +3873,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   // re-validates every save and every simulation, so nothing below can be
   // used to sneak past the rules by editing the page.
   // ------------------------------------------------------------------
-  var GAME_LABELS = { wheel: 'LE888 Spin', plinko: 'Orange Drop', egg: 'Lucky Vault', scratch: 'LE888 Flip' };
+  var GAME_LABELS = { wheel: 'LE888 Spin', plinko: 'Orange Drop', egg: 'Lucky Vault', scratch: 'LE888 Flip', cross: 'Lucky Crossing' };
   var gmState = {};          // game -> { cost, prizes:[{cents,w}], enabled, version }
   var gmPointCents = 10;     // what 1 point is worth, in cents (from the top-up rate)
   var gmMaxPrizes = 10;
@@ -3887,10 +3887,16 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     if (!tot) return 0;
     return prizes.reduce(function (s, p) { return s + (Number(p.cents) || 0) * ((Number(p.w) || 0) / tot); }, 0);
   }
-  function gmRtp(prizes, cost) {
+  function gmCrossBest(lanes) {   // Lucky Crossing: prize of lane k x chance of surviving lanes 1..k, best k
+    var p = 1, best = 0;
+    lanes.forEach(function (l) { p *= Math.max(0, Math.min(100, Number(l.w) || 0)) / 100; best = Math.max(best, (Number(l.cents) || 0) * p); });
+    return best;
+  }
+  function gmRtp(prizes, cost, g) {
     var spend = (Number(cost) || 0) * gmPointCents;
     if (!(spend > 0)) return null;
-    return Math.round((gmExpected(prizes) / spend) * 10000) / 100;
+    var exp = g === 'cross' ? gmCrossBest(prizes) : gmExpected(prizes);
+    return Math.round((exp / spend) * 10000) / 100;
   }
 
   function loadGames() {
@@ -3923,7 +3929,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   }
 
   function gmRenderAll() {
-    var order = ['wheel', 'plinko', 'egg', 'scratch'];
+    var order = ['wheel', 'plinko', 'egg', 'scratch', 'cross'];
     $('gamesWrap').innerHTML = order.map(function (g) {
       return '<div class="card" id="gmCard-' + g + '"></div>';
     }).join('');
@@ -3951,13 +3957,14 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       '</div>' +
       '<label>Cost per play (points)</label>' +
       '<input id="gmCost-' + g + '" type="number" min="1" step="1" value="' + st.cost + '">' +
-      '<label style="margin-top:10px">Prizes</label>' +
-      '<div class="gm-lbls"><span>Amount (SGD)</span><span>Chance (%)</span><span></span></div>' +
+      '<label style="margin-top:10px">' + (g === 'cross' ? 'Lanes (bottom to top)' : 'Prizes') + '</label>' +
+      (g === 'cross' ? '<p class="muted" style="margin:0 0 6px">Each lane: the prize the player can collect after crossing it, and the chance the chicken survives that lane. Max 6 lanes.</p>' : '') +
+      '<div class="gm-lbls"><span>' + (g === 'cross' ? 'Lane prize (SGD)' : 'Amount (SGD)') + '</span><span>' + (g === 'cross' ? 'Survive (%)' : 'Chance (%)') + '</span><span></span></div>' +
       '<div id="gmPrizes-' + g + '"></div>' +
-      '<button class="btn ghost small" id="gmAdd-' + g + '" style="margin-top:2px">+ Add prize</button>' +
+      '<button class="btn ghost small" id="gmAdd-' + g + '" style="margin-top:2px">' + (g === 'cross' ? '+ Add lane' : '+ Add prize') + '</button>' +
       '<div class="gm-stats" id="gmStats-' + g + '"></div>' +
       '<div class="row" style="margin-top:10px">' +
-        '<button class="btn ghost small" id="gmSim-' + g + '">Simulate 10,000 plays</button>' +
+        (g === 'cross' ? '' : '<button class="btn ghost small" id="gmSim-' + g + '">Simulate 10,000 plays</button>') +
         '<button class="btn small" id="gmSave-' + g + '">Save ' + esc(GAME_LABELS[g] || g) + '</button>' +
       '</div>' +
       '<div class="gm-sim hidden" id="gmSimOut-' + g + '"></div>';
@@ -3968,11 +3975,12 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     $('gmEn-' + g).onchange = function () { st.enabled = this.value === '1'; gmRenderCard(g); };
     $('gmCost-' + g).oninput = function () { st.cost = Math.floor(Number(this.value) || 0); gmRenderStats(g); };
     $('gmAdd-' + g).onclick = function () {
-      if (st.prizes.length >= gmMaxPrizes) { toast('Maximum ' + gmMaxPrizes + ' prizes per game.', true); return; }
+      var maxHere = g === 'cross' ? 6 : gmMaxPrizes;
+      if (st.prizes.length >= maxHere) { toast(g === 'cross' ? 'Lucky Crossing has 6 lanes.' : ('Maximum ' + gmMaxPrizes + ' prizes per game.'), true); return; }
       st.prizes.push({ cents: 100, w: 0 });
       gmRenderPrizes(g); gmRenderStats(g);
     };
-    $('gmSim-' + g).onclick = function () { gmSimulate(g, this); };
+    if ($('gmSim-' + g)) $('gmSim-' + g).onclick = function () { gmSimulate(g, this); };
     $('gmSave-' + g).onclick = function () { gmSave(g, this); };
   }
 
@@ -4015,17 +4023,18 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     var box = $('gmStats-' + g);
     if (!box) return;
     var sum = gmWeightSum(st.prizes);
-    var ok = Math.abs(sum - 100) <= 0.001;
-    var exp = gmExpected(st.prizes);
-    var rtp = gmRtp(st.prizes, st.cost);
+    var isCross = g === 'cross';
+    var ok = isCross ? st.prizes.every(function (p) { var w = Number(p.w) || 0; return w > 0 && w <= 100; }) : Math.abs(sum - 100) <= 0.001;
+    var exp = isCross ? gmCrossBest(st.prizes) : gmExpected(st.prizes);
+    var rtp = gmRtp(st.prizes, st.cost, g);
     box.innerHTML =
-      '<div class="gm-stat ' + (ok ? 'good' : 'bad') + '"><span class="muted">Total chance</span><b>' + sum + '%</b></div>' +
-      '<div class="gm-stat"><span class="muted">Expected payout</span><b>$' + (exp / 100).toFixed(3) + '</b></div>' +
-      '<div class="gm-stat ' + (rtp != null && rtp > 100 ? 'bad' : '') + '"><span class="muted">RTP</span><b>' + (rtp == null ? '—' : rtp + '%') + '</b></div>';
+      (isCross ? '<div class="gm-stat ' + (ok ? 'good' : 'bad') + '"><span class="muted">Lanes</span><b>' + st.prizes.length + ' / 6</b></div>' : '<div class="gm-stat ' + (ok ? 'good' : 'bad') + '"><span class="muted">Total chance</span><b>' + sum + '%</b></div>') +
+      '<div class="gm-stat"><span class="muted">' + (isCross ? 'Best-lane value' : 'Expected payout') + '</span><b>$' + (exp / 100).toFixed(3) + '</b></div>' +
+      '<div class="gm-stat ' + (rtp != null && rtp > 100 ? 'bad' : '') + '"><span class="muted">' + (isCross ? 'RTP (best strategy)' : 'RTP') + '</span><b>' + (rtp == null ? '—' : rtp + '%') + '</b></div>';
     var save = $('gmSave-' + g);
     if (save) {
       save.disabled = !ok;
-      save.title = ok ? '' : 'Chances must add up to exactly 100%';
+      save.title = ok ? '' : (isCross ? 'Every lane needs a survive chance between 1 and 100' : 'Chances must add up to exactly 100%');
     }
   }
 
@@ -4042,7 +4051,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 
   function gmSave(g, btn) {
     var st = gmState[g];
-    if (Math.abs(gmWeightSum(st.prizes) - 100) > 0.001) { toast('Chances must add up to 100%.', true); return; }
+    if (g !== 'cross' && Math.abs(gmWeightSum(st.prizes) - 100) > 0.001) { toast('Chances must add up to 100%.', true); return; }
     busy(btn, true);
     api('/api/admin/games/save', gmPayload(g)).then(function (res) {
       busy(btn, false);

@@ -25,7 +25,7 @@ const osScenes = [
     label: "UNLOCK THE UNKNOWN",
     category: "VAULT / DISCOVERY",
   },
-  { color: "230,180,90", secondary: "120,80,30", label: "SOMETHING NEW IS COMING", category: "NEW GAME" },
+  { color: "240,186,80", secondary: "150,90,30", label: "CROSS THE GOLDEN STREET", category: "ROAD / CASH OUT" },
   { color: "230,180,90", secondary: "120,80,30", label: "SOMETHING NEW IS COMING", category: "NEW GAME" },
 ];
 function osSetScene() {
