@@ -60,7 +60,9 @@ interface PlayerRow {
 
 const ADMIN_SESSION_SECONDS = 24 * 60 * 60; // 24 hours
 const PLAYER_SESSION_SECONDS = 30 * 24 * 60 * 60; // 30 days
-const ALLOWED_GAMES = ['wheel', 'plinko', 'egg', 'scratch'] as const;
+const ALLOWED_GAMES = ['wheel', 'plinko', 'egg', 'scratch', 'cross'] as const;
+// Lucky Crossing: a cash-out ladder. Its `prizes` are LANES — cents = the lane's prize, w = survive % (0-100].
+const CROSS_MAX_LANES = 6;
 const MAX_PRIZES = 10;          // per game, enforced server-side on save
 const TOTAL_WEIGHT = 100;       // prize weights must add up to exactly this
 const MAX_BODY_BYTES = 192 * 1024; // 192 KB request body cap (templates can embed images)
@@ -70,6 +72,7 @@ const GAME_LABELS: Record<string, string> = {
   plinko: 'Orange Drop',
   egg: 'Lucky Vault',
   scratch: 'LE888 Flip',
+  cross: 'Lucky Crossing',
 };
 
 // GC77-exact game economy. DO NOT CHANGE these values or weights.
@@ -328,6 +331,9 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   if (rawPrizes.length > MAX_PRIZES) {
     return { ok: false, code: 'TOO_MANY_PRIZES', msg: `A game can have at most ${MAX_PRIZES} prizes.` };
   }
+  if (game === 'cross' && rawPrizes.length > CROSS_MAX_LANES) {
+    return { ok: false, code: 'TOO_MANY_LANES', msg: `Lucky Crossing has ${CROSS_MAX_LANES} lanes — add at most ${CROSS_MAX_LANES} prizes.` };
+  }
 
   const prizes: Prize[] = [];
   let weightSum = 0;
@@ -342,6 +348,9 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
     if (!Number.isFinite(w) || w <= 0) {
       return { ok: false, code: 'BAD_WEIGHT', msg: 'Every prize needs a chance greater than 0.' };
     }
+    if (game === 'cross' && w > 100) {
+      return { ok: false, code: 'BAD_SURVIVE', msg: 'Survive chance cannot be more than 100%.' };
+    }
     if (cents > 0) anyPaying = true;
     weightSum += w;
     prizes.push({ cents, w });
@@ -349,6 +358,8 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   if (!anyPaying) {
     return { ok: false, code: 'NO_PAYING_PRIZE', msg: 'At least one prize must pay more than 0.00.' };
   }
+  // Lucky Crossing: each lane's w is its own survive %, so there is no total to check.
+  if (game === 'cross') return { ok: true, cost, prizes };
   // Exactly 100, allowing for the tiny error you get with decimals like 33.33.
   if (Math.abs(weightSum - TOTAL_WEIGHT) > 0.001) {
     return { ok: false, code: 'BAD_WEIGHT_SUM', msg: `Chances must add up to 100%. They currently add up to ${(Math.round(weightSum * 1000) / 1000)}%.` };
@@ -356,6 +367,12 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   return { ok: true, cost, prizes };
 }
 
+// Lucky Crossing: value of the best stopping strategy (prize of lane k x chance of surviving lanes 1..k).
+function crossBestValueCents(lanes: Prize[]): number {
+  let p = 1, best = 0;
+  for (const l of lanes) { p *= Math.max(0, Math.min(100, l.w)) / 100; best = Math.max(best, l.cents * p); }
+  return best;
+}
 // Expected payout in cents for one play.
 function expectedPayoutCents(prizes: Prize[]): number {
   const total = prizes.reduce((s, p) => s + p.w, 0) || 1;
@@ -793,6 +810,30 @@ const INSTALL_HTML = `<!doctype html>
 // players backend. Verifies the real password, stores your signed player token in
 // an HttpOnly cookie, and returns real points + points-ledger. Reward credits stay
 // separate (not shown here). Games/deposits/withdrawals remain their own flows.
+// Lucky Crossing rounds. Created on first use so no manual migration is needed
+// (also listed in schema.sql for reference).
+let crossTableReady = false;
+async function ensureCrossTable(env: Env): Promise<void> {
+  if (crossTableReady) return;
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS cross_rounds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player_id INTEGER NOT NULL,
+      round_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      lane INTEGER NOT NULL DEFAULT 0,
+      cost INTEGER NOT NULL,
+      win_cents INTEGER NOT NULL DEFAULT 0,
+      ladder_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(player_id, round_id)
+    )`,
+  ).run();
+  try { await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_cross_rounds_player_status ON cross_rounds (player_id, status)').run(); } catch { /* ignore */ }
+  crossTableReady = true;
+}
+
 async function handleMember(request: Request, env: Env, url: URL, ctx: ExecutionContext, rid: string): Promise<Response> {
   const p = url.pathname;
   const method = request.method.toUpperCase();
@@ -893,6 +934,115 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       ledger,
       games,
     }, 200);
+  }
+
+  // ---- LUCKY CROSSING (real, cookie session) ----
+  // A round = one entry fee, then lane by lane: each step is rolled HERE
+  // against the lane's survive %, and the player can collect the current
+  // lane's prize at any time. The ladder is snapshotted into the round so an
+  // admin edit mid-round never changes a running game.
+  if (p.indexOf('/api/member/cross/') === 0 && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (player.status !== 'active') return j({ error: 'This account is not active. Please contact support.' }, 403);
+    if (await hasCustomCreditLock(env, player.id)) return j({ error: CREDIT_LOCK_MSG }, 409);
+    if (!(await rateLimit(env, 'cross:' + player.id, 90, 60))) return j({ error: 'Please slow down.' }, 429);
+    let body: { round_id?: unknown; lane?: unknown } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const action = p.slice('/api/member/cross/'.length);
+    const roundId = String(body.round_id || '');
+    if (!isValidPlayId(roundId)) return j({ error: 'Invalid round id.' }, 400);
+    const conf = await getGameConf(env, 'cross');
+    if (!conf) return j({ error: 'Lucky Crossing is being set up. Please try again shortly.' }, 503);
+    await ensureCrossTable(env);
+    type CrossRow = { id: number; player_id: number; round_id: string; status: string; lane: number; cost: number; win_cents: number; ladder_json: string };
+    const getRound = () => env.DB.prepare('SELECT * FROM cross_rounds WHERE player_id = ? AND round_id = ?').bind(player.id, roundId).first<CrossRow>();
+    const balances = async () => {
+      const b = await env.DB.prepare('SELECT points, reward_cents FROM players WHERE id = ?').bind(player.id).first<{ points: number; reward_cents: number }>();
+      return { points: b?.points ?? player.points, reward: centsToStr(b?.reward_cents ?? 0) };
+    };
+    const ladderOf = (r: CrossRow): Prize[] => { const l = parsePrizes(r.ladder_json); return l.length ? l : conf.prizes; };
+    const view = async (r: CrossRow, extra: Record<string, unknown> = {}) => {
+      const lad = ladderOf(r);
+      return j({
+        ok: true, round_id: r.round_id, status: r.status, lane: r.lane, lanes: lad.length, cost: r.cost,
+        prize: r.lane > 0 ? centsToStr(lad[Math.min(r.lane, lad.length) - 1].cents) : '0.00',
+        win: centsToStr(r.win_cents || 0),
+        ...(await balances()), ...extra,
+      }, 200);
+    };
+    // Finish a round exactly once: the status guard makes a double collect / double hit a no-op.
+    const finish = async (r: CrossRow, status: 'hit' | 'collected', lane: number, winCents: number): Promise<boolean> => {
+      const u = await env.DB.prepare("UPDATE cross_rounds SET status = ?, lane = ?, win_cents = ?, updated_at = datetime('now') WHERE id = ? AND status = 'active'").bind(status, lane, winCents, r.id).run();
+      if (!u.meta.changes) return false;
+      const stmts = [env.DB.prepare('UPDATE arcade_activity SET win_cents = ?, result_label = ? WHERE player_id = ? AND play_id = ?').bind(winCents, winCents > 0 ? 'win' : 'no_win', player.id, r.round_id)];
+      if (winCents > 0) stmts.push(env.DB.prepare("UPDATE players SET reward_cents = reward_cents + ?, updated_at = datetime('now') WHERE id = ?").bind(winCents, player.id));
+      await env.DB.batch(stmts);
+      if (winCents >= 1000) { try { await sendAutoMessage(env, player.id, 'big_win', { win_amount: centsToStr(winCents), game: GAME_LABELS.cross }); } catch (e) { /* best-effort */ } }
+      return true;
+    };
+
+    if (action === 'start') {
+      if (!conf.enabled) return j({ error: 'Lucky Crossing is not available right now.' }, 403);
+      // An unfinished round continues (no second charge).
+      const active = await env.DB.prepare("SELECT * FROM cross_rounds WHERE player_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").bind(player.id).first<CrossRow>();
+      if (active) return view(active, { resumed: true });
+      const ins = await env.DB.prepare("INSERT OR IGNORE INTO cross_rounds (player_id, round_id, status, lane, cost, win_cents, ladder_json) VALUES (?, ?, 'pending', 0, ?, 0, ?)").bind(player.id, roundId, conf.cost, JSON.stringify(conf.prizes)).run();
+      if (!ins.meta.changes) { const r = await getRound(); if (r) return view(r); return j({ error: 'Could not start the round.' }, 500); }
+      const rowId = ins.meta.last_row_id as number;
+      const ded = await env.DB.prepare("UPDATE players SET points = points - ?, updated_at = datetime('now') WHERE id = ? AND points >= ? RETURNING points").bind(conf.cost, player.id, conf.cost).first<{ points: number }>();
+      if (!ded) { await env.DB.prepare('DELETE FROM cross_rounds WHERE id = ?').bind(rowId).run(); return j({ error: 'Not enough points.' }, 402); }
+      try {
+        await env.DB.batch([
+          env.DB.prepare("UPDATE cross_rounds SET status = 'active', updated_at = datetime('now') WHERE id = ?").bind(rowId),
+          env.DB.prepare("INSERT OR IGNORE INTO arcade_activity (player_id, play_id, game, activity_date, points_added, win_cents, result_label) VALUES (?, ?, 'cross', ?, ?, 0, 'pending')").bind(player.id, roundId, sgtDateKey(), -conf.cost),
+          env.DB.prepare('INSERT INTO point_activity (player_id, type, amount, points_after, note) VALUES (?, ?, ?, ?, ?)').bind(player.id, POINT_TYPES.ARCADE_PLAY, -conf.cost, ded.points, 'Played Lucky Crossing'),
+        ]);
+      } catch (e) {
+        try { await env.DB.batch([env.DB.prepare("UPDATE players SET points = points + ?, updated_at = datetime('now') WHERE id = ?").bind(conf.cost, player.id), env.DB.prepare('DELETE FROM cross_rounds WHERE id = ?').bind(rowId)]); } catch (e2) { console.error(JSON.stringify({ rid, msg: 'cross_refund_failed', player: player.id, err: String((e2 as any)?.message || e2) })); }
+        return j({ error: 'That round could not be started. Your points have been returned — please try again.' }, 500);
+      }
+      const r = await getRound();
+      if (!r) return j({ error: 'Could not start the round.' }, 500);
+      return view(r);
+    }
+
+    const r = await getRound();
+    if (!r) return j({ error: 'Round not found.' }, 404);
+    if (r.status !== 'active') return view(r);
+    const lad = ladderOf(r);
+
+    if (action === 'step') {
+      // The client says which lane it thinks it is on; a stale retry gets the current state back instead of a second roll.
+      const expect = Number(body.lane);
+      if (Number.isFinite(expect) && expect !== r.lane) return view(r);
+      const next = r.lane + 1;
+      if (next > lad.length) return view(r);
+      const survive = Math.max(0, Math.min(100, lad[next - 1].w)) / 100;
+      const roll = crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+      if (roll < survive) {
+        if (next === lad.length) {
+          // Made it all the way across: the last lane pays out automatically.
+          await finish(r, 'collected', next, lad[next - 1].cents);
+          const done = await getRound();
+          return view(done || r, { safe: true, auto: true });
+        }
+        const u = await env.DB.prepare("UPDATE cross_rounds SET lane = ?, updated_at = datetime('now') WHERE id = ? AND status = 'active' AND lane = ?").bind(next, r.id, r.lane).run();
+        if (!u.meta.changes) { const cur = await getRound(); return view(cur || r); }
+        return view({ ...r, lane: next }, { safe: true });
+      }
+      await finish(r, 'hit', r.lane, 0);
+      const done = await getRound();
+      return view(done || { ...r, status: 'hit' }, { hit_lane: next });
+    }
+
+    if (action === 'collect') {
+      if (r.lane < 1) return j({ error: 'Cross at least one lane first.' }, 400);
+      await finish(r, 'collected', r.lane, lad[r.lane - 1].cents);
+      const done = await getRound();
+      return view(done || r);
+    }
+    return j({ error: 'Unknown action.' }, 404);
   }
 
   // ---- PLAY (real, cookie session) ----
@@ -2702,6 +2852,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     case '/api/arcade/play': {
       if (await hasCustomCreditLock(env, player.id)) return fail('CREDIT_LOCK', CREDIT_LOCK_MSG, 409, rid);
       const game = String(body.game || '');
+      if (game === 'cross') return fail('USE_CROSS_API', 'Lucky Crossing is played lane by lane.', 400, rid);
       // Settings now come from `game_configs` (cached 60s per isolate).
       const conf = await getGameConf(env, game);
       if (!conf) {
@@ -3283,6 +3434,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     // ---- Game economy editor (manager only) --------------------------------
     case '/api/admin/games/list': {
+      try {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('cross', 5, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 100, w: 85 }, { cents: 200, w: 80 }, { cents: 400, w: 75 }, { cents: 800, w: 70 }, { cents: 1600, w: 65 }, { cents: 3200, w: 60 }])).run();
+      } catch { /* table missing or older schema: the editor shows the game as not set up */ }
       const rows = await readGameConfigsFresh(env);
       const settings = await getSettings(env);
       const ptCents = pointValueCents(settings);
@@ -3301,8 +3457,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           version: row.version,
           updated_at: row.updated_at,
           updated_by: row.updated_by,
-          expected_cents: Math.round(expectedPayoutCents(prizes) * 100) / 100,
-          rtp: rtpPercent(prizes, row.cost, ptCents),
+          expected_cents: Math.round((g === 'cross' ? crossBestValueCents(prizes) : expectedPayoutCents(prizes)) * 100) / 100,
+          rtp: g === 'cross' ? rtpPercent([{ cents: crossBestValueCents(prizes), w: 100 }], row.cost, ptCents) : rtpPercent(prizes, row.cost, ptCents),
         };
       });
       return json({
@@ -3367,13 +3523,14 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         ok: true,
         game,
         version: fresh?.version ?? 1,
-        expected_cents: Math.round(expectedPayoutCents(v.prizes) * 100) / 100,
-        rtp: rtpPercent(v.prizes, v.cost, ptCents),
+        expected_cents: Math.round((game === 'cross' ? crossBestValueCents(v.prizes) : expectedPayoutCents(v.prizes)) * 100) / 100,
+        rtp: game === 'cross' ? rtpPercent([{ cents: crossBestValueCents(v.prizes), w: 100 }], v.cost, ptCents) : rtpPercent(v.prizes, v.cost, ptCents),
       }, 200, rid);
     }
 
     case '/api/admin/games/simulate': {
       const game = String(body.game || '');
+      if (game === 'cross') return fail('NOT_SUPPORTED', 'Simulation is not available for Lucky Crossing — the RTP shown is for a player who always stops at the best lane.', 400, rid);
       const v = validateGameInput(game, body.cost, body.prizes);
       if (!v.ok) return fail(v.code, v.msg, 400, rid);
 
