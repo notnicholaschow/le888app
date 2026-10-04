@@ -60,7 +60,7 @@ interface PlayerRow {
 
 const ADMIN_SESSION_SECONDS = 24 * 60 * 60; // 24 hours
 const PLAYER_SESSION_SECONDS = 30 * 24 * 60 * 60; // 30 days
-const ALLOWED_GAMES = ['wheel', 'plinko', 'egg', 'scratch', 'cross'] as const;
+const ALLOWED_GAMES = ['wheel', 'plinko', 'egg', 'scratch', 'cross', 'crown'] as const;
 // Lucky Crossing: a cash-out ladder. Its `prizes` are LANES — cents = the lane's prize, w = survive % (0-100].
 const CROSS_MAX_LANES = 6;
 const MAX_PRIZES = 10;          // per game, enforced server-side on save
@@ -73,6 +73,7 @@ const GAME_LABELS: Record<string, string> = {
   egg: 'Lucky Vault',
   scratch: 'LE888 Flip',
   cross: 'Lucky Crossing',
+  crown: 'Crown Pick',
 };
 
 // GC77-exact game economy. DO NOT CHANGE these values or weights.
@@ -330,6 +331,12 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   }
   if (rawPrizes.length > MAX_PRIZES) {
     return { ok: false, code: 'TOO_MANY_PRIZES', msg: `A game can have at most ${MAX_PRIZES} prizes.` };
+  }
+  if (game === 'crown') {
+    const paying = rawPrizes.filter((p) => Math.round(Number((p as any)?.cents)) > 0).length;
+    const zeros = rawPrizes.length - paying;
+    if (paying > 4) return { ok: false, code: 'TOO_MANY_JACKPOTS', msg: 'Crown Pick has 4 jackpots (Grand, Major, Minor, Mini) — add at most 4 paying prizes.' };
+    if (zeros > 1) return { ok: false, code: 'TOO_MANY_ZEROS', msg: 'Crown Pick can have only one 0.00 (no win) prize.' };
   }
   if (game === 'cross' && rawPrizes.length > CROSS_MAX_LANES) {
     return { ok: false, code: 'TOO_MANY_LANES', msg: `Lucky Crossing has ${CROSS_MAX_LANES} lanes — add at most ${CROSS_MAX_LANES} prizes.` };
@@ -3438,6 +3445,9 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         await env.DB.prepare(
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('cross', 5, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 100, w: 85 }, { cents: 200, w: 80 }, { cents: 400, w: 75 }, { cents: 800, w: 70 }, { cents: 1600, w: 65 }, { cents: 3200, w: 60 }])).run();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('crown', 10, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 7777, w: 2 }, { cents: 5077, w: 6 }, { cents: 3077, w: 15 }, { cents: 1077, w: 32 }, { cents: 0, w: 45 }])).run();
       } catch { /* table missing or older schema: the editor shows the game as not set up */ }
       const rows = await readGameConfigsFresh(env);
       const settings = await getSettings(env);
