@@ -3959,6 +3959,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       '<input id="gmCost-' + g + '" type="number" min="1" step="1" value="' + st.cost + '">' +
       '<label style="margin-top:10px">' + (g === 'cross' ? 'Lanes (bottom to top)' : 'Prizes') + '</label>' +
       (g === 'cross' ? '<p class="muted" style="margin:0 0 6px">Each lane: the prize the player can collect after crossing it, and the chance the chicken survives that lane. Max 6 lanes.</p>' : '') +
+      (g === 'wheel' ? '<p class="muted" style="margin:0 0 6px">Each prize is one wheel segment, in this order clockwise from the top (max 10). A 0.00 prize shows as MISS. Chances must add up to 100%.</p>' : '') +
       (g === 'crown' ? '<p class="muted" style="margin:0 0 6px">Up to 4 paying jackpots — the biggest amount is GRAND, then MAJOR, MINOR, MINI — plus one optional 0.00 for a no-win round. Chances must add up to 100%.</p>' : '') +
       '<div class="gm-lbls"><span>' + (g === 'cross' ? 'Lane prize (SGD)' : 'Amount (SGD)') + '</span><span>' + (g === 'cross' ? 'Survive (%)' : 'Chance (%)') + '</span><span></span></div>' +
       '<div id="gmPrizes-' + g + '"></div>' +

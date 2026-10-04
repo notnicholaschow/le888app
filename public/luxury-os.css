@@ -1362,3 +1362,17 @@ body.luxury-os .os-command-center {
 .crown-grid .cross-flash{z-index:5;border-radius:12px}
 .crown-grid .plinko-bigwin{top:50%;width:96%}
 .crown-grid .plinko-coin{top:-6%;z-index:4}
+
+/* ===== LE888 SPIN live ===== */
+.wheel-stage.live{height:360px;overflow:hidden;border-radius:22px}
+.wheel.live{transition:transform 4.4s cubic-bezier(.12,.62,.08,1)}
+.wheel.live .wheel-label{width:64px;left:calc(50% - 32px);font-size:15px;letter-spacing:.2px;transition:filter .12s}
+.wheel.live .wheel-label.sm{font-size:13px}
+.wheel.live .wheel-label.top{text-shadow:0 0 9px #ffb84ccc,0 1px #0008}
+.wheel.live .wheel-label.pass{filter:brightness(1.7)}
+.wheel.live .wheel-label.win{animation:wheelWin .65s ease-in-out infinite alternate;filter:brightness(1.35)}
+@keyframes wheelWin{from{text-shadow:0 0 6px #ffd27a,0 0 2px #fff}to{text-shadow:0 0 16px #ffb84c,0 0 32px #ff8a1f,0 0 2px #fff}}
+.wheel-pointer.tick{animation:wheelTick .14s ease-out}
+@keyframes wheelTick{0%{transform:rotate(0)}40%{transform:rotate(-13deg) translateY(-2px)}100%{transform:rotate(0)}}
+.wheel-stage .plinko-coin{top:-10%}
+.wheel-stage .plinko-bigwin{top:50%;width:86%}
