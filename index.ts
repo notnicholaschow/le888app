@@ -3446,6 +3446,9 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('cross', 5, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 100, w: 85 }, { cents: 200, w: 80 }, { cents: 400, w: 75 }, { cents: 800, w: 70 }, { cents: 1600, w: 65 }, { cents: 3200, w: 60 }])).run();
         await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('wheel', 1, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 0, w: 20 }, { cents: 50, w: 25 }, { cents: 100, w: 20 }, { cents: 200, w: 15 }, { cents: 500, w: 10 }, { cents: 888, w: 6 }, { cents: 2888, w: 3 }, { cents: 8888, w: 1 }])).run();
+        await env.DB.prepare(
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('crown', 10, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 7777, w: 2 }, { cents: 5077, w: 6 }, { cents: 3077, w: 15 }, { cents: 1077, w: 32 }, { cents: 0, w: 45 }])).run();
       } catch { /* table missing or older schema: the editor shows the game as not set up */ }
