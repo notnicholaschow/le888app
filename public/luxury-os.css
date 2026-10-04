@@ -1272,7 +1272,7 @@ body.luxury-os .os-command-center {
 .cross-board{position:relative;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1064/1478;border-radius:18px;overflow:hidden;box-shadow:0 12px 36px #000c;background:#0a0806}
 .cross-road{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .cross-cars{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2}
-.cross-car{position:absolute;width:34%;left:-20%;transform:translate(-50%,-50%);filter:drop-shadow(0 6px 10px #000c)}
+.cross-car{position:absolute;width:34%;left:-22%;transform:translate(-50%,-50%);filter:drop-shadow(0 6px 10px #000c);will-change:left}
 .cross-car.dir-r{animation:crossDriveR var(--dur,2.8s) linear forwards}
 .cross-car.dir-l{animation:crossDriveL var(--dur,2.8s) linear forwards}
 @keyframes crossDriveR{from{left:-22%}to{left:122%}}
@@ -1376,3 +1376,12 @@ body.luxury-os .os-command-center {
 @keyframes wheelTick{0%{transform:rotate(0)}40%{transform:rotate(-13deg) translateY(-2px)}100%{transform:rotate(0)}}
 .wheel-stage .plinko-coin{top:-10%}
 .wheel-stage .plinko-bigwin{top:50%;width:86%}
+
+/* Lucky Crossing — chicken looks both ways while waiting for a gap */
+.cross-chicken.look{animation:crossLook .62s ease-in-out infinite}
+@keyframes crossLook{0%,100%{transform:translate(-50%,-50%) rotate(-7deg)}50%{transform:translate(-50%,-50%) rotate(7deg)}}
+
+/* Lucky Crossing — closed-lane barriers */
+.cross-barriers{position:absolute;inset:0;pointer-events:none;z-index:2}
+.cross-barrier{position:absolute;height:13.5%;width:auto;transform:translate(-50%,-50%);filter:drop-shadow(0 4px 8px #000c) drop-shadow(0 0 7px #ff9a2a55);animation:crossBarrierIn .5s cubic-bezier(.2,1.5,.4,1) .22s both}
+@keyframes crossBarrierIn{0%{transform:translate(-50%,-50%) scale(1.9);opacity:0}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}
