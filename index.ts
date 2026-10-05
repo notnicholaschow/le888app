@@ -959,7 +959,126 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       ledger,
       games,
       vip,
+      // The player's game accounts (set by staff in Admin -> Players). The home
+      // screen shows the platform names; the profile lists the IDs.
+      game_ids: (await loadGameIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id })),
+      free_ids: (await loadFreeIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id })),
+      game_platforms: GAME_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+      free_platforms: FREE_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
     }, 200);
+  }
+
+  // ---- WITHDRAW (request only; staff pay out manually). Two sources: the
+  // player's open Free Credit ID (amount fixed by the rules locked at approval)
+  // or a Deposit ID (player enters the amount). Bank details are saved once. ----
+  const bridge = async (toPath: string) => {
+    const raw = await request.text();
+    const fwd = new Request(new URL(toPath, request.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip },
+      body: raw || '{}',
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  };
+  if (p === '/api/member/withdraw' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const pl = player as any;
+    const bank = { bank_name: pl.bank_name || '', bank_account: pl.bank_account || '', bank_holder: pl.bank_holder || '', paynow_number: pl.paynow_number || '', locked: !!pl.bank_locked };
+    const depositIds = (await loadGameIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id }));
+    let freeCredit: Record<string, unknown> | null = null;
+    try {
+      const fc = await getOpenFreeCredit(env, player.id);
+      if (fc) {
+        let winover = fc.fc_winover_x, hitC = fc.fc_hit_cents, capC = fc.fc_cap_cents;
+        if (capC == null || capC <= 0) {
+          const t = freeCreditTerms(await freeCreditRule(env, fc.amount_cents), fc.amount_cents);
+          winover = t.winover; hitC = t.hit_cents; capC = t.cap_cents;
+        }
+        let used = false;
+        try { used = !!(await env.DB.prepare("SELECT 1 AS x FROM withdrawals WHERE source_payout_id = ? AND status IN ('pending','approved') LIMIT 1").bind(fc.id).first()); } catch { used = false; }
+        freeCredit = { game: fc.game, game_id: fc.game_id, amount: centsToStr(fc.amount_cents), winover: winover ?? 0, hit: centsToStr(hitC ?? 0), payout: centsToStr(capC ?? 0), used };
+      }
+    } catch { freeCredit = null; }
+    let withdrawals: unknown[] = [];
+    let pending: Record<string, unknown> | null = null;
+    try {
+      const r = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>()
+        .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>());
+      withdrawals = (r.results || []).map((w: any) => ({ id: w.id, amount: centsToStr(w.amount_cents), status: w.status, created_at: isoDate(w.created_at), decided_at: w.decided_at ? isoDate(w.decided_at) : null, note: w.note || '', source_type: w.source_type || null, source_game: w.source_game || null, source_game_id: w.source_game_id || null }));
+      const pw = (withdrawals as any[]).find((w) => w.status === 'pending');
+      if (pw) pending = pw;
+    } catch { withdrawals = []; }
+    return j({ ok: true, bank, deposit_ids: depositIds, free_credit: freeCredit, pending, withdrawals }, 200);
+  }
+  if (p === '/api/member/withdraw' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    return bridge('/api/withdraw');
+  }
+  if (p === '/api/member/bank' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    return bridge('/api/me/details/save');
+  }
+
+  // ---- DEPOSIT (reference info + receipt submission; no payments happen in the app) ----
+  if (p === '/api/member/deposit' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const s = await getSettings(env);
+    let submissions: unknown[] = [];
+    try {
+      await ensureDepositSubmissionsTable(env);
+      const r = await env.DB.prepare('SELECT id, amount, method, receipt_url, reference, status, admin_note, created_at, decided_at FROM deposit_submissions WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>();
+      submissions = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount), method: x.method, receipt_url: x.receipt_url || '', reference: x.reference || '', status: x.status, note: x.admin_note || '', created_at: isoDate(x.created_at), decided_at: x.decided_at ? isoDate(x.decided_at) : null }));
+    } catch { submissions = []; }
+    return j({
+      ok: true,
+      info: {
+        paynow: s.deposit_paynow || '', name: s.deposit_name || '', qr: s.deposit_qr || '',
+        bank_name: s.deposit_bank_name || '', bank_account: s.deposit_bank_account || '', bank_holder: s.deposit_bank_holder || '',
+        rate: Math.max(0, Math.floor(Number(s.deposit_point_rate ?? '10'))),
+        receipts: !!env.CHAT_IMAGES,
+      },
+      submissions,
+    }, 200);
+  }
+  if (p === '/api/member/deposit/receipt' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (!env.CHAT_IMAGES) return j({ error: 'Receipt uploads are not set up yet. Please send your receipt in Chat.' }, 503);
+    if (!(await rateLimit(env, 'deprcpt:' + player.id, 20, 3600))) return j({ error: 'Please slow down.' }, 429);
+    const ct = request.headers.get('content-type') || '';
+    const ext = ct === 'image/webp' ? 'webp' : ct === 'image/jpeg' ? 'jpg' : ct === 'image/png' ? 'png' : null;
+    if (!ext) return j({ error: 'Only JPG, PNG or WebP images are allowed.' }, 400);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength < 100 || bytes.byteLength > 3_000_000) return j({ error: 'Image must be under 3 MB.' }, 400);
+    const key = 'rcpt-' + crypto.randomUUID().replace(/-/g, '') + '.' + ext;
+    await env.CHAT_IMAGES.put(key, bytes, { httpMetadata: { contentType: ct } });
+    return j({ ok: true, url: '/api/chat/img/' + key }, 200);
+  }
+  if (p === '/api/member/deposit/submit' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (player.status !== 'active') return j({ error: 'This account is not active. Please contact support.' }, 403);
+    if (!(await rateLimit(env, 'depsub:' + player.id, 10, 3600))) return j({ error: 'Please slow down.' }, 429);
+    let body: any = {};
+    try { body = await request.json(); } catch { body = {}; }
+    const amount = Math.round(Number(body.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100000) return j({ error: 'Enter the amount you transferred (SGD 1 - 100,000).' }, 400);
+    const methodKey = String(body.method || 'paynow') === 'bank' ? 'bank' : 'paynow';
+    const receipt = String(body.receipt_url || '').trim();
+    if (receipt && !/^\/api\/chat\/img\/rcpt-[a-f0-9]{32}\.(webp|jpg|png)$/.test(receipt)) return j({ error: 'Invalid receipt.' }, 400);
+    if (!receipt && env.CHAT_IMAGES) return j({ error: 'Please attach your transfer receipt.' }, 400);
+    const reference = String(body.reference || '').trim().slice(0, 80);
+    await ensureDepositSubmissionsTable(env);
+    const pend = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE player_id = ? AND status = 'pending'").bind(player.id).first<{ c: number }>();
+    if ((pend?.c ?? 0) >= 3) return j({ error: 'You already have 3 requests waiting. Please wait for staff to review them.' }, 429);
+    const ins = await env.DB.prepare('INSERT INTO deposit_submissions (player_id, amount, method, receipt_url, reference) VALUES (?, ?, ?, ?, ?)').bind(player.id, amount, methodKey, receipt || null, reference || null).run();
+    return j({ ok: true, submission: { id: ins.meta.last_row_id, amount, method: methodKey, receipt_url: receipt, reference, status: 'pending', note: '', created_at: new Date().toISOString(), decided_at: null } }, 200);
   }
 
   // ---- LUCKY CROSSING (real, cookie session) ----
@@ -1767,6 +1886,9 @@ function publicSettings(s: Record<string, string>) {
     deposit_paynow: s.deposit_paynow || '',
     deposit_name: s.deposit_name || '',
     deposit_qr: s.deposit_qr || '',
+    deposit_bank_name: s.deposit_bank_name || '',
+    deposit_bank_account: s.deposit_bank_account || '',
+    deposit_bank_holder: s.deposit_bank_holder || '',
     // Bumped whenever staff change the deposit account; the app shows a red dot
     // on the Deposit button until the player opens it.
     deposit_updated_at: s.deposit_updated_at || '',
@@ -1976,6 +2098,77 @@ async function getVipStatus(env: Env, playerId: number): Promise<VipStatus> {
   for (let i = 0; i < VIP_RANKS.length; i++) if (total >= VIP_RANKS[i].deposit) rankIdx = i;
   return { month_key: monthKey, week_key: weekKeySGT(), deposit_total: total, rank_idx: rankIdx };
 }
+// Record a verified deposit for a player: deposit row, deposit bonus points,
+// VIP upgrade bonuses and the auto messages. Used by Admin -> Players (manual
+// entry) and by approving a player's deposit request from the app.
+type RecordDepositResult = { ok: true; deposit_total: number; rank_name: string | null; upgrade_points_granted: number; deposit_points_granted: number } | { ok: false; code: string; msg: string; status: number };
+async function recordDeposit(env: Env, id: number, amount: number, note: string, reference: string, admin: string): Promise<RecordDepositResult> {
+  if (!id || !Number.isFinite(amount) || amount <= 0) return { ok: false, code: 'BAD_REQUEST', msg: 'A player id and a positive deposit amount are required.', status: 400 };
+  if (amount > 100000000) return { ok: false, code: 'AMOUNT_RANGE', msg: 'Deposit amount is too large.', status: 400 };
+  const exists = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(id).first();
+  if (!exists) return { ok: false, code: 'PLAYER_NOT_FOUND', msg: 'Player not found.', status: 404 };
+  const monthKey = monthKeySGT();
+  // Rank BEFORE this deposit, so we can detect a rank-up afterwards.
+  const rankBefore = (await getVipStatus(env, id)).rank_idx;
+  // Duplicate-reference guard: if staff paste the bank/receipt reference, the
+  // same deposit can't be recorded twice (also enforced by a unique index).
+  if (reference) {
+    try {
+      const dup = await env.DB.prepare('SELECT id FROM deposits WHERE reference = ?').bind(reference).first();
+      if (dup) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
+    } catch { /* reference column not migrated yet */ }
+  }
+  try {
+    await env.DB.prepare('INSERT INTO deposits (player_id, amount, month_key, note, admin_username, reference) VALUES (?, ?, ?, ?, ?, ?)').bind(id, amount, monthKey, note || null, admin, reference || null).run();
+  } catch (e) {
+    const msg = String((e as any)?.message || e);
+    if (/UNIQUE/i.test(msg)) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
+    // Pre-migration fallback: record without the reference column.
+    await env.DB.prepare('INSERT INTO deposits (player_id, amount, month_key, note, admin_username) VALUES (?, ?, ?, ?, ?)').bind(id, amount, monthKey, note || null, admin).run();
+  }
+  // Deposit bonus points: $rate deposited = 1 point (Settings, default $10;
+  // 0 disables). Logged like every other point movement, with the staff name.
+  const depSettings = await getSettings(env);
+  const rate = Math.max(0, Math.floor(Number(depSettings.deposit_point_rate ?? '10')));
+  let depositPoints = 0;
+  if (rate > 0) {
+    depositPoints = Math.floor(amount / rate);
+    if (depositPoints > 0) await awardPoints(env, id, POINT_TYPES.DEPOSIT_BONUS, depositPoints, `Deposit bonus: $${amount}`, admin);
+  }
+  const vip = await getVipStatus(env, id);
+  const granted = await grantUpgradeBonuses(env, id, vip);
+  // Auto-messages (best-effort): first deposit vs later, and a rank-up note.
+  try {
+    const cnt = await env.DB.prepare('SELECT COUNT(*) AS c FROM deposits WHERE player_id = ?').bind(id).first<{ c: number }>();
+    const isFirst = (cnt?.c ?? 0) <= 1;
+    const dvars = { deposit_amount: String(amount), points_added: String(depositPoints) };
+    await sendAutoMessage(env, id, isFirst ? 'first_deposit' : 'deposit_received', dvars);
+    if (vip.rank_idx > rankBefore) await sendAutoMessage(env, id, 'vip_rank_up', {});
+  } catch { /* best-effort */ }
+  return { ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints };
+}
+
+// Deposit requests from the app: the player transfers money outside the app,
+// then submits the amount + a receipt photo here. Staff verify and approve
+// (which records the deposit above) or reject. Created lazily.
+async function ensureDepositSubmissionsTable(env: Env): Promise<void> {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS deposit_submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    method TEXT NOT NULL DEFAULT 'paynow',
+    receipt_url TEXT,
+    reference TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    admin_username TEXT,
+    admin_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at TEXT
+  )`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_depsub_status ON deposit_submissions(status, id)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_depsub_player ON deposit_submissions(player_id, id)').run();
+}
+
 // Past monthly ranks, derived live from the player's own deposit records (no
 // snapshots needed - every deposit is already tagged with its month). The
 // current month is excluded (it is shown live above) and months that never
@@ -2107,6 +2300,10 @@ const AUTO_TEMPLATES: Record<string, { name: string; content: string }> = {
   deposit_received: {
     name: 'Auto · Deposit received',
     content: '✅ Deposit received: SGD {deposit_amount}. <b>{points_added}</b> points have been added to your account. Have fun! 🎮<br><br>✅ 已收到充值：SGD {deposit_amount}。已为你的账户添加 <b>{points_added}</b> 积分。祝你玩得开心！🎮',
+  },
+  deposit_rejected: {
+    name: 'Auto · Deposit request rejected',
+    content: '⚠️ We could not verify your deposit request of SGD {deposit_amount}. Reason: {reason}<br>Please check your receipt and submit again, or contact support in this chat.<br><br>⚠️ 我们无法核实你 SGD {deposit_amount} 的充值申请。原因：{reason}<br>请检查收据后重新提交，或在此聊天联系客服。',
   },
   withdrawal_rejected: {
     name: 'Auto · Withdrawal rejected',
@@ -3321,7 +3518,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
   // Messages search and the player profile popup, so they stay reachable; those
   // tabs are hidden in the UI instead. What IS locked here changes money/config.
   const PERM_MAP: Record<string, string> = {
-    '/api/admin/deposits/all': 'deposits',
+    '/api/admin/deposits/all': 'deposits', '/api/admin/deposits/requests': 'deposits', '/api/admin/deposits/decide': 'deposits',
     '/api/admin/promos/list': 'earn', '/api/admin/promos/save': 'earn', '/api/admin/promos/delete': 'earn', '/api/admin/promos/reorder': 'earn',
     '/api/admin/games/list': 'games', '/api/admin/games/save': 'games', '/api/admin/games/simulate': 'games',
     '/api/admin/rules/list': 'rules', '/api/admin/rules/save': 'rules',
@@ -3902,49 +4099,9 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const amount = Number(body.amount);
       const note = String(body.note || '').trim().slice(0, 300);
       const reference = String(body.reference || '').trim().slice(0, 80);
-      if (!id || !Number.isFinite(amount) || amount <= 0) return fail('BAD_REQUEST', 'A player id and a positive deposit amount are required.', 400, rid);
-      if (amount > 100000000) return fail('AMOUNT_RANGE', 'Deposit amount is too large.', 400, rid);
-      const exists = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(id).first();
-      if (!exists) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
-      const monthKey = monthKeySGT();
-      // Rank BEFORE this deposit, so we can detect a rank-up afterwards.
-      const rankBefore = (await getVipStatus(env, id)).rank_idx;
-      // Duplicate-reference guard: if staff paste the bank/receipt reference, the
-      // same deposit can't be recorded twice (also enforced by a unique index).
-      if (reference) {
-        try {
-          const dup = await env.DB.prepare('SELECT id FROM deposits WHERE reference = ?').bind(reference).first();
-          if (dup) return fail('DUP_REFERENCE', 'A deposit with this reference was already recorded.', 409, rid);
-        } catch { /* reference column not migrated yet */ }
-      }
-      try {
-        await env.DB.prepare('INSERT INTO deposits (player_id, amount, month_key, note, admin_username, reference) VALUES (?, ?, ?, ?, ?, ?)').bind(id, amount, monthKey, note || null, admin, reference || null).run();
-      } catch (e) {
-        const msg = String((e as any)?.message || e);
-        if (/UNIQUE/i.test(msg)) return fail('DUP_REFERENCE', 'A deposit with this reference was already recorded.', 409, rid);
-        // Pre-migration fallback: record without the reference column.
-        await env.DB.prepare('INSERT INTO deposits (player_id, amount, month_key, note, admin_username) VALUES (?, ?, ?, ?, ?)').bind(id, amount, monthKey, note || null, admin).run();
-      }
-      // Deposit bonus points: $rate deposited = 1 point (Settings, default $10;
-      // 0 disables). Logged like every other point movement, with the staff name.
-      const depSettings = await getSettings(env);
-      const rate = Math.max(0, Math.floor(Number(depSettings.deposit_point_rate ?? '10')));
-      let depositPoints = 0;
-      if (rate > 0) {
-        depositPoints = Math.floor(amount / rate);
-        if (depositPoints > 0) await awardPoints(env, id, POINT_TYPES.DEPOSIT_BONUS, depositPoints, `Deposit bonus: $${amount}`, admin);
-      }
-      const vip = await getVipStatus(env, id);
-      const granted = await grantUpgradeBonuses(env, id, vip);
-      // Auto-messages (best-effort): first deposit vs later, and a rank-up note.
-      try {
-        const cnt = await env.DB.prepare('SELECT COUNT(*) AS c FROM deposits WHERE player_id = ?').bind(id).first<{ c: number }>();
-        const isFirst = (cnt?.c ?? 0) <= 1;
-        const dvars = { deposit_amount: String(amount), points_added: String(depositPoints) };
-        await sendAutoMessage(env, id, isFirst ? 'first_deposit' : 'deposit_received', dvars);
-        if (vip.rank_idx > rankBefore) await sendAutoMessage(env, id, 'vip_rank_up', {});
-      } catch { /* best-effort */ }
-      return json({ ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints }, 200, rid);
+      const res = await recordDeposit(env, id, amount, note, reference, admin);
+      if (!res.ok) return fail(res.code, res.msg, res.status, rid);
+      return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, upgrade_points_granted: res.upgrade_points_granted, deposit_points_granted: res.deposit_points_granted }, 200, rid);
     }
 
     case '/api/admin/deposit/list': {
@@ -4971,6 +5128,45 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true, sent, total, url }, 200, rid);
     }
 
+    case '/api/admin/deposits/requests': {
+      await ensureDepositSubmissionsTable(env);
+      const status = String(body.status || 'pending');
+      const sql = 'SELECT s.id, s.player_id, s.amount, s.method, s.receipt_url, s.reference, s.status, s.admin_username, s.admin_note, s.created_at, s.decided_at, p.username, p.display_name FROM deposit_submissions s LEFT JOIN players p ON p.id = s.player_id';
+      const r = status === 'all'
+        ? await env.DB.prepare(sql + " ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, s.id DESC LIMIT 150").all()
+        : await env.DB.prepare(sql + ' WHERE s.status = ? ORDER BY s.id DESC LIMIT 150').bind(status).all();
+      const pending = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE status = 'pending'").first<{ c: number }>();
+      return json({ ok: true, requests: r.results || [], pending: pending?.c ?? 0 }, 200, rid);
+    }
+
+    case '/api/admin/deposits/decide': {
+      const id = Number(body.id);
+      const action = String(body.action || '');
+      const note = String(body.note || '').trim().slice(0, 300);
+      if (!id || (action !== 'approve' && action !== 'reject')) return fail('BAD_REQUEST', 'A request id and an action (approve/reject) are required.', 400, rid);
+      await ensureDepositSubmissionsTable(env);
+      const sub = await env.DB.prepare('SELECT id, player_id, amount, status FROM deposit_submissions WHERE id = ?').bind(id).first<{ id: number; player_id: number; amount: number; status: string }>();
+      if (!sub) return fail('NOT_FOUND', 'Request not found.', 404, rid);
+      if (sub.status !== 'pending') return fail('ALREADY_DECIDED', 'This request was already ' + sub.status + '.', 409, rid);
+      // Claim it first (status guard) so two staff cannot approve the same request.
+      const upd = await env.DB.prepare("UPDATE deposit_submissions SET status = ?, admin_username = ?, admin_note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .bind(action === 'approve' ? 'approved' : 'rejected', admin, note || null, id).run();
+      if (upd.meta.changes === 0) return fail('ALREADY_DECIDED', 'This request was already decided.', 409, rid);
+      if (action === 'approve') {
+        // Staff may correct the amount to what actually arrived.
+        const amount = Number(body.amount) > 0 ? Number(body.amount) : Number(sub.amount);
+        const res = await recordDeposit(env, sub.player_id, amount, note || ('App deposit request #' + id), 'DEP-' + id, admin);
+        if (!res.ok) {
+          await env.DB.prepare("UPDATE deposit_submissions SET status = 'pending', admin_username = NULL, admin_note = NULL, decided_at = NULL WHERE id = ?").bind(id).run();
+          return fail(res.code, res.msg, res.status, rid);
+        }
+        if (amount !== Number(sub.amount)) { try { await env.DB.prepare('UPDATE deposit_submissions SET amount = ? WHERE id = ?').bind(amount, id).run(); } catch { /* ignore */ } }
+        return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, deposit_points_granted: res.deposit_points_granted, upgrade_points_granted: res.upgrade_points_granted }, 200, rid);
+      }
+      try { await sendAutoMessage(env, sub.player_id, 'deposit_rejected', { deposit_amount: String(sub.amount), reason: note || 'receipt could not be verified' }); } catch { /* best-effort */ }
+      return json({ ok: true }, 200, rid);
+    }
+
     case '/api/admin/deposits/all': {
       // Full deposit history across all players, with search + date range.
       // Also serves the CSV export (higher limit allowed, read-only).
@@ -5279,7 +5475,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr'];
+      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
@@ -5289,7 +5485,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           if (val && !isSafeExternalUrl(val)) return fail('BAD_URL', 'Contact URL must be a valid https link (WhatsApp/Telegram allowed).', 400, rid);
         }
         if (key === 'announcement_text') val = val.slice(0, 500);
-        if (key === 'deposit_paynow' || key === 'deposit_name' || key === 'deposit_qr') val = val.trim().slice(0, 300);
+        if (key === 'deposit_paynow' || key === 'deposit_name' || key === 'deposit_qr' || key === 'deposit_bank_name' || key === 'deposit_bank_account' || key === 'deposit_bank_holder') val = val.trim().slice(0, 300);
         if (key === 'checkin_min_deposit' || key === 'deposit_point_rate') {
           val = String(Math.max(0, Math.min(100000, Math.floor(Number(val) || 0))));
         }
@@ -5299,7 +5495,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // apps show a red dot on the Deposit button until each player opens it.
       // Comparing against the current value avoids a false dot when staff hit
       // Save without changing anything.
-      const depKeys = ['deposit_paynow', 'deposit_name', 'deposit_qr'];
+      const depKeys = ['deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder'];
       if (depKeys.some((k) => updates[k] !== undefined)) {
         const cur = await getSettings(env);
         const changed = depKeys.some((k) => updates[k] !== undefined && String(updates[k]) !== String(cur[k] || ''));
