@@ -949,6 +949,9 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
         ranks: ranks.map((r, i) => ({ name: r.name, key: VIP_RANK_KEYS[i] || 'member', deposit: r.deposit, weekly: r.weekly, upgrade: r.upgrade })),
       };
     } catch (e) { vip = null; }
+    let chatUnread = 0;
+    try { const cs = await env.DB.prepare('SELECT player_unread FROM chat_state WHERE player_id = ?').bind(player.id).first<{ player_unread: number }>(); chatUnread = Number(cs?.player_unread) || 0; } catch { chatUnread = 0; }
+    const appSettings = await getSettings(env);
     return j({
       member: {
         username: displayName,
@@ -959,6 +962,14 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       ledger,
       games,
       vip,
+      chat_unread: chatUnread,
+      settings: {
+        contact_url: appSettings.contact_url || '',
+        announcement_text: appSettings.announcement_text || '',
+        terms_text: appSettings.terms_text || '',
+        tasks_enabled: appSettings.tasks_enabled === '1',
+        images: !!env.CHAT_IMAGES,
+      },
       // Bank details for withdrawals. Saved ONCE by the player (first login
       // gate in the app); afterwards only staff can change them.
       bank: { bank_name: (player as any).bank_name || '', bank_account: (player as any).bank_account || '', bank_holder: (player as any).bank_holder || '', paynow_number: (player as any).paynow_number || '', locked: !!(player as any).bank_locked },
@@ -978,13 +989,53 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     const raw = await request.text();
     const fwd = new Request(new URL(toPath, request.url).toString(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip, 'X-LE888-App': request.headers.get('X-LE888-App') || '' },
       body: raw || '{}',
     });
     const res = await handleApi(fwd, env, ctx, rid);
     const text = await res.text();
     return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   };
+  // Cookie-session bridges to the existing player API. Each one keeps the
+  // original endpoint's rules (rate limits, cooldowns, credit locks).
+  const BRIDGE: Record<string, string> = {
+    '/api/member/chat/list': '/api/chat/list', '/api/member/chat/send': '/api/chat/send',
+    '/api/member/profile': '/api/profile', '/api/member/checkin': '/api/checkin',
+    '/api/member/tasks': '/api/tasks', '/api/member/task/complete': '/api/task/complete',
+    '/api/member/promos': '/api/promos', '/api/member/promos/claim': '/api/promos/claim',
+    '/api/member/deposit-bonus/claim': '/api/deposit-bonus/claim',
+    '/api/member/vip': '/api/vip', '/api/member/vip/claim-weekly': '/api/vip/claim-weekly',
+    '/api/member/reward/submit': '/api/reward/submit', '/api/member/reward/cancel': '/api/reward/cancel',
+    '/api/member/history': '/api/history',
+  };
+  if (BRIDGE[p] && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    return bridge(BRIDGE[p]);
+  }
+  // Chat image: raw bytes passthrough (the old endpoint reads the body itself).
+  if (p === '/api/member/chat/upload' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const bytes = await request.arrayBuffer();
+    const fwd = new Request(new URL('/api/chat/upload', request.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': request.headers.get('content-type') || 'application/octet-stream', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip },
+      body: bytes,
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  // Public game RTP tables (same data the old app showed).
+  if (p === '/api/member/rtp' && method === 'POST') {
+    try {
+      const pr = await env.DB.prepare('SELECT id, name, logo_url FROM rtp_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
+      const gr = await env.DB.prepare('SELECT platform_id, name, image_url, rtp FROM rtp_games WHERE active=1 ORDER BY platform_id ASC, sort_order ASC, id ASC').all();
+      return j({ ok: true, platforms: pr.results || [], games: gr.results || [] }, 200);
+    } catch { return j({ ok: true, platforms: [], games: [] }, 200); }
+  }
+
   if (p === '/api/member/withdraw' && method === 'GET') {
     const player = await currentPlayer();
     if (!player) return j({ error: 'Please sign in.' }, 401);
@@ -1298,7 +1349,13 @@ export default {
       }
 
       const assetRes = await env.ASSETS.fetch(request);
-      return decorateAsset(assetRes, (assetRes.headers.get('content-type') || '').includes('text/html'));
+      const assetIsHtml = (assetRes.headers.get('content-type') || '').includes('text/html');
+      // A missing file under /assets/ must be a real 404 (never the app page),
+      // otherwise browsers and the service worker cache HTML as an "image".
+      if (assetIsHtml && /^\/assets\//.test(url.pathname)) {
+        return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+      }
+      return decorateAsset(assetRes, assetIsHtml);
     } catch (err) {
       console.error(JSON.stringify({ rid, level: 'error', msg: 'unhandled', error: String((err && (err as Error).message) || err) }));
       return json({ ok: false, error: 'Internal error', code: 'INTERNAL_ERROR' }, 500, rid);
@@ -1892,6 +1949,7 @@ function publicSettings(s: Record<string, string>) {
     deposit_bank_name: s.deposit_bank_name || '',
     deposit_bank_account: s.deposit_bank_account || '',
     deposit_bank_holder: s.deposit_bank_holder || '',
+    terms_text: s.terms_text || '',
     // Bumped whenever staff change the deposit account; the app shows a red dot
     // on the Deposit button until the player opens it.
     deposit_updated_at: s.deposit_updated_at || '',
@@ -3699,6 +3757,9 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         await env.DB.prepare(
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('wheel', 1, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 0, w: 20 }, { cents: 50, w: 25 }, { cents: 100, w: 20 }, { cents: 200, w: 15 }, { cents: 500, w: 10 }, { cents: 888, w: 6 }, { cents: 2888, w: 3 }, { cents: 8888, w: 1 }])).run();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('egg', 5, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 0, w: 35 }, { cents: 100, w: 30 }, { cents: 288, w: 20 }, { cents: 888, w: 10 }, { cents: 2888, w: 4 }, { cents: 8888, w: 1 }])).run();
         await env.DB.prepare(
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('crown', 10, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 7777, w: 2 }, { cents: 5077, w: 6 }, { cents: 3077, w: 15 }, { cents: 1077, w: 32 }, { cents: 0, w: 45 }])).run();
@@ -5511,7 +5572,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder'];
+      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
@@ -5521,6 +5582,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           if (val && !isSafeExternalUrl(val)) return fail('BAD_URL', 'Contact URL must be a valid https link (WhatsApp/Telegram allowed).', 400, rid);
         }
         if (key === 'announcement_text') val = val.slice(0, 500);
+        if (key === 'terms_text') val = val.slice(0, 20000);
         if (key === 'deposit_paynow' || key === 'deposit_name' || key === 'deposit_qr' || key === 'deposit_bank_name' || key === 'deposit_bank_account' || key === 'deposit_bank_holder') val = val.trim().slice(0, 300);
         if (key === 'checkin_min_deposit' || key === 'deposit_point_rate') {
           val = String(Math.max(0, Math.min(100000, Math.floor(Number(val) || 0))));
