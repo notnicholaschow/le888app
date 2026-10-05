@@ -759,7 +759,6 @@ body.luxury-os .app-frame > header.os-home-header {
 /* Shared floating materials extend through account, rewards, VIP, forms and games. */
 body.luxury-os .panel,
 body.luxury-os .mission,
-body.luxury-os .rtp-card,
 body.luxury-os .tier-row {
   background: linear-gradient(130deg, #c3c3cc13, #16171e80 55%, #a57b2710);
   border: 1px solid #d2bc902c;
@@ -1546,12 +1545,6 @@ body.gate-open{overflow:hidden}
 .rw-promo-body{flex:1;min-width:0}.rw-promo-body b{display:block;font-size:14px;color:#f8f5ef}.rw-promo-body small{display:block;color:#9b9894;font-size:11px;margin-top:3px;line-height:1.4}
 .rw-promo-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
 .mission-copy small{display:block;color:#9b9894;font-size:11px;margin-top:2px}.mission-copy .text-link{display:inline-block;margin-top:4px;font-size:11px}
-/* ===== RTP ===== */
-.rtp-plat{padding:12px;margin-bottom:12px}
-.rtp-plat-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}.rtp-plat-head img{width:40px;height:40px;border-radius:10px;object-fit:cover}.rtp-plat-head b{flex:1;font-size:15px;color:#f8f5ef}.rtp-plat-head small{color:#9b9894;font-size:11px}
-.rtp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #ffffff0c}.rtp-row img{width:34px;height:34px;border-radius:8px;object-fit:cover;flex:none}
-.rtp-row-body{flex:1;min-width:0}.rtp-row-body span{display:block;font-size:12px;color:#e8e2d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rtp-row-body .progress{margin-top:5px;height:4px}
-.rtp-row b{flex:none;font-size:13px;color:#ffd274;min-width:54px;text-align:right}.rtp-row b.hot{color:#8be3a8}
 /* ===== Terms / support ===== */
 .terms p{color:#cfc6b8;font-size:13px;line-height:1.6;margin:10px 0 0}
 .support-contact{display:block;text-align:center;text-decoration:none;margin-top:14px}
@@ -1571,3 +1564,8 @@ body.gate-open{overflow:hidden}
 .message-bubble mark{background:#ffd274;color:#17130c;border-radius:3px;padding:0 2px}
 .message-row.flash .message-bubble{animation:chatFlash 1.6s ease-out}
 @keyframes chatFlash{0%{box-shadow:0 0 0 2px #ffd274,0 0 18px #ffd27488}100%{box-shadow:0 0 0 0 transparent}}
+
+/* ===== Game Platforms: several links per game ===== */
+.gp-card.gp-multi{flex-wrap:wrap}
+.gp-links{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+.gp-links .gp-btn{flex:1 1 auto;text-align:center;min-width:96px}

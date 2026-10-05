@@ -831,13 +831,13 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     <section id="tab-rtp" class="hidden">
       <div class="page-head">
         <h1>Slot Games</h1>
-        <p>Manage the Slot Games list players see, and the Game RTP tables.</p>
+        <p>Manage the Slot Games list players see and the links each game opens.</p>
       </div>
 
       <!-- ===== Slot Games launcher (admin-managed) ===== -->
       <div class="card">
         <h2 style="margin-top:0">🎰 Slot Games list (Play Now)</h2>
-        <p class="muted" style="margin:0 0 10px">These appear on the app's <b>Slot Game</b> page. Each one's <b>Play Now</b> button opens the link you set below. Use the arrows to reorder.</p>
+        <p class="muted" style="margin:0 0 10px">These appear on the app's <b>Game Platforms</b> page. Each link you add below becomes a button on that game's card. Use the arrows to reorder.</p>
         <div id="slotList" class="muted">Loading&hellip;</div>
         <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
         <label for="slotName">Platform name</label>
@@ -852,8 +852,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
           <option value="app">App (download / launch)</option>
           <option value="web">Website</option>
         </select>
-        <label style="margin-top:8px" for="slotUrl">Play link — where "Play Now" goes</label>
-        <input id="slotUrl" maxlength="500" placeholder="https://…  (download page, website, or agent link)" autocomplete="off">
+        <label style="margin-top:8px">Links &mdash; each one becomes a button on the game card in the app (e.g. Android, iOS, Web). Up to 8.</label>
+        <div id="slotLinks"></div>
+        <button type="button" class="btn ghost small" id="slotLinkAdd" style="margin-top:4px">+ Add link</button>
         <label style="margin-top:8px" for="slotPkg">Android package (optional — for auto-open later)</label>
         <input id="slotPkg" maxlength="120" placeholder="e.g. com.mega888.app  (leave blank if unsure)" autocomplete="off">
         <input type="hidden" id="slotId"><input type="hidden" id="slotLogoUrl">
@@ -864,53 +865,6 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         </div>
       </div>
 
-      <hr style="border:none;border-top:1px solid var(--border,#222);margin:20px 0 4px">
-      <div class="page-head"><h1 style="font-size:20px">Game RTP tables</h1>
-        <p>Show players each game's RTP. Add platforms, add their games in order, then paste the RTP column from Excel to update them all at once.</p></div>
-
-      <div class="card">
-        <h2 style="margin-top:0">Platforms</h2>
-        <div id="rtpPfList" class="muted">Loading&hellip;</div>
-        <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
-        <label for="rtpPfName">Platform name</label>
-        <input id="rtpPfName" maxlength="80" placeholder="e.g. Pragmatic Play" autocomplete="off">
-        <label style="margin-top:8px">Logo (optional)</label>
-        <div class="row" style="align-items:center">
-          <img id="rtpPfLogoPrev" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:contain;background:#111;display:none">
-          <input type="file" id="rtpPfLogoFile" accept="image/*" style="flex:1">
-        </div>
-        <input type="hidden" id="rtpPfId"><input type="hidden" id="rtpPfLogoUrl">
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="rtpPfActive" checked style="width:auto"> Active (shown to players)</label>
-        <div class="row" style="margin-top:10px">
-          <button class="btn small" id="rtpPfSave">Save platform</button>
-          <button class="btn ghost small" id="rtpPfReset">New / clear</button>
-        </div>
-      </div>
-
-      <div class="card" id="rtpGamesCard" style="display:none">
-        <h2 style="margin-top:0">Games &mdash; <span id="rtpGamesPfName" style="color:var(--gold,#e7c56b)"></span></h2>
-        <input id="rtpGameSearch" placeholder="Search games in this platform&hellip;" autocomplete="off" style="margin-bottom:10px">
-        <div class="tbl-wrap"><table class="tbl" id="rtpGameTbl">
-          <thead><tr><th></th><th>Game</th><th style="width:110px">RTP %</th><th style="width:60px">On</th><th></th></tr></thead>
-          <tbody><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
-        </table></div>
-        <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
-        <b>Add games</b>
-        <p class="muted" style="margin:4px 0 8px">Paste your game names, one per line, in the SAME order as your RTP Excel. They get added to the bottom in that order.</p>
-        <textarea id="rtpBulkNames" rows="4" placeholder="Fortune Tiger&#10;Fortune Ox&#10;Fortune Mouse" style="font-family:monospace;font-size:12.5px"></textarea>
-        <button class="btn small" id="rtpBulkAdd" style="margin-top:8px">+ Add these games</button>
-      </div>
-
-      <div class="card" id="rtpPasteCard" style="display:none">
-        <h2 style="margin-top:0">Update RTP from Excel</h2>
-        <p class="muted" style="margin:0 0 8px">Copy the RTP column in Excel and paste it here (one number per line). Press <b>Preview</b> to check the line-up, then <b>Apply</b>.</p>
-        <textarea id="rtpPasteBox" rows="8" placeholder="96.50&#10;97.12&#10;95.80" style="font-family:monospace;font-size:13px"></textarea>
-        <div class="row" style="margin-top:8px">
-          <button class="btn small" id="rtpPastePreview">Preview line-up</button>
-          <button class="btn small" id="rtpPasteApply" disabled>Apply RTP</button>
-        </div>
-        <div id="rtpPasteResult" style="margin-top:12px"></div>
-      </div>
     </section>
 
     <section id="tab-settings" class="hidden">
@@ -1058,7 +1012,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var SECTION_LABELS = {
     players: 'Players', earn: 'Earn', activity: 'Point activity', credits: 'Credit activity',
     deposits: 'Deposits', games: 'Games', rules: 'Withdraw rules', vip: 'VIP bonuses',
-    templates: 'Templates', domains: 'Domains', rtp: 'Slot Games & RTP', settings: 'Settings', view_app: 'View app (act as player)'
+    templates: 'Templates', domains: 'Domains', rtp: 'Slot Games', settings: 'Settings', view_app: 'View app (act as player)'
   };
   // Keys shown in the Access checklist = the tabs plus non-tab action permissions.
   var PERM_CHECKLIST = GATED_TABS.concat(['view_app']);
@@ -1228,7 +1182,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     credits: loadCredits, deposits: loadDeposits,
     payouts: loadPayouts, withdrawals: loadWithdrawals, earn: function () { loadPromos(); loadDepBonus(); }, settings: loadSettings, admins: loadAdmins,
     delete: loadDelete, messages: loadChats, games: loadGames, rules: loadRules, vip: loadVipBonuses, templates: loadTemplates,
-    domains: loadDomains, rtp: loadRtp
+    domains: loadDomains, rtp: loadSlots
   };
   Array.prototype.forEach.call(document.querySelectorAll('.side-link'), function (t) {
     t.onclick = function () {
@@ -3563,13 +3517,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   }
 
   // ------------------------------------------------------------------
-  // Game RTP (platforms + games + paste-a-column RTP update)
+  // Slot Games launcher (admin-managed list of platforms + their links)
   // ------------------------------------------------------------------
-  var rtpPfCache = [];
-  var rtpCurPf = null;      // { id, name }
-  var rtpGamesCache = [];
-
-  // ---- Slot Games launcher (admin-managed list of Play Now platforms) ----
   var slotCache = [];
   function loadSlots() {
     slotInitForms();
@@ -3584,7 +3533,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     if (!slotCache.length) { box.innerHTML = '<span class="muted">No slot games yet. Add your first one below.</span>'; return; }
     box.innerHTML = slotCache.map(function (p, i) {
       var logo = p.logo_url ? '<img src="' + esc(p.logo_url) + '" style="width:26px;height:26px;border-radius:6px;object-fit:contain;background:#111;vertical-align:middle;margin-right:8px">' : '';
-      var tag = '<span class="muted">(' + (p.kind === 'web' ? 'Website' : 'App') + (Number(p.active) ? '' : ', hidden') + ')</span>';
+      var nl = (p.links || []).length;
+      var tag = '<span class="muted">(' + (p.kind === 'web' ? 'Website' : 'App') + ' &middot; ' + (nl ? nl + (nl === 1 ? ' link' : ' links') : 'no link yet') + (Number(p.active) ? '' : ', hidden') + ')</span>';
       return '<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--border,#222);border-radius:10px;margin-bottom:6px">' +
         '<div style="flex:1;min-width:0">' + logo + '<b>' + esc(p.name) + '</b> ' + tag + '</div>' +
         '<button class="btn ghost small" data-sup="' + p.id + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
@@ -3597,17 +3547,34 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     Array.prototype.forEach.call(box.querySelectorAll('[data-sup]'), function (el) { el.onclick = function () { slotReorder(Number(el.getAttribute('data-sup')), 'up'); }; });
     Array.prototype.forEach.call(box.querySelectorAll('[data-sdown]'), function (el) { el.onclick = function () { slotReorder(Number(el.getAttribute('data-sdown')), 'down'); }; });
   }
+  // Links being edited in the form: [{label, url}]
+  var slotLinks = [];
+  function renderSlotLinks() {
+    var box = $('slotLinks'); if (!box) return;
+    if (!slotLinks.length) slotLinks.push({ label: '', url: '' });
+    box.innerHTML = slotLinks.map(function (l, i) {
+      return '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px" data-link-row="' + i + '">' +
+        '<input data-link-label="' + i + '" maxlength="24" placeholder="Button name (e.g. Android)" value="' + esc(l.label || '') + '" style="flex:0 0 170px">' +
+        '<input data-link-url="' + i + '" maxlength="500" placeholder="https://…" value="' + esc(l.url || '') + '" style="flex:1">' +
+        '<button type="button" class="btn ghost small" data-link-del="' + i + '" title="Remove link">&times;</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-link-label]'), function (el) { el.oninput = function () { slotLinks[Number(el.getAttribute('data-link-label'))].label = el.value; }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-link-url]'), function (el) { el.oninput = function () { slotLinks[Number(el.getAttribute('data-link-url'))].url = el.value; }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-link-del]'), function (el) { el.onclick = function () { slotLinks.splice(Number(el.getAttribute('data-link-del')), 1); renderSlotLinks(); }; });
+  }
   function slotEdit(id) {
     var p = slotCache.filter(function (x) { return x.id === id; })[0]; if (!p) return;
     $('slotId').value = p.id; $('slotName').value = p.name; $('slotLogoUrl').value = p.logo_url || '';
-    $('slotKind').value = (p.kind === 'web' ? 'web' : 'app'); $('slotUrl').value = p.play_url || ''; $('slotPkg').value = p.android_package || '';
+    $('slotKind').value = (p.kind === 'web' ? 'web' : 'app'); $('slotPkg').value = p.android_package || '';
+    slotLinks = (p.links || []).map(function (l) { return { label: l.label || '', url: l.url || '' }; });
+    renderSlotLinks();
     $('slotActive').checked = Number(p.active) === 1;
     var prev = $('slotLogoPrev'); if (p.logo_url) { prev.src = p.logo_url; prev.style.display = ''; } else { prev.style.display = 'none'; }
     $('slotName').focus();
   }
   function slotReset() {
     $('slotId').value = ''; $('slotName').value = ''; $('slotLogoUrl').value = ''; $('slotKind').value = 'app';
-    $('slotUrl').value = ''; $('slotPkg').value = ''; $('slotActive').checked = true;
+    $('slotPkg').value = ''; $('slotActive').checked = true; slotLinks = []; renderSlotLinks();
     $('slotLogoPrev').style.display = 'none'; $('slotLogoFile').value = '';
   }
   function slotDel(id) {
@@ -3634,13 +3601,24 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         toast('Logo ready. Press Save slot game.');
       }).catch(function () { toast('Upload failed.', true); });
     };
+    $('slotLinkAdd').onclick = function () {
+      if (slotLinks.length >= 8) { toast('Up to 8 links per game.', true); return; }
+      slotLinks.push({ label: '', url: '' }); renderSlotLinks();
+      var last = $('slotLinks').querySelector('[data-link-label="' + (slotLinks.length - 1) + '"]'); if (last) last.focus();
+    };
+    renderSlotLinks();
     $('slotSave').onclick = function () {
       var name = $('slotName').value.trim();
       if (!name) { toast('Enter a platform name.', true); return; }
+      var links = slotLinks.map(function (l) { return { label: (l.label || '').trim(), url: (l.url || '').trim() }; })
+        .filter(function (l) { return l.label || l.url; });
+      for (var i = 0; i < links.length; i++) {
+        if (!/^https?:\/\//i.test(links[i].url)) { toast('Link ' + (i + 1) + ': enter a full link starting with https://', true); return; }
+      }
       busy($('slotSave'), true);
       api('/api/admin/slots/save', {
         id: Number($('slotId').value) || 0, name: name, logo_url: $('slotLogoUrl').value,
-        kind: $('slotKind').value, play_url: $('slotUrl').value.trim(),
+        kind: $('slotKind').value, links: links,
         android_package: $('slotPkg').value.trim(), active: $('slotActive').checked ? 1 : 0
       }).then(function (r) {
         busy($('slotSave'), false);
@@ -3651,201 +3629,10 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     $('slotReset').onclick = slotReset;
   }
 
-  function loadRtp() {
-    loadSlots();
-    rtpInitForms();
-    api('/api/admin/rtp/platforms', {}).then(function (r) {
-      rtpPfCache = (r && r.platforms) || [];
-      renderRtpPlatforms();
-      if (rtpCurPf) {
-        var still = rtpPfCache.filter(function (p) { return p.id === rtpCurPf.id; })[0];
-        if (still) { rtpCurPf.name = still.name; $('rtpGamesPfName').textContent = still.name; loadRtpGames(); }
-        else { rtpCurPf = null; $('rtpGamesCard').style.display = 'none'; $('rtpPasteCard').style.display = 'none'; }
-      }
-    });
-  }
-
-  function renderRtpPlatforms() {
-    var box = $('rtpPfList');
-    if (!rtpPfCache.length) { box.innerHTML = '<span class="muted">No platforms yet. Add your first one below.</span>'; return; }
-    box.innerHTML = rtpPfCache.map(function (p) {
-      var sel = (rtpCurPf && rtpCurPf.id === p.id);
-      var logo = p.logo_url ? '<img src="' + esc(p.logo_url) + '" style="width:26px;height:26px;border-radius:6px;object-fit:contain;background:#111;vertical-align:middle;margin-right:8px">' : '';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ' + (sel ? 'var(--gold,#e7c56b)' : 'var(--border,#222)') + ';border-radius:10px;margin-bottom:6px">' +
-        '<div style="flex:1;min-width:0;cursor:pointer" data-open="' + p.id + '">' + logo + '<b>' + esc(p.name) + '</b> ' +
-        '<span class="muted">(' + p.games + ' games' + (Number(p.active) ? '' : ', hidden') + ')</span></div>' +
-        '<button class="btn ghost small" data-edit="' + p.id + '">Edit</button>' +
-        '<button class="btn ghost small" data-del="' + p.id + '">Del</button></div>';
-    }).join('');
-    Array.prototype.forEach.call(box.querySelectorAll('[data-open]'), function (el) { el.onclick = function () { rtpSelectPf(Number(el.getAttribute('data-open'))); }; });
-    Array.prototype.forEach.call(box.querySelectorAll('[data-edit]'), function (el) { el.onclick = function () { rtpEditPf(Number(el.getAttribute('data-edit'))); }; });
-    Array.prototype.forEach.call(box.querySelectorAll('[data-del]'), function (el) { el.onclick = function () { rtpDelPf(Number(el.getAttribute('data-del'))); }; });
-  }
-
-  function rtpSelectPf(id) {
-    var p = rtpPfCache.filter(function (x) { return x.id === id; })[0];
-    if (!p) return;
-    rtpCurPf = { id: p.id, name: p.name };
-    renderRtpPlatforms();
-    $('rtpGamesPfName').textContent = p.name;
-    $('rtpGamesCard').style.display = ''; $('rtpPasteCard').style.display = '';
-    $('rtpPasteResult').innerHTML = ''; $('rtpPasteBox').value = ''; $('rtpPasteApply').disabled = true;
-    $('rtpGameSearch').value = '';
-    loadRtpGames();
-  }
-
-  function rtpEditPf(id) {
-    var p = rtpPfCache.filter(function (x) { return x.id === id; })[0]; if (!p) return;
-    $('rtpPfId').value = p.id; $('rtpPfName').value = p.name; $('rtpPfLogoUrl').value = p.logo_url || '';
-    $('rtpPfActive').checked = Number(p.active) === 1;
-    var prev = $('rtpPfLogoPrev');
-    if (p.logo_url) { prev.src = p.logo_url; prev.style.display = ''; } else { prev.style.display = 'none'; }
-    $('rtpPfName').focus();
-  }
-
-  function rtpResetPf() {
-    $('rtpPfId').value = ''; $('rtpPfName').value = ''; $('rtpPfLogoUrl').value = '';
-    $('rtpPfActive').checked = true; $('rtpPfLogoPrev').style.display = 'none'; $('rtpPfLogoFile').value = '';
-  }
-
-  function rtpDelPf(id) {
-    var p = rtpPfCache.filter(function (x) { return x.id === id; })[0]; if (!p) return;
-    if (!confirm('Delete platform "' + p.name + '" and ALL its games? This cannot be undone.')) return;
-    api('/api/admin/rtp/platform/delete', { id: id }).then(function (r) {
-      if (!r.ok) { toast(r.error || 'Delete failed.', true); return; }
-      if (rtpCurPf && rtpCurPf.id === id) { rtpCurPf = null; $('rtpGamesCard').style.display = 'none'; $('rtpPasteCard').style.display = 'none'; }
-      toast('Platform deleted.'); loadRtp();
-    });
-  }
-
   function rtpUpload(file) {
     return fetch('/api/admin/promo/image-upload', {
       method: 'POST', headers: { 'Content-Type': file.type, 'Authorization': 'Bearer ' + (token || '') }, body: file
     }).then(function (r) { return r.json(); });
-  }
-
-  function rtpInitForms() {
-    if (rtpInitForms._done) return; rtpInitForms._done = true;
-    $('rtpPfLogoFile').onchange = function () {
-      var f = this.files && this.files[0]; if (!f) return; toast('Uploading logo…');
-      rtpUpload(f).then(function (r) {
-        if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
-        $('rtpPfLogoUrl').value = r.url; var prev = $('rtpPfLogoPrev'); prev.src = r.url; prev.style.display = '';
-        toast('Logo ready. Press Save platform.');
-      }).catch(function () { toast('Upload failed.', true); });
-    };
-    $('rtpPfSave').onclick = function () {
-      var name = $('rtpPfName').value.trim();
-      if (!name) { toast('Enter a platform name.', true); return; }
-      busy($('rtpPfSave'), true);
-      api('/api/admin/rtp/platform/save', { id: Number($('rtpPfId').value) || 0, name: name, logo_url: $('rtpPfLogoUrl').value, active: $('rtpPfActive').checked ? 1 : 0 }).then(function (r) {
-        busy($('rtpPfSave'), false);
-        if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
-        toast('Platform saved.'); rtpResetPf(); loadRtp();
-      }).catch(function () { busy($('rtpPfSave'), false); toast('Network error.', true); });
-    };
-    $('rtpPfReset').onclick = rtpResetPf;
-    $('rtpGameSearch').oninput = renderRtpGames;
-    $('rtpBulkAdd').onclick = function () {
-      if (!rtpCurPf) return;
-      var names = $('rtpBulkNames').value;
-      if (!names.trim()) { toast('Paste some game names first.', true); return; }
-      busy($('rtpBulkAdd'), true);
-      api('/api/admin/rtp/bulk-add', { platform_id: rtpCurPf.id, names: names }).then(function (r) {
-        busy($('rtpBulkAdd'), false);
-        if (!r.ok) { toast(r.error || 'Add failed.', true); return; }
-        $('rtpBulkNames').value = ''; toast('Added ' + r.added + ' games.'); loadRtpGames(); rtpRefreshCounts();
-      }).catch(function () { busy($('rtpBulkAdd'), false); toast('Network error.', true); });
-    };
-    $('rtpPastePreview').onclick = function () { rtpPaste(true); };
-    $('rtpPasteApply').onclick = function () { rtpPaste(false); };
-  }
-
-  function rtpRefreshCounts() { api('/api/admin/rtp/platforms', {}).then(function (r) { rtpPfCache = (r && r.platforms) || []; renderRtpPlatforms(); }); }
-
-  function loadRtpGames() {
-    if (!rtpCurPf) return;
-    api('/api/admin/rtp/games', { platform_id: rtpCurPf.id }).then(function (r) {
-      rtpGamesCache = (r && r.games) || []; renderRtpGames();
-    });
-  }
-
-  function renderRtpGames() {
-    var tb = $('rtpGameTbl').querySelector('tbody');
-    var q = ($('rtpGameSearch').value || '').toLowerCase();
-    var list = rtpGamesCache.filter(function (g) { return !q || (g.name || '').toLowerCase().indexOf(q) !== -1; });
-    if (!list.length) { tb.innerHTML = '<tr><td colspan="5" class="muted">' + (rtpGamesCache.length ? 'No match.' : 'No games yet. Add some below.') + '</td></tr>'; return; }
-    tb.innerHTML = list.map(function (g) {
-      var img = g.image_url ? '<img src="' + esc(g.image_url) + '" style="width:34px;height:34px;border-radius:8px;object-fit:cover;background:#111">' : '<div style="width:34px;height:34px;border-radius:8px;background:#1a1a1a;display:flex;align-items:center;justify-content:center;color:#555">?</div>';
-      return '<tr><td style="width:44px">' + img + '</td><td>' + esc(g.name) + '</td>' +
-        '<td><input type="number" step="0.01" min="0" max="100" value="' + (g.rtp != null ? g.rtp : '') + '" data-rtp="' + g.id + '" style="width:90px;padding:4px 6px"></td>' +
-        '<td style="text-align:center"><input type="checkbox" ' + (Number(g.active) ? 'checked' : '') + ' data-act="' + g.id + '" style="width:auto"></td>' +
-        '<td style="white-space:nowrap"><button class="btn ghost small" data-gicon="' + g.id + '">Icon</button> <button class="btn ghost small" data-gdel="' + g.id + '">Del</button></td></tr>';
-    }).join('');
-    Array.prototype.forEach.call(tb.querySelectorAll('[data-rtp]'), function (el) { el.onchange = function () { rtpSaveGameField(Number(el.getAttribute('data-rtp')), { rtp: Number(el.value) || 0 }); }; });
-    Array.prototype.forEach.call(tb.querySelectorAll('[data-act]'), function (el) { el.onchange = function () { rtpSaveGameField(Number(el.getAttribute('data-act')), { active: el.checked ? 1 : 0 }); }; });
-    Array.prototype.forEach.call(tb.querySelectorAll('[data-gdel]'), function (el) { el.onclick = function () { rtpDelGame(Number(el.getAttribute('data-gdel'))); }; });
-    Array.prototype.forEach.call(tb.querySelectorAll('[data-gicon]'), function (el) { el.onclick = function () { rtpGameIcon(Number(el.getAttribute('data-gicon'))); }; });
-  }
-
-  function rtpGameById(id) { return rtpGamesCache.filter(function (g) { return g.id === id; })[0]; }
-
-  function rtpSaveGameField(id, patch) {
-    var g = rtpGameById(id); if (!g) return;
-    var payload = { id: id, name: g.name, image_url: g.image_url || '', rtp: g.rtp || 0, active: Number(g.active) ? 1 : 0 };
-    for (var k in patch) payload[k] = patch[k];
-    api('/api/admin/rtp/game/save', payload).then(function (r) {
-      if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
-      g.rtp = payload.rtp; g.active = payload.active; g.image_url = payload.image_url;
-    });
-  }
-
-  function rtpDelGame(id) {
-    var g = rtpGameById(id); if (!g) return;
-    if (!confirm('Delete "' + g.name + '"? Deleting a game shifts the RTP paste order — only do this if your Excel list changed too.')) return;
-    api('/api/admin/rtp/game/delete', { id: id }).then(function (r) {
-      if (!r.ok) { toast(r.error || 'Delete failed.', true); return; }
-      toast('Game deleted.'); loadRtpGames(); rtpRefreshCounts();
-    });
-  }
-
-  function rtpGameIcon(id) {
-    var g = rtpGameById(id); if (!g) return;
-    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = function () {
-      var f = inp.files && inp.files[0]; if (!f) return; toast('Uploading icon…');
-      rtpUpload(f).then(function (r) {
-        if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
-        rtpSaveGameField(id, { image_url: r.url }); toast('Icon updated.'); setTimeout(loadRtpGames, 300);
-      }).catch(function () { toast('Upload failed.', true); });
-    };
-    inp.click();
-  }
-
-  function rtpPaste(preview) {
-    if (!rtpCurPf) return;
-    var text = $('rtpPasteBox').value;
-    if (!text.trim()) { toast('Paste the RTP column first.', true); return; }
-    var btn = preview ? $('rtpPastePreview') : $('rtpPasteApply');
-    busy(btn, true);
-    api('/api/admin/rtp/paste', { platform_id: rtpCurPf.id, text: text, preview: preview ? 1 : 0 }).then(function (r) {
-      busy(btn, false);
-      if (!r.ok) { toast(r.error || 'Failed.', true); return; }
-      if (!preview) {
-        toast('Updated ' + r.applied + ' games.');
-        $('rtpPasteBox').value = ''; $('rtpPasteResult').innerHTML = ''; $('rtpPasteApply').disabled = true;
-        loadRtpGames(); return;
-      }
-      var warn = r.mismatch
-        ? '<div style="background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.4);border-radius:8px;padding:8px 10px;margin-bottom:8px;color:#ff9a9a">You pasted <b>' + r.pasted + '</b> numbers but this platform has <b>' + r.games + '</b> games. Only the first <b>' + r.matched + '</b> will update. Fix the list so they match.</div>'
-        : '<div style="background:rgba(80,200,120,.12);border:1px solid rgba(80,200,120,.4);border-radius:8px;padding:8px 10px;margin-bottom:8px;color:#9be8b4"><b>' + r.matched + '</b> games line up. Check a few rows, then press Apply.</div>';
-      var rows = (r.preview || []).map(function (row, i) {
-        var bad = (row.game == null || row.rtp == null);
-        return '<tr' + (bad ? ' style="opacity:.5"' : '') + '><td style="width:40px" class="muted">' + (i + 1) + '</td><td>' + (row.game != null ? esc(row.game) : '<i>&mdash; no game &mdash;</i>') + '</td><td style="width:90px;text-align:right"><b>' + (row.rtp != null ? esc(String(row.rtp)) : '&mdash;') + '</b></td></tr>';
-      }).join('');
-      $('rtpPasteResult').innerHTML = warn + '<div class="tbl-wrap" style="max-height:340px;overflow:auto"><table class="tbl"><thead><tr><th>#</th><th>Game</th><th style="text-align:right">New RTP</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
-      $('rtpPasteApply').disabled = (r.matched === 0);
-    }).catch(function () { busy(btn, false); toast('Network error.', true); });
   }
 
   function templateModal(t) {
