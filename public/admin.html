@@ -941,6 +941,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         <textarea id="sAnnounce" rows="2"></textarea>
         <label for="sContact">Contact us URL (shown as a button in the player app, empty = hidden)</label>
         <input id="sContact" placeholder="https://wa.me/&hellip; or any link">
+        <label for="sTerms">Terms &amp; Conditions (player app &rarr; Settings &rarr; Terms). One rule per line; blank line = new paragraph. Empty = built-in default text.</label>
+        <textarea id="sTerms" rows="8" placeholder="1. LE888 is a rewards app. Points (PTS) have no cash value&hellip;"></textarea>
         <div class="row">
           <div style="flex:1"><label for="sCheckinMinDep">Check-in min deposit (SGD) — a player can check in on a day only if their deposits that day total this amount</label><input id="sCheckinMinDep" type="number" min="0"></div>
           <div style="flex:1"><label for="sDepositRate">Deposit points: $ per 1 point (0 = off)</label><input id="sDepositRate" type="number" min="0"></div>
@@ -3260,6 +3262,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       var s = res.settings;
       $('sAnnounce').value = s.announcement_text || '';
       $('sContact').value = s.contact_url || '';
+      $('sTerms').value = s.terms_text || '';
       $('sCheckinMinDep').value = s.checkin_min_deposit || '10';
       $('sDepositRate').value = s.deposit_point_rate || '10';
       $('sDepPaynow').value = s.deposit_paynow || '';
@@ -3332,6 +3335,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       settings: {
         announcement_text: $('sAnnounce').value,
         contact_url: $('sContact').value.trim(),
+        terms_text: $('sTerms').value.trim(),
         checkin_min_deposit: $('sCheckinMinDep').value,
         deposit_point_rate: $('sDepositRate').value,
         tasks_enabled: $('sTasksOn').value

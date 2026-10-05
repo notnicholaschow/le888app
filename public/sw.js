@@ -9,7 +9,7 @@
    ============================================================================ */
 'use strict';
 
-var CACHE = 'tr666-v110';
+var CACHE = 'tr666-v112';
 var STATIC = ['/', '/manifest-game.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', function (e) {
@@ -59,7 +59,10 @@ self.addEventListener('fetch', function (e) {
     caches.match(req).then(function (hit) {
       if (hit) return hit;
       return fetch(req).then(function (res) {
-        if (res && res.status === 200 && res.type === 'basic') {
+        // Only cache a real asset. If the server fell back to the HTML app
+        // page (file missing at that moment), never cache that for an asset URL.
+        var ct = (res && res.headers.get('content-type')) || '';
+        if (res && res.status === 200 && res.type === 'basic' && ct.indexOf('text/html') === -1) {
           var copy = res.clone();
           caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
         }
