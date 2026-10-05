@@ -274,7 +274,7 @@ menu = function () {
   const top = side.querySelector(".drawer-top");
   const label = document.createElement("div");
   label.className = "os-command-label";
-  label.innerHTML = "<small>YOUR PERSONAL SPACE</small><h2>Command Center</h2>";
+  label.innerHTML = '<img class="os-menu-logo" src="/assets/logo888.webp" alt="LE888">';
   const lockup = top.querySelector(".brand-lockup") || top.querySelector(".brand-img");
   if (lockup) lockup.replaceWith(label); else top.prepend(label);
   side.querySelector(".drawer-footer").innerHTML =

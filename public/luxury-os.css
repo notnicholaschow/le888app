@@ -1569,3 +1569,6 @@ body.gate-open{overflow:hidden}
 .gp-card.gp-multi{flex-wrap:wrap}
 .gp-links{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
 .gp-links .gp-btn{flex:1 1 auto;text-align:center;min-width:96px}
+
+/* Menu header: LE888 logo instead of "Command Center" */
+.os-command-label .os-menu-logo{display:block;height:58px;width:auto;max-width:200px;object-fit:contain;filter:drop-shadow(0 4px 14px #ffb84a40)}
