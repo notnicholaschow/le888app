@@ -967,6 +967,7 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
         contact_url: appSettings.contact_url || '',
         announcement_text: appSettings.announcement_text || '',
         terms_text: appSettings.terms_text || '',
+        chat_keep: chatKeepFrom(appSettings),
         tasks_enabled: appSettings.tasks_enabled === '1',
         images: !!env.CHAT_IMAGES,
       },
@@ -1645,6 +1646,44 @@ async function autoPurgeChat(env: Env): Promise<void> {
     }
     // 2) delete old text-only rows in one sweep
     await env.DB.prepare('DELETE FROM chat_messages WHERE created_at < ? AND image_url IS NULL').bind(cutoff).run();
+    // 3) enforce the per-thread message cap for any thread above it
+    const keep = await chatKeepLimit(env);
+    const big = await env.DB.prepare('SELECT player_id FROM chat_messages GROUP BY player_id HAVING COUNT(*) > ? LIMIT 200').bind(keep).all<{ player_id: number }>();
+    for (const r of big.results || []) await pruneChat(env, r.player_id, keep);
+  } catch { /* best-effort housekeeping */ }
+}
+
+// Chat history cap: each player's thread keeps only the newest N messages
+// (Admin -> Settings -> "Chat history per player", default 100). Older rows AND
+// their R2 image files are deleted right after every new message, so a thread
+// can never grow past the cap. The daily cron also sweeps any thread that
+// slipped past it (e.g. after the cap was lowered in Settings).
+const CHAT_KEEP_DEFAULT = 100;
+function chatKeepFrom(s: Record<string, string>): number {
+  const n = Math.floor(Number(s.chat_keep_messages));
+  return Number.isFinite(n) && n >= 10 ? Math.min(1000, n) : CHAT_KEEP_DEFAULT;
+}
+async function chatKeepLimit(env: Env): Promise<number> {
+  try { return chatKeepFrom(await getSettings(env)); } catch { return CHAT_KEEP_DEFAULT; }
+}
+async function pruneChat(env: Env, playerId: number, keepOverride?: number): Promise<void> {
+  try {
+    const keep = keepOverride || (await chatKeepLimit(env));
+    // id of the Nth newest visible message; everything older than it goes.
+    let cut: { id: number } | null = null;
+    try {
+      cut = await env.DB.prepare('SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1 OFFSET ?').bind(playerId, keep - 1).first<{ id: number }>();
+    } catch {
+      cut = await env.DB.prepare('SELECT id FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?').bind(playerId, keep - 1).first<{ id: number }>();
+    }
+    if (!cut) return;
+    const { results } = await env.DB.prepare('SELECT id, image_url FROM chat_messages WHERE player_id = ? AND id < ? AND image_url IS NOT NULL LIMIT 200').bind(playerId, cut.id).all<{ id: number; image_url: string }>();
+    for (const r of results || []) {
+      const url = String(r.image_url || '');
+      const key = url.split('/').pop() || '';
+      if (env.CHAT_IMAGES && key && url.startsWith('/api/chat/img/')) { try { await env.CHAT_IMAGES.delete(key); } catch { /* already gone */ } }
+    }
+    await env.DB.prepare('DELETE FROM chat_messages WHERE player_id = ? AND id < ?').bind(playerId, cut.id).run();
   } catch { /* best-effort housekeeping */ }
 }
 
@@ -2435,6 +2474,7 @@ async function sendAutoMessage(env: Env, playerId: number, triggerKey: string, e
     await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, admin_username, body, image_url) VALUES (?, ?, ?, ?, ?)').bind(playerId, 'admin', 'System', rendered, img).run();
   }
   await env.DB.prepare("INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime('now'), 0, 1) ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime('now'), player_unread = player_unread + 1").bind(playerId).run();
+  await pruneChat(env, playerId);
 }
 
 // Create the 3 automatic templates once, so a manager can edit their wording.
@@ -2962,7 +3002,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
           const r = await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND id > ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').bind(player.id, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 50').bind(player.id).all();
+          const r = await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT ?').bind(player.id, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
         const d = await env.DB.prepare("SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NOT NULL AND deleted_at > datetime('now','-1 day')").bind(player.id).all<{ id: number }>();
@@ -2973,7 +3013,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
           const r = await env.DB.prepare('SELECT id, sender, body, image_url, created_at FROM chat_messages WHERE player_id = ? AND id > ? ORDER BY id ASC LIMIT 100').bind(player.id, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 50').bind(player.id).all();
+          const r = await env.DB.prepare('SELECT id, sender, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT ?').bind(player.id, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
       }
@@ -2992,6 +3032,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
         'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime(\'now\'), 1, 0) ' +
         'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), admin_unread = admin_unread + 1',
       ).bind(player.id).run();
+      await pruneChat(env, player.id);
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -4999,7 +5040,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND id > ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').bind(pid, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 50').bind(pid).all();
+          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT ?').bind(pid, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
         const d = await env.DB.prepare("SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NOT NULL AND deleted_at > datetime('now','-1 day')").bind(pid).all<{ id: number }>();
@@ -5009,7 +5050,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, created_at FROM chat_messages WHERE player_id = ? AND id > ? ORDER BY id ASC LIMIT 100').bind(pid, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 50').bind(pid).all();
+          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT ?').bind(pid, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
       }
@@ -5100,6 +5141,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1',
       ).bind(pid).run();
       try { await pushToPlayer(env, pid, { title: 'LE888 Support', body: 'You have a new message.' }, { title: 'LE888 客服', body: '你有一条新消息。' }); } catch { /* best-effort */ }
+      await pruneChat(env, pid);
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -5123,6 +5165,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           { title: 'LE888 Support', body: preview },
           { title: 'LE888 \u5ba2\u670d', body: preview });
       } catch { /* best-effort */ }
+      await pruneChat(env, pid);
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -5572,7 +5615,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text'];
+      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
@@ -5583,6 +5626,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         }
         if (key === 'announcement_text') val = val.slice(0, 500);
         if (key === 'terms_text') val = val.slice(0, 20000);
+        if (key === 'chat_keep_messages') val = String(Math.max(10, Math.min(1000, Math.floor(Number(val)) || CHAT_KEEP_DEFAULT)));
         if (key === 'deposit_paynow' || key === 'deposit_name' || key === 'deposit_qr' || key === 'deposit_bank_name' || key === 'deposit_bank_account' || key === 'deposit_bank_holder') val = val.trim().slice(0, 300);
         if (key === 'checkin_min_deposit' || key === 'deposit_point_rate') {
           val = String(Math.max(0, Math.min(100000, Math.floor(Number(val) || 0))));
