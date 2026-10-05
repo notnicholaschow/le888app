@@ -959,6 +959,9 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       ledger,
       games,
       vip,
+      // Bank details for withdrawals. Saved ONCE by the player (first login
+      // gate in the app); afterwards only staff can change them.
+      bank: { bank_name: (player as any).bank_name || '', bank_account: (player as any).bank_account || '', bank_holder: (player as any).bank_holder || '', paynow_number: (player as any).paynow_number || '', locked: !!(player as any).bank_locked },
       // The player's game accounts (set by staff in Admin -> Players). The home
       // screen shows the platform names; the profile lists the IDs.
       game_ids: (await loadGameIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id })),
