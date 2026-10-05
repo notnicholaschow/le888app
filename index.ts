@@ -1028,15 +1028,6 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     const text = await res.text();
     return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   }
-  // Public game RTP tables (same data the old app showed).
-  if (p === '/api/member/rtp' && method === 'POST') {
-    try {
-      const pr = await env.DB.prepare('SELECT id, name, logo_url FROM rtp_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
-      const gr = await env.DB.prepare('SELECT platform_id, name, image_url, rtp FROM rtp_games WHERE active=1 ORDER BY platform_id ASC, sort_order ASC, id ASC').all();
-      return j({ ok: true, platforms: pr.results || [], games: gr.results || [] }, 200);
-    } catch { return j({ ok: true, platforms: [], games: [] }, 200); }
-  }
-
   if (p === '/api/member/withdraw' && method === 'GET') {
     const player = await currentPlayer();
     if (!player) return j({ error: 'Please sign in.' }, 401);
@@ -2255,6 +2246,22 @@ const SLOT_SEED: Array<[string, string]> = [
   ['918Kiss', '918kiss'], ['Mega888', 'mega888'], ['Pussy888', 'pussy888'], ['918Kaya', '918kaya'],
   ['Live22', 'live22'], ['ACE333', 'ace333'], ['EVO888', 'evo888'], ['KING855', 'king855'],
 ];
+type SlotLink = { label: string; url: string };
+const SLOT_LINKS_MAX = 8;
+// Links a slot game shows as buttons. Falls back to the old single play_url.
+function slotLinksOf(row: Record<string, unknown>): SlotLink[] {
+  let links: SlotLink[] = [];
+  try {
+    const a = JSON.parse(String(row.links_json || '[]'));
+    if (Array.isArray(a)) {
+      links = a
+        .filter((l) => l && typeof l.url === 'string' && /^https?:\/\//i.test(l.url))
+        .map((l) => ({ label: String(l.label || '').trim().slice(0, 24), url: String(l.url).trim().slice(0, 500) }));
+    }
+  } catch { links = []; }
+  if (!links.length && row.play_url) links = [{ label: row.kind === 'web' ? 'Play now' : 'Download', url: String(row.play_url) }];
+  return links.slice(0, SLOT_LINKS_MAX);
+}
 async function ensureSlotPlatforms(env: Env): Promise<void> {
   try {
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS slot_platforms (
@@ -2267,6 +2274,9 @@ async function ensureSlotPlatforms(env: Env): Promise<void> {
       sort_order INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1
     )`).run();
+    // Several links per game (Android / iOS / Web ...). Added lazily; the
+    // ALTER fails harmlessly once the column exists.
+    try { await env.DB.prepare('ALTER TABLE slot_platforms ADD COLUMN links_json TEXT').run(); } catch { /* column exists */ }
     const r = await env.DB.prepare('SELECT LOWER(name) AS n FROM slot_platforms').all<{ n: string }>();
     const have = new Set((r.results || []).map((x) => String(x.n).replace(/[^a-z0-9]/g, '')));
     let order = (r.results || []).length;
@@ -2602,21 +2612,13 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
     }, 200, rid);
   }
 
-  // Public Game RTP data for the player page (active platforms + games only).
-  if (path === '/api/rtp/list') {
-    try {
-      const pr = await env.DB.prepare('SELECT id, name, logo_url FROM rtp_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
-      const gr = await env.DB.prepare('SELECT platform_id, name, image_url, rtp FROM rtp_games WHERE active=1 ORDER BY platform_id ASC, sort_order ASC, id ASC').all();
-      return json({ ok: true, platforms: pr.results || [], games: gr.results || [] }, 200, rid);
-    } catch { return json({ ok: true, platforms: [], games: [] }, 200, rid); }
-  }
-
   // ---- Slot Games (admin-managed launcher list) — display/link only ----
   if (path === '/api/slots/list') {
     try {
       await ensureSlotPlatforms(env);
-      const sr = await env.DB.prepare('SELECT id, name, logo_url, kind, play_url, android_package FROM slot_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
-      return json({ ok: true, platforms: sr.results || [] }, 200, rid);
+      const sr = await env.DB.prepare('SELECT id, name, logo_url, kind, play_url, android_package, links_json FROM slot_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
+      const platforms = (sr.results || []).map((r: any) => ({ id: r.id, name: r.name, logo_url: r.logo_url, kind: r.kind, play_url: r.play_url, android_package: r.android_package, links: slotLinksOf(r) }));
+      return json({ ok: true, platforms }, 200, rid);
     } catch { return json({ ok: true, platforms: [] }, 200, rid); }
   }
 
@@ -4711,9 +4713,10 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       try {
         await ensureSlotPlatforms(env);
         const sr = await env.DB.prepare(
-          'SELECT id, name, logo_url, kind, play_url, android_package, sort_order, active FROM slot_platforms ORDER BY sort_order ASC, id ASC',
+          'SELECT id, name, logo_url, kind, play_url, android_package, links_json, sort_order, active FROM slot_platforms ORDER BY sort_order ASC, id ASC',
         ).all();
-        return json({ ok: true, platforms: sr.results || [] }, 200, rid);
+        const platforms = (sr.results || []).map((r: any) => ({ ...r, links: slotLinksOf(r) }));
+        return json({ ok: true, platforms }, 200, rid);
       } catch { return json({ ok: true, platforms: [], needs_migration: true }, 200, rid); }
     }
 
@@ -4722,21 +4725,40 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const name = String(body.name || '').trim().slice(0, 80);
       const logo = String(body.logo_url || '').trim().slice(0, 300);
       const kind = String(body.kind) === 'web' ? 'web' : 'app';
-      const playUrl = String(body.play_url || '').trim().slice(0, 500);
       const pkg = String(body.android_package || '').trim().slice(0, 120);
       const active = Number(body.active) ? 1 : 0;
       if (!name) return fail('BAD_REQUEST', 'A platform name is required.', 400, rid);
+      // Links: [{label, url}] — each becomes a button on the player's game card.
+      const rawLinks = Array.isArray(body.links) ? (body.links as unknown[]) : [];
+      if (rawLinks.length > SLOT_LINKS_MAX) return fail('BAD_REQUEST', `Up to ${SLOT_LINKS_MAX} links per game.`, 400, rid);
+      const links: SlotLink[] = [];
+      for (let i = 0; i < rawLinks.length; i++) {
+        const l = (rawLinks[i] || {}) as Record<string, unknown>;
+        const url = String(l.url || '').trim().slice(0, 500);
+        const label = String(l.label || '').trim().slice(0, 24);
+        if (!url && !label) continue;
+        if (!/^https?:\/\//i.test(url)) return fail('BAD_URL', `Link ${i + 1}: must start with http:// or https://`, 400, rid);
+        links.push({ label: label || (links.length ? `Link ${links.length + 1}` : (kind === 'web' ? 'Play now' : 'Download')), url });
+      }
+      // Old single-link field still accepted (older admin page) as link #1.
+      const legacy = String(body.play_url || '').trim().slice(0, 500);
+      if (!links.length && legacy) {
+        if (!/^https?:\/\//i.test(legacy)) return fail('BAD_URL', 'Play link must start with http:// or https://', 400, rid);
+        links.push({ label: kind === 'web' ? 'Play now' : 'Download', url: legacy });
+      }
+      const playUrl = links.length ? links[0].url : '';
+      const linksJson = links.length ? JSON.stringify(links) : null;
       if (logo && !(isRtpImage(logo) || /^https:\/\//i.test(logo) || /^\/assets\/logos\/[a-z0-9]+\.webp$/.test(logo))) return fail('BAD_IMAGE', 'Logo must be an uploaded image or an https link.', 400, rid);
-      if (playUrl && !/^https?:\/\//i.test(playUrl)) return fail('BAD_URL', 'Play link must start with http:// or https://', 400, rid);
       if (pkg && !/^[a-zA-Z0-9._]+$/.test(pkg)) return fail('BAD_PACKAGE', 'Android package looks invalid (letters, numbers and dots only).', 400, rid);
       try {
+        await ensureSlotPlatforms(env);
         if (id) {
-          await env.DB.prepare('UPDATE slot_platforms SET name=?, logo_url=?, kind=?, play_url=?, android_package=?, active=? WHERE id=?')
-            .bind(name, logo || null, kind, playUrl || null, pkg || null, active, id).run();
+          await env.DB.prepare('UPDATE slot_platforms SET name=?, logo_url=?, kind=?, play_url=?, android_package=?, links_json=?, active=? WHERE id=?')
+            .bind(name, logo || null, kind, playUrl || null, pkg || null, linksJson, active, id).run();
         } else {
           const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM slot_platforms').first<{ n: number }>();
-          await env.DB.prepare('INSERT INTO slot_platforms (name, logo_url, kind, play_url, android_package, sort_order, active) VALUES (?,?,?,?,?,?,?)')
-            .bind(name, logo || null, kind, playUrl || null, pkg || null, m?.n || 1, active).run();
+          await env.DB.prepare('INSERT INTO slot_platforms (name, logo_url, kind, play_url, android_package, links_json, sort_order, active) VALUES (?,?,?,?,?,?,?,?)')
+            .bind(name, logo || null, kind, playUrl || null, pkg || null, linksJson, m?.n || 1, active).run();
         }
       } catch { return fail('NEEDS_MIGRATION', 'Run the slot_platforms table SQL first.', 503, rid); }
       return json({ ok: true }, 200, rid);
