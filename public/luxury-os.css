@@ -1395,3 +1395,16 @@ body.game-lock .play-note{margin-bottom:0}
 .wheel-stage.live{height:var(--ws,360px)}
 .wheel.live{width:calc(var(--ws,360px) - 80px);height:calc(var(--ws,360px) - 80px)}
 .wheel.live .wheel-label{transform:rotate(var(--a)) translateY(calc((var(--ws,360px) - 80px) * -0.357))}
+
+/* ===== VIP ranks: badge images ===== */
+.rank-emblem{background:none!important;border:0!important;width:54px;height:54px;border-radius:0}
+.rank-emblem img{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 4px 9px #000b)}
+.rank-emblem.dim img{filter:grayscale(1) opacity(.4)}
+.my-rank-panel .rank-emblem{width:132px;height:132px;margin:0 auto 14px}
+.vip-detail-emblem.rank-emblem{width:118px;height:118px;margin:10px auto 14px}
+.vip-rank-row{gap:12px}
+.vip-progress{height:7px;border-radius:5px;background:#ffffff14;margin:16px 6px 10px;overflow:hidden}
+.vip-progress i{display:block;height:100%;background:linear-gradient(90deg,#b8782a,#ffd274);border-radius:5px;transition:width .6s ease}
+.vip-perks{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.vip-perks div{background:#ffffff08;border:1px solid #ffffff12;border-radius:12px;padding:10px 8px;text-align:center}
+.vip-perks b{display:block;color:#ffd274;font-size:16px}.vip-perks small{color:#b5aaa0;font-size:10px;letter-spacing:.08em;text-transform:uppercase}

@@ -20,25 +20,29 @@ const profileLinks=[['wallet','My Wallet','wallet'],['history','Transaction Hist
 const menuList=links=>`<div class="menu-list panel">${links.map(([i,t,p])=>button(icon(i)+t+'<span class="chev">›</span>',p)).join('')}</div>`;
 function profile(){return member(true)+balance()+`<div class="stats panel"><div><b>3</b><small>Days Streak</small></div><div><b>12</b><small>Games Played</small></div><div><b>5</b><small>Total Wins</small></div></div>`+menuList(profileLinks)}
 const vipRanks = [
-  {name:'Bronze', deposit:500, color:'#c48c59'},
-  {name:'Silver', deposit:1500, color:'#bccbd9'},
-  {name:'Gold', deposit:3000, color:'#ffd274'},
-  {name:'Ruby', deposit:6000, color:'#f27786'},
-  {name:'Diamond', deposit:12000, color:'#89dcf5'},
-  {name:'Royal', deposit:25000, color:'#c2a2f5'},
-  {name:'LE888 King', deposit:50000, color:'#ffb447'}
+  {name:'Member', key:'member', deposit:500, color:'#e9c977'},
+  {name:'Silver', key:'silver', deposit:1500, color:'#cfd6e0'},
+  {name:'Gold', key:'gold', deposit:3000, color:'#ffd274'},
+  {name:'Platinum', key:'platinum', deposit:6000, color:'#dfe7ef'},
+  {name:'Diamond', key:'diamond', deposit:12000, color:'#bfe6ff'},
+  {name:'Royal', key:'royal', deposit:25000, color:'#ff6a6a'},
+  {name:'Legend', key:'legend', deposit:50000, color:'#ffb447'}
 ];
+/* Ranks come from the server when signed in (names, thresholds, bonuses); the list above is the offline fallback. */
+function vipList(){try{const v=window.memberData&&memberData.vip;if(v&&Array.isArray(v.ranks)&&v.ranks.length)return v.ranks.map((r,i)=>({name:r.name,key:r.key||(vipRanks[i]||vipRanks[0]).key,deposit:Number(r.deposit)||0,color:(vipRanks[i]||vipRanks[0]).color,weekly:r.weekly,upgrade:r.upgrade}));}catch(e){}return vipRanks;}
+function vipBadge(r,dim){return `<span class="rank-emblem${dim?' dim':''}" style="--rank-color:${r.color}" aria-hidden="true"><img src="/assets/vip-${r.key}.webp" alt=""></span>`;}
 function vip(){
   const tab=state.vipTab||'all';
-  const rank=vipRanks[2]; // Demo MEMBER; replace with the authenticated member's tier.
-  const badge=r=>`<span class="rank-emblem" style="--rank-color:${r.color}" aria-hidden="true">${icon('crown')}</span>`;
-  return `<div class="vip-ranks"><div class="vip-switch" role="group" aria-label="VIP ranks"><button data-vip-tab="my" aria-pressed="${tab==='my'}" class="${tab==='my'?'active':''}">My Rank</button><button data-vip-tab="all" aria-pressed="${tab==='all'}" class="${tab==='all'?'active':''}">All Ranks</button></div>${tab==='all'?`<div class="vip-rank-list">${vipRanks.map((r,i)=>`<article class="vip-rank-row">${badge(r)}<div class="vip-rank-info"><h2>${r.name}</h2><p>Deposit $${r.deposit.toLocaleString('en-US')}</p></div><button class="vip-view" data-vip-detail="${i}" aria-label="View ${r.name} rank details">View more <span aria-hidden="true">›</span></button></article>`).join('')}</div>`:`<section class="my-rank-panel panel">${badge(rank)}<span class="vip-demo-label">YOUR RANK · DEMO</span><h2>${rank.name}</h2><p>MEMBER · Deposit $${rank.deposit.toLocaleString('en-US')}</p><div class="vip-next"><span>Next rank</span><b>Ruby</b><small>Deposit $6,000</small></div><button class="vip-view" data-vip-tab="all">Explore All Ranks <span aria-hidden="true">›</span></button></section>`}</div>`;
+  const list=vipList();
+  const rank=list[2]; // preview only; the signed-in app shows the real rank (member-session)
+  const badge=vipBadge;
+  return `<div class="vip-ranks"><div class="vip-switch" role="group" aria-label="VIP ranks"><button data-vip-tab="my" aria-pressed="${tab==='my'}" class="${tab==='my'?'active':''}">My Rank</button><button data-vip-tab="all" aria-pressed="${tab==='all'}" class="${tab==='all'?'active':''}">All Ranks</button></div>${tab==='all'?`<div class="vip-rank-list">${list.map((r,i)=>`<article class="vip-rank-row">${badge(r)}<div class="vip-rank-info"><h2>${r.name}</h2><p>Deposit $${r.deposit.toLocaleString('en-US')}</p></div><button class="vip-view" data-vip-detail="${i}" aria-label="View ${r.name} rank details">View more <span aria-hidden="true">›</span></button></article>`).join('')}</div>`:`<section class="my-rank-panel panel">${badge(rank)}<span class="vip-demo-label">YOUR RANK · DEMO</span><h2>${rank.name}</h2><p>MEMBER · Deposit $${rank.deposit.toLocaleString('en-US')}</p><div class="vip-next"><span>Next rank</span><b>${list[3].name}</b><small>Deposit $${list[3].deposit.toLocaleString('en-US')}</small></div><button class="vip-view" data-vip-tab="all">Explore All Ranks <span aria-hidden="true">›</span></button></section>`}</div>`;
 }
 document.addEventListener('click',e=>{
  const tab=e.target.closest('[data-vip-tab]');
  if(tab){state.vipTab=tab.dataset.vipTab;render();return;}
  const detail=e.target.closest('[data-vip-detail]');
- if(detail){const r=vipRanks[Number(detail.dataset.vipDetail)];if(!r)return;modal.className='vip-detail-modal';showModal(r.name,`<div class="vip-detail-emblem rank-emblem" style="--rank-color:${r.color}">${icon('crown')}</div><p class="vip-detail-threshold">Deposit <strong>$${r.deposit.toLocaleString('en-US')}</strong></p><p class="subtitle">Rank deposit requirement</p><div class="notice">Rank benefits and eligibility will be loaded from the connected VIP service.</div>`);}
+ if(detail){const r=vipList()[Number(detail.dataset.vipDetail)];if(!r)return;modal.className='vip-detail-modal';const perks=(r.weekly!==undefined||r.upgrade!==undefined)?`<div class="vip-perks">${r.weekly!==undefined?`<div><b>${Number(r.weekly).toLocaleString('en-US')} PTS</b><small>Weekly bonus</small></div>`:''}${r.upgrade!==undefined?`<div><b>${Number(r.upgrade).toLocaleString('en-US')} PTS</b><small>Upgrade bonus</small></div>`:''}</div>`:'<div class="notice">Rank benefits are shown once you sign in.</div>';showModal(r.name,`<div class="vip-detail-emblem rank-emblem" style="--rank-color:${r.color}"><img src="/assets/vip-${r.key}.webp" alt=""></div><p class="vip-detail-threshold">Deposit <strong>$${r.deposit.toLocaleString('en-US')}</strong></p><p class="subtitle">This month's deposit total to reach ${r.name}</p>${perks}`);}
 });
 function transactions(){const rows=[['gift','Daily check-in','Today · 09:41','+ 5 PTS'],['games','LE888 SPIN','Yesterday · 18:32','− 10 PTS'],['wallet','Reward credit','Yesterday · 18:32','+ SGD 2.50']];return `<p class="subtitle">Sample activity shown for the local preview.</p><div class="tabs">${['All','Points','Rewards'].map(t=>`<button data-history-tab="${t}" class="${t===state.historyTab?'active':''}">${t}</button>`).join('')}</div><div class="panel">${rows.filter(r=>state.historyTab==='All'||(state.historyTab==='Points'?r[3].includes('PTS'):r[3].includes('SGD'))).map(([i,t,d,a])=>`<div class="record">${icon(i)}<div><b>${t}</b><small>${d}</small></div><strong>${a}</strong></div>`).join('')}</div>`}
 function money(type){const dep=type==='deposit';return `<p class="subtitle">${dep?'Top up your account and get back to the games.':'Choose your balance and review your withdrawal.'}</p><form id="money-form" class="form-panel panel">${!dep?'<label for="source">Withdraw from</label><select id="source"><option>Reward Credits · SGD 0.00</option><option>Game Balance · SGD 0.00</option></select>':''}<label for="amount">Amount (SGD)</label><input id="amount" name="amount" type="number" min="1" step="0.01" placeholder="0.00" required><div class="amounts">${[10,50,100,500].map(n=>`<button type="button" data-amount="${n}">${n}</button>`).join('')}</div><label for="method">${dep?'Payment method':'Payout method'}</label><select id="method"><option>Bank Transfer</option><option>PayNow</option></select>${!dep?'<label for="bank">Bank / PayNow account</label><input id="bank" required placeholder="Enter account details" autocomplete="off">':''}<button class="primary-btn" type="submit">Review ${dep?'Deposit':'Withdrawal'} →</button></form><div class="notice">Local preview: this form does not submit payments or store bank details. Real account services require the original backend.</div>`}
