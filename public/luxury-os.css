@@ -1385,3 +1385,13 @@ body.luxury-os .os-command-center {
 .cross-barriers{position:absolute;inset:0;pointer-events:none;z-index:2}
 .cross-barrier{position:absolute;height:13.5%;width:auto;transform:translate(-50%,-50%);filter:drop-shadow(0 4px 8px #000c) drop-shadow(0 0 7px #ff9a2a55);animation:crossBarrierIn .5s cubic-bezier(.2,1.5,.4,1) .22s both}
 @keyframes crossBarrierIn{0%{transform:translate(-50%,-50%) scale(1.9);opacity:0}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}
+
+/* ===== Game pages: fixed screen, no scrolling (board shrinks to fit the phone) ===== */
+body.game-lock{height:100dvh!important;min-height:0!important;overflow:hidden!important;box-sizing:border-box;overscroll-behavior:none}
+body.game-lock .app-frame{height:100%!important;min-height:0!important;max-height:100%;display:flex;flex-direction:column;overflow:hidden!important}
+body.game-lock .app-frame>header{flex:none}
+body.game-lock #screen{flex:1 1 auto;min-height:0!important;overflow:hidden!important;padding-bottom:10px!important;display:block}
+body.game-lock .play-note{margin-bottom:0}
+.wheel-stage.live{height:var(--ws,360px)}
+.wheel.live{width:calc(var(--ws,360px) - 80px);height:calc(var(--ws,360px) - 80px)}
+.wheel.live .wheel-label{transform:rotate(var(--a)) translateY(calc((var(--ws,360px) - 80px) * -0.357))}
