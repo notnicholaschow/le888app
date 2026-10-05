@@ -1555,3 +1555,19 @@ body.gate-open{overflow:hidden}
 /* ===== Terms / support ===== */
 .terms p{color:#cfc6b8;font-size:13px;line-height:1.6;margin:10px 0 0}
 .support-contact{display:block;text-align:center;text-decoration:none;margin-top:14px}
+
+/* ===== Live Chat search ===== */
+.chat-search{flex:none;display:flex;align-items:center;gap:8px;margin:8px 12px 0;padding:0 10px;height:38px;border-radius:12px;background:#141315;border:1px solid #ffffff14}
+.chat-search:focus-within{border-color:#ffd27a66;box-shadow:0 0 14px #ffb84a22}
+.chat-search .icon{width:16px;height:16px;color:#c9a15c;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.chat-search input{flex:1;min-width:0;background:none;border:0;color:#f3efe6;font-size:14px;outline:none;padding:0;-webkit-appearance:none;appearance:none;box-shadow:none}
+.chat-search input::placeholder{color:#7d7872}
+.chat-search input::-webkit-search-cancel-button,.chat-search input::-webkit-search-decoration{-webkit-appearance:none;display:none}
+.chat-search button{flex:none;width:24px;height:24px;border-radius:50%;border:0;background:#2a2720;color:#e8dcc3;font-size:16px;line-height:24px;padding:0;cursor:pointer}
+.chat-search-info{flex:none;margin:6px 14px 0;font-size:11px;color:#c9a15c;letter-spacing:.04em}
+.chat-timeline.searching{justify-content:flex-start}
+.message-row.is-result{cursor:pointer}
+.message-row.is-result .message-bubble{outline:1px solid #ffd27a55}
+.message-bubble mark{background:#ffd274;color:#17130c;border-radius:3px;padding:0 2px}
+.message-row.flash .message-bubble{animation:chatFlash 1.6s ease-out}
+@keyframes chatFlash{0%{box-shadow:0 0 0 2px #ffd274,0 0 18px #ffd27488}100%{box-shadow:0 0 0 0 transparent}}

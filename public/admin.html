@@ -639,6 +639,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
             <button class="chat-conv-back" id="chatBack" aria-label="Back">&larr;</button>
             <b id="convName">Select a conversation</b><span id="convTag" class="tag-pill" style="display:none;margin-left:8px"></span>
             <div class="conv-gameids" id="convGameIds" style="display:none"></div>
+            <input id="convSearch" placeholder="Search in this chat" aria-label="Search in this chat" style="display:none;margin-left:auto;max-width:200px">
+            <span id="convSearchInfo" class="muted" style="display:none;font-size:12px;white-space:nowrap"></span>
           </div>
           <div class="conv-actions" id="convActions" style="display:none">
             <button class="btn small" id="caDep">Deposit</button>
@@ -948,6 +950,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
           <div style="flex:1"><label for="sDepositRate">Deposit points: $ per 1 point (0 = off)</label><input id="sDepositRate" type="number" min="0"></div>
         </div>
         <p style="margin:2px 0 0;font-size:12px;color:var(--text-2)">Check-in rewards are fixed: Day 1 = 1, Day 2 = 2, Day 3 = 3, Day 4 = 4, Day 5 = 5, Day 6 = 8, Day 7 = 10 PTS (then repeats). Missing a day resets a player to Day 1.</p>
+        <div class="row">
+          <div style="flex:1"><label for="sChatKeep">Chat history per player (messages) &mdash; each player's Live Chat keeps only this many newest messages; older ones (and their photos) auto-delete after every new message. 10&ndash;1000</label><input id="sChatKeep" type="number" min="10" max="1000" placeholder="100"></div>
+        </div>
         <div class="row">
           <div style="flex:1"><label for="sTasksOn">Tasks</label><select id="sTasksOn"><option value="1">Enabled</option><option value="0">Disabled</option></select></div>
         </div>
@@ -2290,8 +2295,22 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     };
   }
 
+  // Filter the open conversation by text (client-side: the whole kept thread is loaded).
+  function acFilterConv() {
+    var box = $('convSearch'); if (!box) return;
+    var q = box.value.trim().toLowerCase(), n = 0, t = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('#convBody .ac-msg'), function (el) {
+      t++; var hit = !q || el.textContent.toLowerCase().indexOf(q) !== -1;
+      el.style.display = hit ? '' : 'none'; if (hit) n++;
+    });
+    var inf = $('convSearchInfo');
+    if (inf) { inf.textContent = q ? (n + ' of ' + t + ' match') : ''; inf.style.display = q ? '' : 'none'; }
+  }
+  if ($('convSearch')) $('convSearch').addEventListener('input', acFilterConv);
   function openConv(pid, username, tag) {
     clearInterval(acTimer); acLastId = 0; acPid = pid;
+    if ($('convSearch')) { $('convSearch').value = ''; $('convSearch').style.display = ''; }
+    if ($('convSearchInfo')) $('convSearchInfo').style.display = 'none';
     // Minimal player object so the action buttons work instantly; the full
     // record replaces it as soon as the profile fetch returns.
     acPlayer = { id: pid, username: username, display_name: username, tag: tag || '' };
@@ -2335,6 +2354,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         if (initial) el.innerHTML = '';
         (res.messages || []).forEach(function (m) { el.insertAdjacentHTML('beforeend', acBubble(m)); acLastId = Math.max(acLastId, m.id); });
         acApplyDeletions(res.deleted_ids);
+        if ($('convSearch') && $('convSearch').value.trim()) acFilterConv();
         if ((res.messages || []).length) el.scrollTop = el.scrollHeight;
         api('/api/admin/chat/threads', { q: '' }).then(function (r) { if (r.ok) setChatBadge(r.unread_total || 0); }).catch(function () {});
       }).catch(function () { /* session expired / offline — logout() already ran */ });
@@ -2383,6 +2403,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       var el = $('convBody');
       (r.messages || []).forEach(function (m) { el.insertAdjacentHTML('beforeend', acBubble(m)); acLastId = Math.max(acLastId, m.id); });
       acApplyDeletions(r.deleted_ids);
+      if ($('convSearch') && $('convSearch').value.trim()) acFilterConv();
       el.scrollTop = el.scrollHeight;
       loadChats();
     });
@@ -3264,6 +3285,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       $('sContact').value = s.contact_url || '';
       $('sTerms').value = s.terms_text || '';
       $('sCheckinMinDep').value = s.checkin_min_deposit || '10';
+      if ($('sChatKeep')) $('sChatKeep').value = s.chat_keep_messages || '100';
       $('sDepositRate').value = s.deposit_point_rate || '10';
       $('sDepPaynow').value = s.deposit_paynow || '';
       $('sDepName').value = s.deposit_name || '';
@@ -3337,6 +3359,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         contact_url: $('sContact').value.trim(),
         terms_text: $('sTerms').value.trim(),
         checkin_min_deposit: $('sCheckinMinDep').value,
+        chat_keep_messages: $('sChatKeep') ? $('sChatKeep').value : '100',
         deposit_point_rate: $('sDepositRate').value,
         tasks_enabled: $('sTasksOn').value
       }
