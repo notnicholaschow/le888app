@@ -1492,3 +1492,6 @@ body.gate-open{overflow:hidden}
 .gate-card select,#wd-bank select,#wd-form select,#dep-form select{color:#f8f5ef;background-color:#121016}
 .gate-card select option,#wd-bank select option,#wd-form select option,#dep-form select option{background:#141315;color:#f8f5ef;font-size:15px;padding:8px}
 .gate-card select option[value=""],#wd-bank select option[value=""]{color:#8c8174}
+
+.acct-bank{margin-top:14px}
+.acct-bank input[readonly]{color:#f8f5ef}
