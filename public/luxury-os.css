@@ -1473,3 +1473,17 @@ body.game-lock .play-note{margin-bottom:0}
 .wd-fixed{padding:12px;border:1px dashed #c9a15c88;border-radius:14px;margin:0 0 14px}
 .wd-fixed span{display:block;font-size:10px;letter-spacing:.2em;color:#c9a15c}.wd-fixed b{display:block;font-size:22px;color:#ffd274;margin:4px 0}.wd-fixed small{display:block;color:#9b9894;font-size:11px;line-height:1.4}
 .wd-pending{border-color:#ffd27a55}
+
+/* ===== First-login bank details gate ===== */
+#bank-gate{position:fixed;inset:0;z-index:8000;background:rgba(4,3,2,.93);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:18px;overflow:auto}
+.gate-card{width:min(420px,100%);background:linear-gradient(160deg,#17151a,#0c0b0d);border:1px solid #d6bd8750;border-radius:24px;padding:22px 20px;box-shadow:0 30px 80px #000c;text-align:center}
+.gate-card .brand-img{height:44px;width:auto;margin:0 auto 10px;display:block}
+.gate-card h2{font-size:20px;color:#ffd274;margin:4px 0 6px}
+.gate-card p{color:#b5aaa0;font-size:12.5px;line-height:1.5;margin:0 0 10px}
+.gate-card form{text-align:left}
+.gate-card label{display:block;font-size:10.5px;color:#c9a15c;letter-spacing:.1em;text-transform:uppercase;margin:12px 0 5px}
+.gate-card input{width:100%;box-sizing:border-box;background:#080b1090;border:1px solid #ffffff1a;border-radius:12px;padding:12px;color:#f8f5ef;font-size:15px}
+.gate-card .primary-btn{margin-top:18px;width:100%}
+.gate-card .text-link{margin-top:14px}
+body.gate-open{overflow:hidden}
+#toast{z-index:9999}
