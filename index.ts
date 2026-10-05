@@ -490,16 +490,16 @@ const CHECKIN_MIN_DEPOSIT_DEFAULT = 10;
 // VIP ranks. DO NOT CHANGE. Rank is based on total deposits recorded in the
 // current month (Singapore time).
 const VIP_RANKS = [
-  { name: 'Bronze', deposit: 500, weekly: 5, upgrade: 2 },
+  { name: 'Member', deposit: 500, weekly: 5, upgrade: 2 },
   { name: 'Silver', deposit: 1500, weekly: 12, upgrade: 4 },
   { name: 'Gold', deposit: 3000, weekly: 35, upgrade: 11 },
-  { name: 'Ruby', deposit: 6000, weekly: 60, upgrade: 18 },
+  { name: 'Platinum', deposit: 6000, weekly: 60, upgrade: 18 },
   { name: 'Diamond', deposit: 12000, weekly: 100, upgrade: 30 },
   { name: 'Royal', deposit: 25000, weekly: 160, upgrade: 48 },
-  { name: 'LE888 King', deposit: 50000, weekly: 250, upgrade: 75 },
+  { name: 'Legend', deposit: 50000, weekly: 250, upgrade: 75 },
 ] as const;
-// Badge image key per rank (same order as VIP_RANKS). Served at /img/<key>.webp.
-const VIP_RANK_KEYS = ['bronze', 'silver', 'gold', 'ruby', 'diamond', 'royal', 'king'] as const;
+// Badge image key per rank (same order as VIP_RANKS). The app shows /assets/vip-<key>.webp.
+const VIP_RANK_KEYS = ['member', 'silver', 'gold', 'platinum', 'diamond', 'royal', 'legend'] as const;
 
 // VIP weekly + tier-upgrade bonus AMOUNTS are editable by a manager in the admin
 // (stored in `vip_rewards`, one row per rank). Rank names and deposit thresholds
@@ -931,6 +931,24 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
         games[g] = { cost: pg.game_costs[g], prizes: pg.game_prizes[g], enabled: !!pg.game_enabled[g] };
       }
     } catch (e) { /* games stay empty -> app shows them as unavailable */ }
+    // VIP rank for the VIP Club page: this month's deposit total decides the rank
+    // (same rule as /api/vip). Names, thresholds and bonuses come from VIP_RANKS
+    // plus the admin-editable bonus amounts, so the app never hard-codes them.
+    let vip: Record<string, unknown> | null = null;
+    try {
+      const vs = await getVipStatus(env, player.id);
+      const ranks = await getRanks(env);
+      const next = vs.rank_idx + 1 < ranks.length ? ranks[vs.rank_idx + 1] : null;
+      vip = {
+        rank_idx: vs.rank_idx,
+        rank_name: vs.rank_idx >= 0 ? ranks[vs.rank_idx].name : null,
+        deposit_total: vs.deposit_total,
+        month_key: vs.month_key,
+        next_name: next ? next.name : null,
+        next_deposit: next ? next.deposit : null,
+        ranks: ranks.map((r, i) => ({ name: r.name, key: VIP_RANK_KEYS[i] || 'member', deposit: r.deposit, weekly: r.weekly, upgrade: r.upgrade })),
+      };
+    } catch (e) { vip = null; }
     return j({
       member: {
         username: displayName,
@@ -940,6 +958,7 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       },
       ledger,
       games,
+      vip,
     }, 200);
   }
 
