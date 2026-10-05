@@ -2151,6 +2151,37 @@ async function recordDeposit(env: Env, id: number, amount: number, note: string,
   return { ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints };
 }
 
+// Game platforms shown on the app's Game Platforms page (Admin -> Slot Games).
+// Creates the table if missing and seeds the 8 games once, with their logos;
+// staff then paste each game's download / play link in Admin.
+const SLOT_SEED: Array<[string, string]> = [
+  ['918Kiss', '918kiss'], ['Mega888', 'mega888'], ['Pussy888', 'pussy888'], ['918Kaya', '918kaya'],
+  ['Live22', 'live22'], ['ACE333', 'ace333'], ['EVO888', 'evo888'], ['KING855', 'king855'],
+];
+async function ensureSlotPlatforms(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS slot_platforms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      logo_url TEXT,
+      kind TEXT NOT NULL DEFAULT 'app',
+      play_url TEXT,
+      android_package TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1
+    )`).run();
+    const r = await env.DB.prepare('SELECT LOWER(name) AS n FROM slot_platforms').all<{ n: string }>();
+    const have = new Set((r.results || []).map((x) => String(x.n).replace(/[^a-z0-9]/g, '')));
+    let order = (r.results || []).length;
+    for (const [name, key] of SLOT_SEED) {
+      if (have.has(key)) continue;
+      order += 1;
+      await env.DB.prepare('INSERT INTO slot_platforms (name, logo_url, kind, play_url, android_package, sort_order, active) VALUES (?, ?, ?, NULL, NULL, ?, 1)')
+        .bind(name, '/assets/logos/' + key + '.webp', 'app', order).run();
+    }
+  } catch { /* ignore */ }
+}
+
 // Deposit requests from the app: the player transfers money outside the app,
 // then submits the amount + a receipt photo here. Staff verify and approve
 // (which records the deposit above) or reject. Created lazily.
@@ -2485,6 +2516,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
   // ---- Slot Games (admin-managed launcher list) — display/link only ----
   if (path === '/api/slots/list') {
     try {
+      await ensureSlotPlatforms(env);
       const sr = await env.DB.prepare('SELECT id, name, logo_url, kind, play_url, android_package FROM slot_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
       return json({ ok: true, platforms: sr.results || [] }, 200, rid);
     } catch { return json({ ok: true, platforms: [] }, 200, rid); }
@@ -4575,6 +4607,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     // No points, no money — this only stores what "Play Now" opens.
     case '/api/admin/slots/list': {
       try {
+        await ensureSlotPlatforms(env);
         const sr = await env.DB.prepare(
           'SELECT id, name, logo_url, kind, play_url, android_package, sort_order, active FROM slot_platforms ORDER BY sort_order ASC, id ASC',
         ).all();
@@ -4591,7 +4624,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const pkg = String(body.android_package || '').trim().slice(0, 120);
       const active = Number(body.active) ? 1 : 0;
       if (!name) return fail('BAD_REQUEST', 'A platform name is required.', 400, rid);
-      if (logo && !(isRtpImage(logo) || /^https:\/\//i.test(logo))) return fail('BAD_IMAGE', 'Logo must be an uploaded image or an https link.', 400, rid);
+      if (logo && !(isRtpImage(logo) || /^https:\/\//i.test(logo) || /^\/assets\/logos\/[a-z0-9]+\.webp$/.test(logo))) return fail('BAD_IMAGE', 'Logo must be an uploaded image or an https link.', 400, rid);
       if (playUrl && !/^https?:\/\//i.test(playUrl)) return fail('BAD_URL', 'Play link must start with http:// or https://', 400, rid);
       if (pkg && !/^[a-zA-Z0-9._]+$/.test(pkg)) return fail('BAD_PACKAGE', 'Android package looks invalid (letters, numbers and dots only).', 400, rid);
       try {
