@@ -275,7 +275,8 @@ menu = function () {
   const label = document.createElement("div");
   label.className = "os-command-label";
   label.innerHTML = "<small>YOUR PERSONAL SPACE</small><h2>Command Center</h2>";
-  top.querySelector(".brand-lockup").replaceWith(label);
+  const lockup = top.querySelector(".brand-lockup") || top.querySelector(".brand-img");
+  if (lockup) lockup.replaceWith(label); else top.prepend(label);
   side.querySelector(".drawer-footer").innerHTML =
     "<b>LE888</b><span>PLAY MORE TOGETHER</span>";
   side
