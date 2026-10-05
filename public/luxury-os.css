@@ -1408,3 +1408,68 @@ body.game-lock .play-note{margin-bottom:0}
 .vip-perks{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .vip-perks div{background:#ffffff08;border:1px solid #ffffff12;border-radius:12px;padding:10px 8px;text-align:center}
 .vip-perks b{display:block;color:#ffd274;font-size:16px}.vip-perks small{color:#b5aaa0;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+
+/* ===== Readability pass: no label smaller than ~10px on phones ===== */
+.os-player-strip small{font-size:10px;letter-spacing:.18em}
+.os-player-strip b{font-size:15px}
+.os-vip{font-size:10.5px;padding:7px 11px}
+.os-notifications > i{font-size:9px;min-width:16px;height:16px}
+.os-micro-label{font-size:10px;letter-spacing:.24em}
+.os-points-number > span{font-size:14px}
+.os-credit-line{font-size:10px;letter-spacing:.16em}.os-credit-line b{font-size:11px}
+.os-stage-topline,.os-stage-topline button{font-size:10px;letter-spacing:.2em}
+.os-card-corner{font-size:9px;letter-spacing:.16em}
+.os-card-info > small{font-size:9.5px;letter-spacing:.2em}
+.os-card-info > span{font-size:11.5px}
+.os-selector-copy > small{font-size:9.5px;letter-spacing:.12em;white-space:nowrap}
+.os-action-dock button{font-size:11.5px}
+.os-section-heading small{font-size:10px;letter-spacing:.2em}
+.os-section-heading h2 > span{font-size:13px}
+.os-streak small{font-size:11px}.os-streak > strong > small{font-size:10px}
+.os-mission-pair small{font-size:11px}
+.os-signature > small{font-size:9px}
+.os-command-label small,.luxury-os .os-command-center .drawer-section-label{font-size:10px;letter-spacing:.18em}
+.luxury-os .os-command-center .drawer-link{font-size:13px}
+.os-command-center .drawer-footer span{font-size:9px}
+.os-home-header .header-home-logo > small{font-size:8px}
+
+/* game accounts line on home + text marks for platforms without a logo */
+.os-credit-line{cursor:pointer}
+.os-credit-line b{color:#ffd274;font-weight:700}
+.platform-mark.platform-text{display:grid;place-items:center;font-weight:900;font-size:18px;color:#ffd274;background:#1c1a16;border:1px solid #ffffff14;border-radius:12px;min-width:48px;height:48px}
+
+/* ===== Deposit page (reference + receipt submission) ===== */
+.dep-wrap{padding-bottom:10px}
+.dep-notice{border-color:#d9a84a66;background:#2a1f0a;color:#ffe3a0;line-height:1.45}
+.dep-notice b{color:#ffd274}
+.dep-info{padding:16px;margin-top:12px}
+.dep-label{display:block;font-size:10px;letter-spacing:.22em;color:#c9a15c;margin-bottom:6px}
+.dep-qr{display:block;width:min(220px,70%);margin:8px auto 12px;border-radius:14px;background:#fff;padding:8px}
+.dep-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid #ffffff10}
+.dep-row span{color:#9b9894;font-size:12px;min-width:62px}
+.dep-row b{flex:1;color:#f8f5ef;font-size:15px;word-break:break-all}
+.dep-copy{border:1px solid #c9a15c;background:#120d08;color:#ffe3a0;border-radius:12px;padding:6px 10px;font-size:11px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+.dep-rate{margin:12px 0 0;color:#c9a15c;font-size:12px;line-height:1.4}
+.dep-h{font-size:14px;margin:0 0 6px;color:#ffd274}
+.dep-upload{display:flex;align-items:center;gap:12px;border:1px dashed #c9a15c88;border-radius:14px;padding:12px;margin:6px 0 14px;cursor:pointer;color:#ffe3a0;font-size:13px}
+.dep-upload img{width:64px;height:64px;object-fit:cover;border-radius:10px}
+.dep-history{margin-top:16px}
+.dep-item{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid #ffffff10;border-radius:14px;background:#141315;margin-bottom:8px}
+.dep-item img,.dep-noimg{width:44px;height:44px;object-fit:cover;border-radius:9px;flex:none;display:grid;place-items:center;background:#1c1a16;color:#c9a15c}
+.dep-noimg .icon{width:22px;height:22px}
+.dep-meta{flex:1;min-width:0}.dep-meta b{display:block;font-size:15px;color:#f8f5ef}.dep-meta small{color:#9b9894;font-size:11px;display:block;margin-top:2px}
+.dep-chip{font-size:10px;font-weight:800;letter-spacing:.08em;padding:4px 8px;border-radius:10px;flex:none}
+.dep-chip.pending{background:#3a2d12;color:#ffd27a}.dep-chip.approved{background:#143322;color:#8be3a8}.dep-chip.rejected{background:#3a1616;color:#ff9a9a}
+
+/* ===== Withdraw page ===== */
+.wd-srcs{display:grid;gap:10px;margin:6px 0 14px}
+.wd-src{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #ffffff14;border-radius:14px;background:#141315;cursor:pointer}
+.wd-src.on{border-color:#ffd27a;background:#1a1408;box-shadow:0 0 16px #ffb84a33}
+.wd-src.off{opacity:.5}
+.wd-src input{margin-top:3px;accent-color:#ffd274}
+.wd-src-body{flex:1;min-width:0}.wd-src-body b{display:block;font-size:14px;color:#f8f5ef}.wd-src-body small{display:block;color:#9b9894;font-size:11px;margin-top:2px}
+.wd-src-body em{display:inline-block;margin-top:6px;font-style:normal;font-weight:800;color:#ffd274;font-size:13px}
+.wd-used{color:#ff9a9a!important}
+.wd-fixed{padding:12px;border:1px dashed #c9a15c88;border-radius:14px;margin:0 0 14px}
+.wd-fixed span{display:block;font-size:10px;letter-spacing:.2em;color:#c9a15c}.wd-fixed b{display:block;font-size:22px;color:#ffd274;margin:4px 0}.wd-fixed small{display:block;color:#9b9894;font-size:11px;line-height:1.4}
+.wd-pending{border-color:#ffd27a55}

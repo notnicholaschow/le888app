@@ -40,7 +40,7 @@ function osStage() {
   return `<section class="os-stage-shell" aria-label="Interactive game selector"><div class="os-stage-topline"><span><i></i> ${osScenes[state.game].label}</span><button data-go="games">ALL GAMES ${icon("rtp")}</button></div><div class="os-stage" tabindex="0" aria-label="Game stage. Swipe or use left and right arrow keys"><div class="os-orbit" aria-hidden="true"></div><div class="os-stage-axis" aria-hidden="true"></div>${games.map((g, i) => `<button class="os-game-card${g.soon?" soon":""}" data-os-index="${i}" aria-label="Select ${g.name}"><img src="assets/${g.asset}.png" alt="" draggable="false">${g.soon?'<span class="soon-badge">SOON</span>':''}<span class="os-card-corner">0${i + 1} / LE888</span><span class="os-card-info"><small>${osScenes[i].category}</small><b>${g.name}</b><span>${g.sub}</span></span></button>`).join("")}</div><div class="os-selector"><button class="os-step" data-os-step="-1" aria-label="Previous game">${icon("back")}</button><div class="os-dial" role="slider" tabindex="0" aria-label="Rotary game selector" aria-valuemin="1" aria-valuemax="${games.length}" aria-valuenow="${state.game + 1}"><div class="os-dial-ticks"></div><span class="os-dial-index">0${state.game + 1}</span></div><div class="os-selector-copy"><small>SELECT YOUR EXPERIENCE</small><div class="os-selector-dots">${games.map((g, i) => `<button data-os-select="${i}" aria-label="Select ${g.name}"></button>`).join("")}</div></div><button class="os-step os-step-next" data-os-step="1" aria-label="Next game">${icon("back")}</button></div><button class="os-launch" id="os-play"><span>PLAY NOW</span><span aria-hidden="true">↗</span></button></section>`;
 }
 home = function () {
-  return `<section class="os-player-strip"><button id="os-player" aria-label="Open your profile"><span class="os-avatar">${icon("user")}</span><span><small>WELCOME BACK</small><b>${memberName()}</b></span><span class="os-vip">${icon("crown")} ${(window.memberData&&memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():"MEMBER"}</span></button><button id="os-notifications" aria-label="Open notifications" class="os-notifications">${icon("chat")}<i>${state.notificationsCleared ? "0" : "3"}</i></button></section><section class="os-points" aria-label="Available Points"><div class="os-micro-label">YOUR NEXT MOVE STARTS HERE</div><div class="os-points-number"><strong>${memberPoints()}</strong><span>PTS</span><button data-go="deposit" aria-label="Add points">+</button></div><div class="os-credit-line"><span>DEPOSIT <b>—</b></span><i></i><span>FREE CREDIT <b>—</b></span></div></section>${osStage()}<nav class="os-action-dock" aria-label="Quick actions">${[
+  return `<section class="os-player-strip"><button id="os-player" aria-label="Open your profile"><span class="os-avatar">${icon("user")}</span><span><small>WELCOME BACK</small><b>${memberName()}</b></span><span class="os-vip">${icon("crown")} ${(window.memberData&&memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():"MEMBER"}</span></button><button id="os-notifications" aria-label="Open notifications" class="os-notifications">${icon("chat")}<i>${state.notificationsCleared ? "0" : "3"}</i></button></section><section class="os-points" aria-label="Available Points"><div class="os-micro-label">YOUR NEXT MOVE STARTS HERE</div><div class="os-points-number"><strong>${memberPoints()}</strong><span>PTS</span><button data-go="deposit" aria-label="Add points">+</button></div><div class="os-credit-line" id="os-credit-line" role="button" tabindex="0" aria-label="Your game accounts"><span>DEPOSIT <b>${osAccountNames("game_ids")}</b></span><i></i><span>FREE CREDIT <b>${osAccountNames("free_ids")}</b></span></div></section>${osStage()}<nav class="os-action-dock" aria-label="Quick actions">${[
     ["deposit", "Deposit", "deposit"],
     ["withdraw", "Withdraw", "withdraw"],
     ["gift", "Rewards", "rewards"],
@@ -102,10 +102,19 @@ function osSelect(n) {
   state.game = (n + games.length) % games.length;
   osUpdateStage();
 }
+/* "DEPOSIT Mega888 · 918kiss | FREE CREDIT Pussy888": the platforms the player holds an account on. */
+function osAccountNames(key) {
+  const a = (state[key] || []).filter((x) => x && x.game_id);
+  if (!a.length) return "—";
+  const names = [...new Set(a.map((x) => x.label || x.platform))];
+  return names.length > 2 ? names.slice(0, 2).join(" · ") + " +" + (names.length - 2) : names.join(" · ");
+}
 function wireOsHome() {
   const stage = document.querySelector(".os-stage");
   if (!stage) return;
   document.querySelector("#os-player").onclick = quickProfile;
+  const creditLine = document.querySelector("#os-credit-line");
+  if (creditLine) creditLine.onclick = quickProfile;
   document.querySelector("#os-notifications").onclick = notifications;
   document.querySelector("#os-play").onclick = () => go("games");
   document.querySelectorAll("[data-os-index]").forEach(

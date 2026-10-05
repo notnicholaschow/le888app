@@ -540,7 +540,22 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 
     <!-- Deposits -->
     <section id="tab-deposits" class="hidden">
-      <div class="page-head"><h1>Deposit history</h1><p>Every deposit logged &rarr; VIP rank &middot; times in SGT</p></div>
+      <div class="page-head"><h1>Deposits</h1><p>Requests from the app need your approval &middot; approved deposits count toward VIP rank &middot; times in SGT</p></div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h2 style="margin:0">Deposit requests <span class="pill" id="depReqCount" style="display:none">0</span></h2>
+          <div class="row">
+            <select id="depReqStatus"><option value="pending">Pending</option><option value="all">All (recent)</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+            <button class="btn ghost small" id="depReqRefresh">Refresh</button>
+          </div>
+        </div>
+        <p class="muted" style="margin:0 0 10px">The player transferred money to your PayNow / bank and submitted this. Open the receipt, check the amount arrived, then Approve (records the deposit, grants deposit points and VIP bonuses, and messages the player) or Reject (messages the player with your reason).</p>
+        <div class="tbl-wrap"><table class="tbl" id="depReqTbl">
+          <thead><tr><th>Submitted (SGT)</th><th>Player</th><th>Amount</th><th>Method</th><th>Receipt</th><th>Reference</th><th>Status</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+      <div class="page-head" style="margin-top:18px"><h1 style="font-size:18px">Deposit history</h1><p>Every deposit logged &rarr; VIP rank</p></div>
       <div class="card">
         <div class="row" style="margin-bottom:12px">
           <input id="depQ" placeholder="Search username or name">
@@ -937,10 +952,13 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         <button class="btn" id="settingsSaveBtn" style="margin-top:12px">Save settings</button>
       </div>
       <div class="card">
-        <h2>Deposit (PayNow reference)</h2>
-        <p class="muted" style="margin-bottom:6px">Shown to players in the Deposit popup on their Play page. Reference only &mdash; no payment gateway.</p>
+        <h2>Deposit info (shown on the player's Deposit page)</h2>
+        <p class="muted" style="margin-bottom:6px">The app never takes payments. Players transfer to this account, then submit the amount + receipt; you approve it under <b>Deposits &rarr; Deposit requests</b>.</p>
         <label>PayNow number / mobile</label><input id="sDepPaynow" maxlength="60" placeholder="e.g. +65 8123 4567">
-        <label>Account name</label><input id="sDepName" maxlength="80" placeholder="e.g. LE888 GOLD PTE LTD">
+        <label>PayNow account name</label><input id="sDepName" maxlength="80" placeholder="e.g. LE888 GOLD PTE LTD">
+        <label>Bank name (optional)</label><input id="sDepBankName" maxlength="60" placeholder="e.g. DBS / OCBC / UOB">
+        <label>Bank account number (optional)</label><input id="sDepBankAcct" maxlength="40" placeholder="e.g. 123-456789-0">
+        <label>Bank account holder (optional)</label><input id="sDepBankHolder" maxlength="60" placeholder="e.g. LE888 GOLD PTE LTD">
         <label>PayNow QR image</label>
         <div class="row" style="align-items:center">
           <img id="sDepQrPreview" alt="" style="width:72px;height:72px;border-radius:10px;object-fit:contain;background:#fff;display:none">
@@ -1967,7 +1985,60 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   $('depQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.depOffset = 0; loadDeposits(); } });
   $('depPrev').onclick = function () { state.depOffset = Math.max(0, state.depOffset - 50); loadDeposits(); };
   $('depNext').onclick = function () { state.depOffset += 50; loadDeposits(); };
+  function loadDepositRequests() {
+    var st = $('depReqStatus') ? $('depReqStatus').value : 'pending';
+    api('/api/admin/deposits/requests', { status: st }).then(function (res) {
+      if (!res.ok) { toast(res.error || 'Could not load deposit requests.', true); return; }
+      var badge = $('depReqCount');
+      if (badge) { badge.textContent = res.pending; badge.style.display = res.pending > 0 ? '' : 'none'; }
+      var side = document.querySelector('.side-link[data-tab="deposits"]');
+      if (side) { var dot = side.querySelector('.req-dot'); if (res.pending > 0) { if (!dot) { dot = document.createElement('span'); dot.className = 'req-dot'; dot.style.cssText = 'margin-left:auto;background:#e0a84a;color:#111;border-radius:10px;padding:0 7px;font-size:11px;font-weight:700'; side.appendChild(dot); } dot.textContent = res.pending; } else if (dot) dot.remove(); }
+      $('depReqTbl').querySelector('tbody').innerHTML = res.requests.map(function (r) {
+        var chip = r.status === 'pending' ? '<span class="pill" style="background:#3a2d12;color:#ffd27a">Pending</span>' : r.status === 'approved' ? '<span class="pill" style="background:#143322;color:#8be3a8">Approved</span>' : '<span class="pill" style="background:#3a1616;color:#ff9a9a">Rejected</span>';
+        var act = r.status === 'pending'
+          ? '<button class="btn small" data-dep-approve="' + r.id + '" data-amount="' + Number(r.amount) + '">Approve</button> <button class="btn ghost small" data-dep-reject="' + r.id + '">Reject</button>'
+          : '<span class="muted">' + esc(r.admin_username || '') + (r.admin_note ? ' · ' + esc(r.admin_note) : '') + '</span>';
+        return '<tr><td class="muted">' + sgt(r.created_at) + '</td>' +
+          '<td>' + (r.username ? playerCell(r.username, r.display_name) : r.player_id) + '</td>' +
+          '<td><b>$' + Number(r.amount).toLocaleString('en-US', { minimumFractionDigits: 2 }) + '</b></td>' +
+          '<td class="muted">' + (r.method === 'bank' ? 'Bank transfer' : 'PayNow') + '</td>' +
+          '<td>' + (r.receipt_url ? '<a href="' + esc(r.receipt_url) + '" target="_blank" rel="noopener"><img src="' + esc(r.receipt_url) + '" alt="receipt" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid #ffffff22"></a>' : '<span class="muted">—</span>') + '</td>' +
+          '<td class="muted">' + esc(r.reference || '') + '</td>' +
+          '<td>' + chip + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="muted">No deposit requests.</td></tr>';
+      Array.prototype.forEach.call(document.querySelectorAll('[data-dep-approve]'), function (b) {
+        b.onclick = function () {
+          var id = b.getAttribute('data-dep-approve'); var amt = b.getAttribute('data-amount');
+          var v = prompt('Approve deposit request #' + id + '.\nAmount that actually arrived (SGD):', amt);
+          if (v === null) return; var amount = Number(v); if (!(amount > 0)) { toast('Enter a valid amount.', true); return; }
+          busy(b, true);
+          api('/api/admin/deposits/decide', { id: Number(id), action: 'approve', amount: amount }).then(function (res) {
+            busy(b, false);
+            if (!res.ok) { toast(res.error || 'Approve failed.', true); return; }
+            toast('Deposit recorded · ' + res.deposit_points_granted + ' PTS granted' + (res.rank_name ? ' · rank ' + res.rank_name : '') + '.');
+            loadDepositRequests(); loadDeposits();
+          }).catch(function () { busy(b, false); toast('Network error.', true); });
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-dep-reject]'), function (b) {
+        b.onclick = function () {
+          var id = b.getAttribute('data-dep-reject');
+          var reason = prompt('Reject deposit request #' + id + '.\nReason shown to the player:', 'Receipt could not be verified');
+          if (reason === null) return;
+          busy(b, true);
+          api('/api/admin/deposits/decide', { id: Number(id), action: 'reject', note: reason.trim() }).then(function (res) {
+            busy(b, false);
+            if (!res.ok) { toast(res.error || 'Reject failed.', true); return; }
+            toast('Request rejected · player notified in chat.'); loadDepositRequests();
+          }).catch(function () { busy(b, false); toast('Network error.', true); });
+        };
+      });
+    });
+  }
+  $('depReqRefresh') && ($('depReqRefresh').onclick = loadDepositRequests);
+  $('depReqStatus') && ($('depReqStatus').onchange = loadDepositRequests);
   function loadDeposits() {
+    loadDepositRequests();
     api('/api/admin/deposits/all', {
       q: $('depQ').value.trim(), from: $('depFrom').value, to: $('depTo').value,
       offset: state.depOffset, limit: 50
@@ -3193,6 +3264,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       $('sDepositRate').value = s.deposit_point_rate || '10';
       $('sDepPaynow').value = s.deposit_paynow || '';
       $('sDepName').value = s.deposit_name || '';
+      $('sDepBankName').value = s.deposit_bank_name || '';
+      $('sDepBankAcct').value = s.deposit_bank_account || '';
+      $('sDepBankHolder').value = s.deposit_bank_holder || '';
       window.__depQrUrl = s.deposit_qr || '';
       var qp = $('sDepQrPreview');
       if (s.deposit_qr) { qp.src = s.deposit_qr; qp.style.display = ''; } else { qp.style.display = 'none'; }
@@ -3242,6 +3316,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     api('/api/admin/settings/save', { settings: {
       deposit_paynow: $('sDepPaynow').value.trim(),
       deposit_name: $('sDepName').value.trim(),
+      deposit_bank_name: $('sDepBankName').value.trim(),
+      deposit_bank_account: $('sDepBankAcct').value.trim(),
+      deposit_bank_holder: $('sDepBankHolder').value.trim(),
       deposit_qr: window.__depQrUrl || ''
     } }).then(function (res) {
       busy(btn, false);
