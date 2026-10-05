@@ -1,7 +1,7 @@
 // Member API is authoritative for identity and points; game settlement remains disabled.
 function memberAccounts(){state.game_ids=(memberData&&Array.isArray(memberData.game_ids))?memberData.game_ids:[];state.free_ids=(memberData&&Array.isArray(memberData.free_ids))?memberData.free_ids:[];}memberAccounts();state.notificationsCleared=true;
 const memberNotice=(title,copy)=>`<div class="form-panel panel"><h2>${title}</h2><p class="subtitle" style="margin-top:15px">${copy}</p></div>`;
-profile=()=>member(true)+balance()+menuList(profileLinks);
+profile=()=>member(true)+balance()+menuList([['user','Account Details','account']].concat(profileLinks.filter(l=>l[2]!=='account')));
 wallet=()=>balance()+`<div class="balance panel">${icon('gift')}<div><small>Reward Credits</small><strong>SGD ${memberReward()}</strong></div></div>`+memberNotice('Your account','PTS are allocated by your community administrator. Credit transfers and withdrawals are not available yet.')+menuList([['history','PTS History','history']]);
 account=()=>{const b=(memberData&&memberData.bank)||{};const saved=!!(b.bank_name&&b.bank_account&&b.bank_holder);
  const bankPart=saved?`<div class="form-panel panel acct-bank"><h3 class="dep-h">Bank details</h3><label>Bank</label><input value="${depEsc(b.bank_name)}" readonly><label>Account number</label><input value="${depEsc(b.bank_account)}" readonly><label>Account holder</label><input value="${depEsc(b.bank_holder)}" readonly>${b.paynow_number?`<label>PayNow number</label><input value="${depEsc(b.paynow_number)}" readonly>`:''}<p class="subtitle" style="margin-top:14px">Withdrawals are paid to this account. Saved once for your safety — contact support in Chat to change it.</p></div>`
