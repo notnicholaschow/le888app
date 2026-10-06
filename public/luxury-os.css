@@ -1576,3 +1576,9 @@ body.gate-open{overflow:hidden}
 .luxury-os .os-command-center .drawer-top .os-command-label{flex:none;margin:0 auto}
 .os-command-label .os-menu-logo{margin:0 auto}
 .luxury-os .os-command-center .drawer-top .drawer-close{position:absolute;right:0;top:0;transform:none}
+
+/* Deck controller: cost to play */
+.deck-cost{text-align:center}
+.deck-cost p{margin:0;font-size:15px;font-weight:700;color:#f3efe6;letter-spacing:.02em}
+.deck-cost p b{font-size:22px;font-weight:900;color:#ffd274;margin-right:2px}
+.deck-cost small{display:block;font-size:11px;color:#9b9894;margin-top:1px;letter-spacing:.06em}
