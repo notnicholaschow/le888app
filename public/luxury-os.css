@@ -1572,3 +1572,7 @@ body.gate-open{overflow:hidden}
 
 /* Menu header: LE888 logo instead of "Command Center" */
 .os-command-label .os-menu-logo{display:block;height:58px;width:auto;max-width:200px;object-fit:contain;filter:drop-shadow(0 4px 14px #ffb84a40)}
+.luxury-os .os-command-center .drawer-top{position:relative;display:flex;justify-content:center;align-items:center}
+.luxury-os .os-command-center .drawer-top .os-command-label{flex:none;margin:0 auto}
+.os-command-label .os-menu-logo{margin:0 auto}
+.luxury-os .os-command-center .drawer-top .drawer-close{position:absolute;right:0;top:0;transform:none}
