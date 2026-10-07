@@ -43,7 +43,7 @@ home = function () {
   return `<section class="os-player-strip"><button id="os-player" aria-label="Open your profile"><span class="os-avatar">${icon("user")}</span><span><small>WELCOME BACK</small><b>${memberName()}</b></span><span class="os-vip">${icon("crown")} ${(window.memberData&&memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():"MEMBER"}</span></button><button id="os-notifications" aria-label="Open notifications" class="os-notifications">${icon("chat")}<i>${state.notificationsCleared ? "0" : "3"}</i></button></section><section class="os-points" aria-label="Available Points"><div class="os-micro-label">YOUR NEXT MOVE STARTS HERE</div><div class="os-points-number"><strong>${memberPoints()}</strong><span>PTS</span><button data-go="deposit" aria-label="Add points">+</button></div><div class="os-credit-line" id="os-credit-line" role="button" tabindex="0" aria-label="Your game accounts"><span>DEPOSIT <b>${osAccountNames("game_ids")}</b></span><i></i><span>FREE CREDIT <b>${osAccountNames("free_ids")}</b></span></div></section>${osStage()}<nav class="os-action-dock" aria-label="Quick actions">${[
     ["deposit", "Deposit", "deposit"],
     ["withdraw", "Withdraw", "withdraw"],
-    ["gift", "Rewards", "rewards"],
+    ["wallet", "Wallet", "wallet"],
     ["crown", "VIP Club", "vip"],
   ]
     .map(
