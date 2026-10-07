@@ -20,14 +20,11 @@ database_id = "32eef1de-d554-42dd-8c3c-bbec2a593eb4"
 [triggers]
 crons = ["0 4 * * *"]
 
-# ---- Image storage (R2) — OPTIONAL, add later for chat images / QR / banners.
-# When you're ready:
-#   1) run:  npx wrangler r2 bucket create le888-images
-#   2) delete the # at the start of the 3 lines below
-#   3) run:  npm run deploy   (again)
-# [[r2_buckets]]
-# binding = "CHAT_IMAGES"
-# bucket_name = "le888-images"
+# ---- Image storage (R2): chat photos, deposit receipts, PayNow QR, logos, banners.
+# Bucket "le888-images" was created in Cloudflare -> R2 Object Storage.
+[[r2_buckets]]
+binding = "CHAT_IMAGES"
+bucket_name = "le888-images"
 
 # ---- Custom domain (add AFTER first deploy) ----
 # routes = [
