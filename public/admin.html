@@ -929,12 +929,14 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         <button class="btn" id="depSaveBtn" style="margin-top:12px">Save deposit info</button>
       </div>
       <div class="card">
-        <h2>Push Broadcast</h2>
-        <p class="muted" style="margin-bottom:6px">Sends a notification to every player who enabled notifications in the app.</p>
+        <h2>Announcements (Notifications)</h2>
+        <p class="muted" style="margin-bottom:6px">Shows under the &#128276; bell in every player's app (red dot until they open it), and as a phone notification for players who enabled them. Deposit / withdrawal / free-credit updates are NOT sent here &mdash; those go to the player's Live Chat automatically.</p>
         <label>Message (English)</label><input id="pbMsg" maxlength="300" placeholder="e.g. New Scratch Card prizes this week!">
         <label>Message (&#20013;&#25991;, optional &mdash; sent to Chinese-language players)</label><input id="pbMsgZh" maxlength="300">
-        <button class="btn" id="pbSendBtn" style="margin-top:12px">Send broadcast</button>
+        <button class="btn" id="pbSendBtn" style="margin-top:12px">Send announcement</button>
         <p class="muted" id="pbStatus" style="margin-top:8px"></p>
+        <h3 style="margin:16px 0 8px;font-size:14px">Sent announcements</h3>
+        <div id="pbList" class="muted">Loading&hellip;</div>
       </div>
       <div class="card" id="dbCard">
         <h2 style="margin-top:0">Database health</h2>
@@ -3285,6 +3287,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     };
   }
   function loadSettings() {
+    loadBroadcasts();
     if ($('dbCard')) $('dbCard').style.display = isMgr() ? '' : 'none';
     loadBanners();
     api('/api/admin/settings/get').then(function (res) {
@@ -3307,18 +3310,37 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       $('sTasksOn').value = s.tasks_enabled || '1';
     });
   }
+  function loadBroadcasts() {
+    var box = $('pbList'); if (!box) return;
+    api('/api/admin/broadcasts/list', {}).then(function (r) {
+      var list = (r && r.broadcasts) || [];
+      if (!list.length) { box.innerHTML = '<span class="muted">None yet.</span>'; return; }
+      box.innerHTML = list.map(function (b) {
+        return '<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--border,#222);border-radius:10px;margin-bottom:6px">' +
+          '<div style="flex:1;min-width:0;color:var(--text,#eee)">' + esc(b.message) + (b.message_zh ? '<div class="muted" style="margin-top:2px">' + esc(b.message_zh) + '</div>' : '') +
+          '<div class="muted" style="font-size:11px;margin-top:4px">' + sgt(b.created_at) + (b.created_by ? ' &middot; ' + esc(b.created_by) : '') + '</div></div>' +
+          '<button class="btn ghost small" data-bcdel="' + b.id + '">Delete</button></div>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('[data-bcdel]'), function (el) {
+        el.onclick = function () {
+          if (!confirm('Delete this announcement? Players will no longer see it.')) return;
+          api('/api/admin/broadcasts/delete', { id: Number(el.getAttribute('data-bcdel')) }).then(function (r) { if (!r.ok) { toast(r.error || 'Delete failed.', true); return; } toast('Deleted.'); loadBroadcasts(); });
+        };
+      });
+    }).catch(function () { box.innerHTML = '<span class="muted">Could not load.</span>'; });
+  }
   $('pbSendBtn').onclick = function () {
     var msg = $('pbMsg').value.trim();
     if (!msg) { toast('Enter a message.', true); return; }
-    if (!confirm('Send this notification to ALL subscribed players?\n\n' + msg)) return;
+    if (!confirm('Send this announcement to ALL players?\n\n' + msg)) return;
     var btn = this; busy(btn, true);
     $('pbStatus').textContent = 'Sending\u2026';
     api('/api/admin/push/broadcast', { message: msg, message_zh: $('pbMsgZh').value.trim() }).then(function (res) {
       busy(btn, false);
       if (!res.ok) { $('pbStatus').textContent = ''; toast(res.error || 'Broadcast failed.', true); return; }
-      $('pbStatus').textContent = 'Delivered to ' + res.sent + ' of ' + res.total + ' subscribed devices.';
-      toast('Broadcast sent.');
-      $('pbMsg').value = ''; $('pbMsgZh').value = '';
+      $('pbStatus').textContent = 'Posted to every player\u2019s notifications' + (res.total ? ' \u00b7 phone alert delivered to ' + res.sent + ' of ' + res.total + ' devices.' : '.');
+      toast('Announcement sent.');
+      $('pbMsg').value = ''; $('pbMsgZh').value = ''; loadBroadcasts();
     }).catch(function () { busy(btn, false); $('pbStatus').textContent = ''; toast('Network error.', true); });
   };
 

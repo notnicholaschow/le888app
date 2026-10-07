@@ -1647,3 +1647,15 @@ body.gate-open{overflow:hidden}
 @media (max-width:370px){.os-bal strong{font-size:32px}}
 /* dock sits between balances and the game stage */
 .os-balances + .os-action-dock{margin:14px 0 16px}
+
+/* ===== Notifications (bell) ===== */
+#os-chat[data-bell="1"],#ios-header-action[data-bell="1"]{position:relative}
+.notice-dot{position:absolute;top:9px;right:10px;width:9px;height:9px;border-radius:50%;background:#ff4d4d;box-shadow:0 0 0 2px #0d0c0f}
+.nt-list{display:grid;gap:10px;max-height:60vh;overflow:auto;margin:6px 0 14px}
+.nt-item{display:flex;gap:12px;padding:12px;border-radius:14px;border:1px solid #ffffff12;background:#141315}
+.nt-item.new{border-color:#ffd27a66;background:#1a1408}
+.nt-ic{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#2a2011;color:#ffd274}
+.nt-ic .icon{width:18px;height:18px}
+.nt-item p{margin:0;color:#f3efe6;font-size:14px;line-height:1.45}
+.nt-item small{display:block;margin-top:4px;color:#8f8a83;font-size:11px}
+.nt-list .empty small{display:block;margin-top:6px;color:#8f8a83}

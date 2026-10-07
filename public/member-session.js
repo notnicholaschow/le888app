@@ -1,3 +1,4 @@
+paths.bell='M6 9a6 6 0 1 1 12 0c0 6 2.5 8 2.5 8h-17S6 15 6 9ZM10 20.5a2.2 2.2 0 0 0 4 0';
 // Member API is authoritative for identity and points; game settlement remains disabled.
 function memberAccounts(){state.game_ids=(memberData&&Array.isArray(memberData.game_ids))?memberData.game_ids:[];state.free_ids=(memberData&&Array.isArray(memberData.free_ids))?memberData.free_ids:[];}memberAccounts();state.notificationsCleared=true;try{state.vibration=localStorage.getItem('le888-vib')!=='0';}catch(e){state.vibration=true;}
 const memberNotice=(title,copy)=>`<div class="form-panel panel"><h2>${title}</h2><p class="subtitle" style="margin-top:15px">${copy}</p></div>`;
@@ -85,7 +86,7 @@ missionRows=()=>missionsPage();
 const memberVipPreview=vip;vip=()=>{if(state.vipTab!=='my')return memberVipPreview();const v=memberData&&memberData.vip,list=(typeof vipList==='function')?vipList():[];if(!v||!list.length)return memberNotice('Your membership','VIP ranks are not available right now.')+'<button class="text-link" data-vip-tab="all">Explore Ranks</button>';
  const idx=Number(v.rank_idx),cur=idx>=0?list[idx]:null,next=idx+1<list.length?list[idx+1]:null,dep=Number(v.deposit_total)||0,base=cur?cur.deposit:0,pct=next?Math.max(0,Math.min(100,Math.round((dep-base)/Math.max(1,next.deposit-base)*100))):100;
  return `<div class="vip-ranks"><div class="vip-switch" role="group" aria-label="VIP ranks"><button data-vip-tab="my" aria-pressed="true" class="active">My Rank</button><button data-vip-tab="all" aria-pressed="false">All Ranks</button></div><section class="my-rank-panel panel">${cur?vipBadge(cur):vipBadge({key:'none',color:'#9a9aa2'})}<span class="vip-demo-label">YOUR RANK · THIS MONTH</span><h2>${cur?cur.name:'No Rank'}</h2><p>Deposited $${dep.toLocaleString('en-US')} this month</p>${next?`<div class="vip-progress"><i style="width:${pct}%"></i></div><div class="vip-next"><span>${cur?'Next rank':'First rank'}</span><b>${next.name}</b><small>Deposit $${next.deposit.toLocaleString('en-US')} · $${Math.max(0,next.deposit-dep).toLocaleString('en-US')} to go</small></div>`:'<div class="vip-next"><span>Top rank</span><b>You are at the top</b></div>'}<button class="vip-view" data-vip-tab="all">Explore All Ranks <span aria-hidden="true">›</span></button></section></div>`;};
-notifications=()=>go('chat');
+notifications=()=>openNotices();
 quickProfile=function(){modal.className='quick-profile accounts-profile';modal.innerHTML=`<div class="accounts-profile-header"><button class="modal-x" aria-label="Close profile">×</button><h2>Your profile</h2><div class="member"><div class="avatar">${icon('user')}</div><div><b>${memberName()}</b><small>ID: ${memberID()}</small></div><span class="vip-badge">${icon('crown')} ${(memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():'NO RANK'}</span></div><div class="account-summary-points"><span>Available Points<strong>${memberPoints()} PTS</strong></span></div></div><div class="accounts-profile-body"><div class="account-list-intro"><h3>My Game Accounts</h3><span>SET BY SUPPORT</span></div>${creditAccountGroup('Deposit Credit','game_ids','deposit-accounts')}${creditAccountGroup('Free Credit','free_ids','free-accounts')}<div class="quick-grid">${button(icon('wallet')+'My Wallet','wallet')}${button(icon('history')+'PTS History','history')}</div><button class="text-link" data-go="profile">View Full Profile</button></div>`;modal.querySelector('.modal-x').onclick=()=>modal.close();modal.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{modal.close();go(b.dataset.go);});modal.showModal();};
 async function memberLogout(){try{await memberRequest('logout',{});location.replace('/login');}catch(e){toast('Unable to sign out. Please try again.');}}
 const memberOriginalMenu=menu;menu=function(){try{memberOriginalMenu();}catch(e){console.error('menu',e);}const lo=side.querySelector('.drawer-logout');if(lo)lo.onclick=()=>{try{side.close();}catch(e){}memberLogout();};
@@ -216,7 +217,7 @@ function avatarSrc(n){return '/assets/avatar/avatar-'+n+'.webp';}
 function rankMedal(){const v=memberData&&memberData.vip;const keys=['member','silver','gold','platinum','diamond','royal','legend'];let i=v?Number(v.rank_idx):-1;if(!(i>=0))i=-1;
  if(i<0)return {key:'none',name:'No Rank'};const r=v&&Array.isArray(v.ranks)?v.ranks[i]:null;const key=(r&&r.key)||keys[i]||'member';const name=(v&&v.rank_name)||(r&&r.name)||'Member';return {key,name};}
 function paintRankMedal(){const el=document.querySelector('.os-vip');if(!el)return;const m=rankMedal();if(el.dataset.rk===m.key)return;el.dataset.rk=m.key;el.classList.add('os-vip-medal');el.title=m.key==='none'?'No Rank':m.name+' VIP';el.setAttribute('aria-label',m.key==='none'?'No VIP rank yet':m.name+' VIP rank');el.innerHTML=`<img src="/assets/vip-${m.key}.webp" alt="${depEsc(m.name)}">`;}
-function paintAvatars(){paintRankMedal();const n=avatarNum();
+function paintAvatars(){paintRankMedal();paintBell();const n=avatarNum();
  document.querySelectorAll('.avatar,.os-avatar').forEach(el=>{
   const editable=!!el.closest('#modal .member,#screen .member');
   if(el.dataset.av!==String(n)){el.dataset.av=String(n);el.innerHTML=n?`<img class="av-img" src="${avatarSrc(n)}" alt="${AVATARS[n-1]}">`:icon('user');el.classList.toggle('has-av',!!n);}
@@ -263,3 +264,18 @@ transactions=()=>{const tab=state.histTab||'points';return `<div class="hist-tab
 (function(){const prev=render;render=function(){prev();if(state.page!=='history')return;const tab=state.histTab||'points';histLoad(tab);
  document.querySelectorAll('[data-hist]').forEach(b=>b.onclick=()=>{state.histTab=b.dataset.hist;render();});
  document.querySelectorAll('#screen [data-go]').forEach(b=>{if(!b.onclick)b.onclick=()=>go(b.dataset.go);});};})();
+
+
+/* ===== NOTIFICATIONS (bell): only staff broadcasts. Deposits, withdrawals,
+   free credit etc. are announced in Live Chat. ===== */
+function noticeSeen(){try{return Number(localStorage.getItem('le888-notice-seen'))||0;}catch(e){return 0;}}
+function noticeUnread(){return (Number(memberData&&memberData.notice_latest)||0)>noticeSeen();}
+function paintBell(){if(state.page!=='home')return;const b=document.querySelector('#os-chat')||document.querySelector('#ios-header-action');if(!b)return;
+ if(b.dataset.bell!=='1'){b.dataset.bell='1';b.setAttribute('aria-label','Notifications');b.innerHTML=icon('bell')+'<span class="notice-dot"></span>';b.onclick=e=>{e.preventDefault();openNotices();};}
+ const d=b.querySelector('.notice-dot');if(d)d.style.display=noticeUnread()?'':'none';
+ const st=document.querySelector('#os-notifications');if(st&&st.dataset.chat!=='1'){st.dataset.chat='1';st.setAttribute('aria-label','Live chat');st.onclick=e=>{e.preventDefault();go('chat');};}}
+async function openNotices(){showModal('Notifications','<div class="nt-list"><div class="empty">Loading…</div></div>');modal.classList.add('nt-modal');
+ try{const d=await memberRequest('notifications');const list=d.notifications||[];const box=modal.querySelector('.nt-list');if(!box)return;
+  const seen=noticeSeen();box.innerHTML=list.length?list.map(n=>`<article class="nt-item${n.id>seen?' new':''}"><span class="nt-ic">${icon('bell')}</span><div><p>${depEsc(n.message).replace(/\n/g,'<br>')}</p><small>${depWhen(n.created_at)}</small></div></article>`).join(''):'<div class="empty">No announcements yet.<br><small>Updates about your deposits, withdrawals and free credit are sent to you in Live Chat.</small></div>';
+  const top=list.length?Number(list[0].id)||0:0;const latest=Math.max(top,Number(memberData&&memberData.notice_latest)||0);try{localStorage.setItem('le888-notice-seen',String(latest));}catch(e){}if(memberData)memberData.notice_latest=latest;paintBell();}
+ catch(e){const box=modal.querySelector('.nt-list');if(box)box.innerHTML='<div class="empty">Could not load notifications.</div>';}}

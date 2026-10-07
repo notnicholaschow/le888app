@@ -409,6 +409,15 @@ CREATE TABLE IF NOT EXISTS push_log (
   PRIMARY KEY (kind, key)
 );
 
+-- ---------- Announcements (Admin -> Push broadcast; shown under the bell) ----------
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message TEXT NOT NULL,
+  message_zh TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ---------- Content: banners, slot games, domains ----------
 CREATE TABLE IF NOT EXISTS banners (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
