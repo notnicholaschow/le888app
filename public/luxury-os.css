@@ -1582,3 +1582,27 @@ body.gate-open{overflow:hidden}
 .deck-cost p{margin:0;font-size:15px;font-weight:700;color:#f3efe6;letter-spacing:.02em}
 .deck-cost p b{font-size:22px;font-weight:900;color:#ffd274;margin-right:2px}
 .deck-cost small{display:block;font-size:11px;color:#9b9894;margin-top:1px;letter-spacing:.06em}
+
+/* ===== Profile avatars ===== */
+.avatar,.os-avatar{position:relative;overflow:visible}
+.avatar.has-av,.os-avatar.has-av{padding:0;background:radial-gradient(circle at 50% 35%,#3a2c16,#120f0b 75%)}
+.av-img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.av-edit{cursor:pointer}
+.av-pen{position:absolute;right:-3px;bottom:-3px;width:18px;height:18px;border-radius:50%;background:linear-gradient(#f5d99f,#dca757);color:#1a1206;font-size:10px;font-style:normal;font-weight:900;display:grid;place-items:center;border:1.5px solid #120f0b;line-height:1}
+.av-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:6px 0 14px}
+.av-pick{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px 8px;border-radius:16px;border:1px solid #ffffff14;background:#141315;color:#e8e2d8;font-size:11px;font-weight:700;cursor:pointer}
+.av-pick img{width:100%;max-width:84px;aspect-ratio:1;border-radius:50%;object-fit:cover;border:2px solid #ffffff1a;background:radial-gradient(circle at 50% 35%,#3a2c16,#120f0b 75%)}
+.av-pick.on{border-color:#ffd27a;background:#1a1408;box-shadow:0 0 16px #ffb84a33}
+.av-pick.on img{border-color:#ffd274}
+.av-pick.saving{opacity:.6}
+.av-pick:disabled{cursor:default}
+
+/* ===== Home welcome strip: bigger avatar + rank medal ===== */
+.os-player-strip > button:first-child{padding:10px 12px;gap:12px;min-height:72px}
+.os-avatar{width:52px;height:52px;flex:none;border:2px solid #e1b970;box-shadow:0 0 14px #ffb84a33}
+.os-avatar .icon{width:26px;height:26px}
+.os-player-strip small{font-size:10px;letter-spacing:.18em}
+.os-player-strip b{font-size:17px}
+.os-vip.os-vip-medal{padding:0;background:none;border:0;margin-left:auto;flex:none}
+.os-vip.os-vip-medal img{width:54px;height:54px;object-fit:contain;display:block;filter:drop-shadow(0 3px 8px #000a)}
+.os-notifications{height:72px;width:52px}

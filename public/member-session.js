@@ -207,3 +207,30 @@ let updatingMember=false;
 async function syncMember(){if(updatingMember||document.hidden)return;updatingMember=true;try{const fresh=await memberRequest('me'),changed=fresh.member.points!==memberData.member.points||fresh.member.reward!==memberData.member.reward||fresh.ledger.length!==memberData.ledger.length;const accChanged=JSON.stringify([fresh.game_ids,fresh.free_ids])!==JSON.stringify([memberData.game_ids,memberData.free_ids]);window.memberData=fresh;memberAccounts();bankGate();chatDot();if((changed||accChanged)&&!state.busy&&state.page!=='game'&&!document.querySelector('dialog[open]'))render();/* never rebuild a game board mid-session: traffic/cards would vanish */}catch(e){/* Login redirect is handled centrally; transient failures leave existing data visible. */}finally{updatingMember=false;}}
 document.addEventListener('visibilitychange',syncMember);window.addEventListener('focus',syncMember);window.addEventListener('pageshow',e=>{if(e.persisted){document.body.classList.add('member-loading');location.reload();}});setInterval(syncMember,30000);
 render();bankGate();
+
+/* ===== PROFILE AVATAR: 9 characters, saved to the player's account ===== */
+const AVATARS=['Lion','Chick','Bunny','Fox','Tiger','Panda','Bear','Dragon','Lucky Cat'];
+function avatarNum(){const n=Number(memberData&&memberData.member&&memberData.member.avatar)||0;return n>=1&&n<=9?n:0;}
+function avatarSrc(n){return '/assets/avatars/avatar-'+n+'.webp';}
+/* Home welcome strip: rank shown as its medal instead of words. */
+function rankMedal(){const v=memberData&&memberData.vip;const keys=['member','silver','gold','platinum','diamond','royal','legend'];let i=v?Number(v.rank_idx):-1;if(!(i>=0))i=-1;
+ const r=v&&Array.isArray(v.ranks)&&i>=0?v.ranks[i]:null;const key=(r&&r.key)||keys[i]||'member';const name=(v&&v.rank_name)||'Member';return {key,name};}
+function paintRankMedal(){const el=document.querySelector('.os-vip');if(!el)return;const m=rankMedal();if(el.dataset.rk===m.key)return;el.dataset.rk=m.key;el.classList.add('os-vip-medal');el.title=m.name+' VIP';el.setAttribute('aria-label',m.name+' VIP rank');el.innerHTML=`<img src="/assets/vip-${m.key}.webp" alt="${depEsc(m.name)}">`;}
+function paintAvatars(){paintRankMedal();const n=avatarNum();
+ document.querySelectorAll('.avatar,.os-avatar').forEach(el=>{
+  const editable=!!el.closest('#modal .member,#screen .member');
+  if(el.dataset.av!==String(n)){el.dataset.av=String(n);el.innerHTML=n?`<img class="av-img" src="${avatarSrc(n)}" alt="${AVATARS[n-1]}">`:icon('user');el.classList.toggle('has-av',!!n);}
+  if(editable&&!el.dataset.avWired){el.dataset.avWired='1';el.classList.add('av-edit');el.setAttribute('role','button');el.setAttribute('tabindex','0');el.setAttribute('aria-label','Change avatar');
+   el.insertAdjacentHTML('beforeend','<i class="av-pen" aria-hidden="true">✎</i>');
+   const open=e=>{e.preventDefault();e.stopPropagation();openAvatarPicker();};el.addEventListener('click',open);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')open(e);});}
+  else if(editable&&!el.querySelector('.av-pen'))el.insertAdjacentHTML('beforeend','<i class="av-pen" aria-hidden="true">✎</i>');});}
+function openAvatarPicker(){const cur=avatarNum();
+ showModal('Choose your avatar',`<div class="av-grid">${AVATARS.map((name,i)=>`<button type="button" class="av-pick${cur===i+1?' on':''}" data-av-pick="${i+1}" aria-label="${name}"><img src="${avatarSrc(i+1)}" alt=""><span>${name}</span></button>`).join('')}</div>`);
+ modal.classList.add('av-modal');
+ modal.querySelectorAll('[data-av-pick]').forEach(b=>b.onclick=async()=>{const n=Number(b.dataset.avPick);if(n===avatarNum()){modal.close();return;}
+  modal.querySelectorAll('[data-av-pick]').forEach(x=>x.disabled=true);b.classList.add('saving');
+  try{await memberRequest('avatar',{avatar:n});memberData.member.avatar=n;modal.close();paintAvatars();toast('Avatar updated!');}
+  catch(e){modal.querySelectorAll('[data-av-pick]').forEach(x=>x.disabled=false);b.classList.remove('saving');toast(e&&e.message?e.message:'Could not save. Please try again.');}});}
+/* Repaint whenever the page, menu or a pop-up changes. */
+(function(){let q=false;const run=()=>{q=false;try{paintAvatars();}catch(e){}};new MutationObserver(()=>{if(!q){q=true;requestAnimationFrame(run);}}).observe(document.body,{childList:true,subtree:true});run();
+ [0,1,2,3,4,5,6,7,8].forEach(i=>{const im=new Image();im.src=avatarSrc(i+1);});})();
