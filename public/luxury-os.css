@@ -1606,3 +1606,5 @@ body.gate-open{overflow:hidden}
 .os-vip.os-vip-medal{padding:0;background:none;border:0;margin-left:auto;flex:none}
 .os-vip.os-vip-medal img{width:54px;height:54px;object-fit:contain;display:block;filter:drop-shadow(0 3px 8px #000a)}
 .os-notifications{height:72px;width:52px}
+
+.av-err{margin:-4px 0 12px;padding:9px 12px;border-radius:12px;background:#3a1414;border:1px solid #ff6b6b55;color:#ffb4b4;font-size:12px;text-align:center}

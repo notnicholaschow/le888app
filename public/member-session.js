@@ -230,7 +230,7 @@ function openAvatarPicker(){const cur=avatarNum();
  modal.querySelectorAll('[data-av-pick]').forEach(b=>b.onclick=async()=>{const n=Number(b.dataset.avPick);if(n===avatarNum()){modal.close();return;}
   modal.querySelectorAll('[data-av-pick]').forEach(x=>x.disabled=true);b.classList.add('saving');
   try{await memberRequest('avatar',{avatar:n});memberData.member.avatar=n;modal.close();paintAvatars();toast('Avatar updated!');}
-  catch(e){modal.querySelectorAll('[data-av-pick]').forEach(x=>x.disabled=false);b.classList.remove('saving');toast(e&&e.message?e.message:'Could not save. Please try again.');}});}
+  catch(e){modal.querySelectorAll('[data-av-pick]').forEach(x=>x.disabled=false);b.classList.remove('saving');let m=modal.querySelector('.av-err');if(!m){m=document.createElement('p');m.className='av-err';modal.querySelector('.av-grid').after(m);}m.textContent=(e&&e.message&&!/not found/i.test(e.message))?e.message:'Could not save your avatar right now. Please try again later.';}});}
 /* Repaint whenever the page, menu or a pop-up changes. */
 (function(){let q=false;const run=()=>{q=false;try{paintAvatars();}catch(e){}};new MutationObserver(()=>{if(!q){q=true;requestAnimationFrame(run);}}).observe(document.body,{childList:true,subtree:true});run();
  [0,1,2,3,4,5,6,7,8].forEach(i=>{const im=new Image();im.src=avatarSrc(i+1);});})();

@@ -936,6 +936,15 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         <button class="btn" id="pbSendBtn" style="margin-top:12px">Send broadcast</button>
         <p class="muted" id="pbStatus" style="margin-top:8px"></p>
       </div>
+      <div class="card" id="dbCard">
+        <h2 style="margin-top:0">Database health</h2>
+        <p class="muted" style="margin:0 0 10px">Checks your live database has every table and column this version of the app needs. <b>Repair</b> only ADDS what is missing &mdash; it never deletes or changes existing data. Managers only.</p>
+        <div class="row" style="gap:8px">
+          <button class="btn small" id="dbCheckBtn">Check database</button>
+          <button class="btn ghost small" id="dbRepairBtn" style="display:none">Repair (add missing)</button>
+        </div>
+        <div id="dbResult" style="margin-top:12px"></div>
+      </div>
     </section>
 
     <!-- Admins -->
@@ -3230,7 +3239,44 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   // ------------------------------------------------------------------
   // Settings
   // ------------------------------------------------------------------
+  // ---- Database health (manager) ----
+  function dbRender(rep, extra) {
+    var box = $('dbResult'); if (!box) return;
+    var good = '<span style="color:#3ecf8e;font-weight:700">&#10003;</span> ', bad = '<span style="color:#ff6b6b;font-weight:700">&#10007;</span> ', warn = '<span style="color:#e7c56b;font-weight:700">!</span> ';
+    var h = '';
+    h += (rep.missing_tables.length ? bad + '<b>' + rep.missing_tables.length + ' missing table(s):</b> ' + esc(rep.missing_tables.join(', ')) : good + 'All ' + (rep.tables) + ' tables present') + '<br>';
+    h += (rep.missing_columns.length ? bad + '<b>' + rep.missing_columns.length + ' missing column(s):</b> ' + esc(rep.missing_columns.map(function (c) { return c.table + '.' + c.column; }).join(', ')) : good + 'All columns present') + '<br>';
+    h += (rep.missing_indexes.length ? warn + rep.missing_indexes.length + ' speed/safety index(es) missing: ' + esc(rep.missing_indexes.join(', ')) : good + 'All indexes present') + '<br>';
+    h += (rep.r2 ? good + 'Image storage (R2) is ON' : warn + '<b>Image storage (R2) is OFF</b> &mdash; receipts, PayNow QR, chat photos, logos and banners cannot be uploaded until it is enabled in wrangler.toml') + '<br>';
+    if (rep.extra_tables.length) h += '<span class="muted">Not used by this version (safe to keep): ' + esc(rep.extra_tables.join(', ')) + '</span><br>';
+    if (extra) h += extra;
+    box.innerHTML = '<div style="line-height:1.9;font-size:13px">' + h + '</div>';
+    $('dbRepairBtn').style.display = (rep.missing_tables.length || rep.missing_columns.length || rep.missing_indexes.length) ? '' : 'none';
+  }
+  function dbCheckNow() {
+    var b = $('dbCheckBtn'); busy(b, true);
+    api('/api/admin/db/check', {}).then(function (r) {
+      busy(b, false);
+      if (!r.ok) { $('dbResult').innerHTML = '<span class="muted">' + esc(r.error || 'Check failed.') + '</span>'; return; }
+      dbRender(r.report);
+    }).catch(function () { busy(b, false); toast('Network error.', true); });
+  }
+  if ($('dbCheckBtn')) {
+    $('dbCheckBtn').onclick = dbCheckNow;
+    $('dbRepairBtn').onclick = function () {
+      if (!confirm('Add the missing tables, columns and indexes now? Existing data is not touched.')) return;
+      var b = $('dbRepairBtn'); busy(b, true);
+      api('/api/admin/db/repair', {}).then(function (r) {
+        busy(b, false);
+        if (!r.ok) { toast(r.error || 'Repair failed.', true); return; }
+        var extra = '<b>Repair:</b> ' + r.done.length + ' step(s) done' + (r.failed.length ? ', <span style="color:#ff6b6b">' + r.failed.length + ' failed</span>: ' + esc(r.failed.map(function (f) { return f.step + ' (' + f.error + ')'; }).join('; ')) : '') + '<br>';
+        dbRender(r.report, extra);
+        toast(r.failed.length ? 'Repair finished with some errors.' : 'Database repaired.', !!r.failed.length);
+      }).catch(function () { busy(b, false); toast('Network error.', true); });
+    };
+  }
   function loadSettings() {
+    if ($('dbCard')) $('dbCard').style.display = isMgr() ? '' : 'none';
     loadBanners();
     api('/api/admin/settings/get').then(function (res) {
       if (!res.ok) return;
