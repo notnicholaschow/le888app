@@ -1632,3 +1632,16 @@ body.gate-open{overflow:hidden}
 .wd-src{align-items:flex-start}
 
 .form-panel label.wd-src,label.wd-src{display:flex!important;flex-direction:row;align-items:flex-start;gap:10px}
+
+/* ===== Home balances: Available PTS | Rewards ===== */
+.os-balances{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px 10px;padding:18px 4px 6px;text-align:center}
+.os-bal{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;background:none;border:0;padding:0;color:inherit;cursor:default}
+.os-bal-rw{cursor:pointer}
+.os-bal small{font-size:10px;letter-spacing:.22em;color:#9d8e77}
+.os-bal-row{display:flex;align-items:center;justify-content:center;gap:8px}
+.os-bal strong{font-size:40px;font-weight:600;line-height:1;letter-spacing:-1.5px;background:linear-gradient(120deg,#fff5d7,#eac387 50%,#bb803c);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 16px #eda65024);font-variant-numeric:tabular-nums;white-space:nowrap}
+.os-bal strong em{font-style:normal;font-size:14px;letter-spacing:.04em;margin-right:4px;vertical-align:middle}
+.os-bal-row button{width:28px;height:28px;border-radius:50%;border:1px solid #c9a16380;color:#ecc783;background:linear-gradient(135deg,#a37d3830,#151517);font-size:20px;line-height:1;padding:0;flex:none}
+.os-bal-div{width:1px;align-self:stretch;background:linear-gradient(transparent,#b1996755,transparent)}
+.os-bal-hint{grid-column:1/-1;justify-self:center;margin-top:10px;border:0;background:none;color:#ffd274;font-size:12px;font-weight:700;letter-spacing:.04em;cursor:pointer;padding:4px 8px}
+@media (max-width:370px){.os-bal strong{font-size:32px}}
