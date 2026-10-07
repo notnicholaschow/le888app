@@ -211,7 +211,7 @@ render();bankGate();
 /* ===== PROFILE AVATAR: 9 characters, saved to the player's account ===== */
 const AVATARS=['Lion','Chick','Bunny','Fox','Tiger','Panda','Bear','Dragon','Lucky Cat'];
 function avatarNum(){const n=Number(memberData&&memberData.member&&memberData.member.avatar)||0;return n>=1&&n<=9?n:0;}
-function avatarSrc(n){return '/assets/avatars/avatar-'+n+'.webp';}
+function avatarSrc(n){return '/assets/avatar/avatar-'+n+'.webp';}
 /* Home welcome strip: rank shown as its medal instead of words. */
 function rankMedal(){const v=memberData&&memberData.vip;const keys=['member','silver','gold','platinum','diamond','royal','legend'];let i=v?Number(v.rank_idx):-1;if(!(i>=0))i=-1;
  const r=v&&Array.isArray(v.ranks)&&i>=0?v.ranks[i]:null;const key=(r&&r.key)||keys[i]||'member';const name=(v&&v.rank_name)||'Member';return {key,name};}
