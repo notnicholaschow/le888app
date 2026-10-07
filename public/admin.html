@@ -2346,8 +2346,10 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       if (w > max || h > max) { var k = Math.min(max / w, max / h); w = Math.round(w * k); h = Math.round(h * k); }
       var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
       cv.getContext('2d').drawImage(img, 0, 0, w, h);
-      cv.toBlob(function (blob) {
+      var gotBlob = function (blob) {
         if (!blob) { toast('Could not read image.', true); return; }
+        // Browsers that cannot make WebP (Safari) return PNG: use a small JPG instead.
+        if (blob.type !== 'image/webp' && blob.type !== 'image/jpeg') { cv.toBlob(gotBlob, 'image/jpeg', 0.82); return; }
         acPendingBlob = blob;
         var thumb = cv.toDataURL('image/webp', 0.7);
         var pv = $('acPending');
@@ -2356,7 +2358,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         pv.style.display = '';
         $('acPendingX').onclick = clearPending;
         $('acText').focus();
-      }, 'image/webp', 0.85);
+      };
+      cv.toBlob(gotBlob, 'image/webp', 0.82);
     };
     img.onerror = function () { URL.revokeObjectURL(url); toast('Could not read image.', true); };
     img.src = url;
