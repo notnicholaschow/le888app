@@ -957,6 +957,7 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
         username: displayName,
         id: player.username,
         points: Number(player.points) || 0,
+        avatar: Math.max(0, Math.min(9, Number((player as any).avatar) || 0)),
         reward: centsToStr(Number(player.reward_cents) || 0),
       },
       ledger,
@@ -1027,6 +1028,22 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     const res = await handleApi(fwd, env, ctx, rid);
     const text = await res.text();
     return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  // Profile avatar: 0 = default icon, 1..9 = /assets/avatar/avatar-N.webp
+  if (p === '/api/member/avatar' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    let body: any = {};
+    try { body = await request.json(); } catch { body = {}; }
+    const n = Math.floor(Number(body.avatar));
+    if (!Number.isFinite(n) || n < 0 || n > 9) return j({ error: 'Choose an avatar from the list.' }, 400);
+    const save = () => env.DB.prepare("UPDATE players SET avatar = ?, updated_at = datetime('now') WHERE id = ?").bind(n, player.id).run();
+    try { await save(); }
+    catch {
+      try { await env.DB.prepare('ALTER TABLE players ADD COLUMN avatar INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already there */ }
+      try { await save(); } catch { return j({ error: 'Could not save your avatar. Please try again.' }, 500); }
+    }
+    return j({ ok: true, avatar: n }, 200);
   }
   if (p === '/api/member/withdraw' && method === 'GET') {
     const player = await currentPlayer();
@@ -1889,6 +1906,74 @@ const GRANTABLE_PERMS = ['players', 'earn', 'activity', 'credits', 'deposits', '
 
 // A game/platform image is allowed if it is either an uploaded R2 image
 // (/api/chat/img/...) or a static asset we ship in /public/gameicons/<folder>/.
+// Every table/column/index the app needs (same as schema.sql).
+// Used by Admin -> Settings -> Database check / Repair.
+const DB_SCHEMA: Array<{ t: string; c: string; cols: Array<[string, string]> }> = [{"t": "players", "c": "CREATE TABLE players ( id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE, password TEXT NOT NULL, display_name TEXT, points INTEGER NOT NULL DEFAULT 0, reward_cents INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', note TEXT, session_version INTEGER NOT NULL DEFAULT 1, tag TEXT, telegram TEXT, whatsapp TEXT, lang TEXT, bank_name TEXT, bank_account TEXT, bank_holder TEXT, paynow_number TEXT, bank_locked INTEGER NOT NULL DEFAULT 0, birthday TEXT, birthday_locked INTEGER NOT NULL DEFAULT 0, mc_status TEXT, mc_amount_cents INTEGER NOT NULL DEFAULT 0, mc_winover REAL, mc_cap_cents INTEGER, mc_payout_id INTEGER, avatar INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["username", "TEXT"], ["password", "TEXT"], ["display_name", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["reward_cents", "INTEGER NOT NULL DEFAULT 0"], ["status", "TEXT NOT NULL DEFAULT 'active'"], ["note", "TEXT"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["tag", "TEXT"], ["telegram", "TEXT"], ["whatsapp", "TEXT"], ["lang", "TEXT"], ["bank_name", "TEXT"], ["bank_account", "TEXT"], ["bank_holder", "TEXT"], ["paynow_number", "TEXT"], ["bank_locked", "INTEGER NOT NULL DEFAULT 0"], ["birthday", "TEXT"], ["birthday_locked", "INTEGER NOT NULL DEFAULT 0"], ["mc_status", "TEXT"], ["mc_amount_cents", "INTEGER NOT NULL DEFAULT 0"], ["mc_winover", "REAL"], ["mc_cap_cents", "INTEGER"], ["mc_payout_id", "INTEGER"], ["avatar", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "admins", "c": "CREATE TABLE admins ( id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, role TEXT NOT NULL DEFAULT 'manager', permissions TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["username", "TEXT"], ["password", "TEXT"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["role", "TEXT NOT NULL DEFAULT 'manager'"], ["permissions", "TEXT"], ["created_at", "TEXT"]]}, {"t": "settings", "c": "CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL )", "cols": [["key", "TEXT"], ["value", "TEXT"]]}, {"t": "point_activity", "c": "CREATE TABLE point_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, points_after INTEGER NOT NULL, note TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["type", "TEXT"], ["amount", "INTEGER"], ["points_after", "INTEGER"], ["note", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT"]]}, {"t": "credit_activity", "c": "CREATE TABLE credit_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, reward_after_cents INTEGER, reason TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount_cents", "INTEGER"], ["reward_after_cents", "INTEGER"], ["reason", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT"]]}, {"t": "tasks", "c": "CREATE TABLE tasks ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT, points INTEGER NOT NULL DEFAULT 0, url TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["description", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["url", "TEXT"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "task_completions", "c": "CREATE TABLE task_completions ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, task_id INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, task_id) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["task_id", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "daily_checkins", "c": "CREATE TABLE daily_checkins ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, checkin_date TEXT NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, streak INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, checkin_date) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["checkin_date", "TEXT"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["streak", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"]]}, {"t": "game_configs", "c": "CREATE TABLE game_configs ( game TEXT PRIMARY KEY, cost INTEGER NOT NULL DEFAULT 0, prizes_json TEXT NOT NULL DEFAULT '[]', enabled INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1, updated_at TEXT, updated_by TEXT )", "cols": [["game", "TEXT"], ["cost", "INTEGER NOT NULL DEFAULT 0"], ["prizes_json", "TEXT NOT NULL DEFAULT '[]'"], ["enabled", "INTEGER NOT NULL DEFAULT 0"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "game_config_changes", "c": "CREATE TABLE game_config_changes ( id INTEGER PRIMARY KEY AUTOINCREMENT, game TEXT NOT NULL, before_json TEXT, after_json TEXT, changed_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["game", "TEXT"], ["before_json", "TEXT"], ["after_json", "TEXT"], ["changed_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "arcade_activity", "c": "CREATE TABLE arcade_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, game TEXT NOT NULL, activity_date TEXT NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, result_label TEXT, win_cents INTEGER NOT NULL DEFAULT 0, play_id TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["game", "TEXT"], ["activity_date", "TEXT"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["result_label", "TEXT"], ["win_cents", "INTEGER NOT NULL DEFAULT 0"], ["play_id", "TEXT"], ["created_at", "TEXT"]]}, {"t": "arcade_daily_rewards", "c": "CREATE TABLE arcade_daily_rewards ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, reward_date TEXT NOT NULL, seq INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, reward_date, seq) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["reward_date", "TEXT"], ["seq", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "cross_rounds", "c": "CREATE TABLE cross_rounds ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, round_id TEXT NOT NULL, status TEXT NOT NULL, lane INTEGER NOT NULL DEFAULT 0, cost INTEGER NOT NULL, win_cents INTEGER NOT NULL DEFAULT 0, ladder_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, round_id) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["round_id", "TEXT"], ["status", "TEXT"], ["lane", "INTEGER NOT NULL DEFAULT 0"], ["cost", "INTEGER"], ["win_cents", "INTEGER NOT NULL DEFAULT 0"], ["ladder_json", "TEXT"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "payout_requests", "c": "CREATE TABLE payout_requests ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', admin_username TEXT, decision_note TEXT, game TEXT, game_id TEXT, fc_status TEXT, fc_winover_x REAL, fc_hit_cents INTEGER, fc_cap_cents INTEGER, fc_custom INTEGER NOT NULL DEFAULT 0, fc_cleared_at TEXT, fc_cleared_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount_cents", "INTEGER"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["admin_username", "TEXT"], ["decision_note", "TEXT"], ["game", "TEXT"], ["game_id", "TEXT"], ["fc_status", "TEXT"], ["fc_winover_x", "REAL"], ["fc_hit_cents", "INTEGER"], ["fc_cap_cents", "INTEGER"], ["fc_custom", "INTEGER NOT NULL DEFAULT 0"], ["fc_cleared_at", "TEXT"], ["fc_cleared_by", "TEXT"], ["created_at", "TEXT"], ["decided_at", "TEXT"]]}, {"t": "withdraw_rules", "c": "CREATE TABLE withdraw_rules ( up_to_cents INTEGER NOT NULL, winover_x REAL NOT NULL, cap_cents INTEGER NOT NULL, updated_at TEXT, updated_by TEXT )", "cols": [["up_to_cents", "INTEGER"], ["winover_x", "REAL"], ["cap_cents", "INTEGER"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "withdraw_rule_changes", "c": "CREATE TABLE withdraw_rule_changes ( id INTEGER PRIMARY KEY AUTOINCREMENT, before_json TEXT, after_json TEXT, changed_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["before_json", "TEXT"], ["after_json", "TEXT"], ["changed_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "withdrawals", "c": "CREATE TABLE withdrawals ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, bank_name TEXT, bank_account TEXT, bank_holder TEXT, paynow_number TEXT, status TEXT NOT NULL DEFAULT 'pending', source_type TEXT, source_game TEXT, source_game_id TEXT, free_credit_cents INTEGER, winover_x REAL, rule_cap_cents INTEGER, source_payout_id INTEGER, note TEXT, decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount_cents", "INTEGER"], ["bank_name", "TEXT"], ["bank_account", "TEXT"], ["bank_holder", "TEXT"], ["paynow_number", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["source_type", "TEXT"], ["source_game", "TEXT"], ["source_game_id", "TEXT"], ["free_credit_cents", "INTEGER"], ["winover_x", "REAL"], ["rule_cap_cents", "INTEGER"], ["source_payout_id", "INTEGER"], ["note", "TEXT"], ["decided_by", "TEXT"], ["decided_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "deposits", "c": "CREATE TABLE deposits ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount REAL NOT NULL, month_key TEXT NOT NULL, note TEXT, admin_username TEXT, reference TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount", "REAL"], ["month_key", "TEXT"], ["note", "TEXT"], ["admin_username", "TEXT"], ["reference", "TEXT"], ["created_at", "TEXT"]]}, {"t": "deposit_submissions", "c": "CREATE TABLE deposit_submissions ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT NOT NULL DEFAULT 'paynow', receipt_url TEXT, reference TEXT, status TEXT NOT NULL DEFAULT 'pending', admin_username TEXT, admin_note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount", "REAL"], ["method", "TEXT NOT NULL DEFAULT 'paynow'"], ["receipt_url", "TEXT"], ["reference", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["admin_username", "TEXT"], ["admin_note", "TEXT"], ["created_at", "TEXT"], ["decided_at", "TEXT"]]}, {"t": "deposit_bonus_tiers", "c": "CREATE TABLE deposit_bonus_tiers ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, min_deposit REAL NOT NULL DEFAULT 0, period TEXT NOT NULL DEFAULT 'once', reward_type TEXT NOT NULL DEFAULT 'points', amount REAL NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, start_date TEXT, end_date TEXT, image_url TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["min_deposit", "REAL NOT NULL DEFAULT 0"], ["period", "TEXT NOT NULL DEFAULT 'once'"], ["reward_type", "TEXT NOT NULL DEFAULT 'points'"], ["amount", "REAL NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["start_date", "TEXT"], ["end_date", "TEXT"], ["image_url", "TEXT"], ["created_at", "TEXT"]]}, {"t": "deposit_bonus_claims", "c": "CREATE TABLE deposit_bonus_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, tier_id INTEGER NOT NULL, period_key TEXT NOT NULL, reward_type TEXT, amount REAL, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, tier_id, period_key) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["tier_id", "INTEGER"], ["period_key", "TEXT"], ["reward_type", "TEXT"], ["amount", "REAL"], ["created_at", "TEXT"]]}, {"t": "vip_rewards", "c": "CREATE TABLE vip_rewards ( rank_idx INTEGER PRIMARY KEY, weekly INTEGER NOT NULL DEFAULT 0, upgrade INTEGER NOT NULL DEFAULT 0, updated_at TEXT, updated_by TEXT )", "cols": [["rank_idx", "INTEGER"], ["weekly", "INTEGER NOT NULL DEFAULT 0"], ["upgrade", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "vip_upgrade_grants", "c": "CREATE TABLE vip_upgrade_grants ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, month_key TEXT NOT NULL, rank_idx INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, month_key, rank_idx) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["month_key", "TEXT"], ["rank_idx", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "vip_weekly_claims", "c": "CREATE TABLE vip_weekly_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, week_key TEXT NOT NULL, rank_idx INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, week_key) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["week_key", "TEXT"], ["rank_idx", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "player_game_ids", "c": "CREATE TABLE player_game_ids ( player_id INTEGER NOT NULL, platform TEXT NOT NULL, game_id TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (player_id, platform) )", "cols": [["player_id", "INTEGER"], ["platform", "TEXT"], ["game_id", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "player_free_ids", "c": "CREATE TABLE player_free_ids ( player_id INTEGER NOT NULL, platform TEXT NOT NULL, game_id TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (player_id, platform) )", "cols": [["player_id", "INTEGER"], ["platform", "TEXT"], ["game_id", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "promos", "c": "CREATE TABLE promos ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, title_zh TEXT, tnc TEXT, tnc_zh TEXT, points INTEGER NOT NULL DEFAULT 0, access TEXT NOT NULL DEFAULT 'open', limit_type TEXT NOT NULL DEFAULT 'total', limit_count INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, image_url TEXT, reward_type TEXT NOT NULL DEFAULT 'points', app_only INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["title_zh", "TEXT"], ["tnc", "TEXT"], ["tnc_zh", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["access", "TEXT NOT NULL DEFAULT 'open'"], ["limit_type", "TEXT NOT NULL DEFAULT 'total'"], ["limit_count", "INTEGER NOT NULL DEFAULT 1"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["image_url", "TEXT"], ["reward_type", "TEXT NOT NULL DEFAULT 'points'"], ["app_only", "INTEGER NOT NULL DEFAULT 0"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "promo_claims", "c": "CREATE TABLE promo_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, promo_id INTEGER NOT NULL, player_id INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, day_key TEXT, unlock_id INTEGER, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["promo_id", "INTEGER"], ["player_id", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["day_key", "TEXT"], ["unlock_id", "INTEGER"], ["created_at", "TEXT"]]}, {"t": "promo_unlocks", "c": "CREATE TABLE promo_unlocks ( id INTEGER PRIMARY KEY AUTOINCREMENT, promo_id INTEGER NOT NULL, player_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'available', granted_by TEXT, claimed_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["promo_id", "INTEGER"], ["player_id", "INTEGER"], ["status", "TEXT NOT NULL DEFAULT 'available'"], ["granted_by", "TEXT"], ["claimed_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "chat_messages", "c": "CREATE TABLE chat_messages ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, sender TEXT NOT NULL, admin_username TEXT, body TEXT, image_url TEXT, is_html INTEGER NOT NULL DEFAULT 0, deleted_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["sender", "TEXT"], ["admin_username", "TEXT"], ["body", "TEXT"], ["image_url", "TEXT"], ["is_html", "INTEGER NOT NULL DEFAULT 0"], ["deleted_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "chat_state", "c": "CREATE TABLE chat_state ( player_id INTEGER PRIMARY KEY, last_msg_at TEXT, admin_unread INTEGER NOT NULL DEFAULT 0, player_unread INTEGER NOT NULL DEFAULT 0 )", "cols": [["player_id", "INTEGER"], ["last_msg_at", "TEXT"], ["admin_unread", "INTEGER NOT NULL DEFAULT 0"], ["player_unread", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "chat_templates", "c": "CREATE TABLE chat_templates ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, content TEXT NOT NULL, trigger_key TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, updated_at TEXT, updated_by TEXT )", "cols": [["id", "INTEGER"], ["name", "TEXT"], ["content", "TEXT"], ["trigger_key", "TEXT NOT NULL DEFAULT ''"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "push_subs", "c": "CREATE TABLE push_subs ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, lang TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["endpoint", "TEXT"], ["p256dh", "TEXT"], ["auth", "TEXT"], ["lang", "TEXT"], ["created_at", "TEXT"]]}, {"t": "push_log", "c": "CREATE TABLE push_log ( kind TEXT NOT NULL, key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (kind, key) )", "cols": [["kind", "TEXT"], ["key", "TEXT"], ["created_at", "TEXT"]]}, {"t": "banners", "c": "CREATE TABLE banners ( id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, link_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["image_url", "TEXT"], ["link_url", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"]]}, {"t": "slot_platforms", "c": "CREATE TABLE slot_platforms ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, logo_url TEXT, kind TEXT NOT NULL DEFAULT 'app', play_url TEXT, android_package TEXT, links_json TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["name", "TEXT"], ["logo_url", "TEXT"], ["kind", "TEXT NOT NULL DEFAULT 'app'"], ["play_url", "TEXT"], ["android_package", "TEXT"], ["links_json", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"]]}, {"t": "app_domains", "c": "CREATE TABLE app_domains ( id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, label TEXT, is_primary INTEGER NOT NULL DEFAULT 0, updated_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["url", "TEXT"], ["label", "TEXT"], ["is_primary", "INTEGER NOT NULL DEFAULT 0"], ["updated_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "rate_limits", "c": "CREATE TABLE rate_limits ( bucket TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL DEFAULT 0 )", "cols": [["bucket", "TEXT"], ["window_start", "INTEGER"], ["count", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "auth_throttle", "c": "CREATE TABLE auth_throttle ( id TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT )", "cols": [["id", "TEXT"], ["fails", "INTEGER NOT NULL DEFAULT 0"], ["locked_until", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"]]}];
+const DB_INDEXES: string[] = ["CREATE INDEX IF NOT EXISTS idx_activity_player ON point_activity (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_credit_player ON credit_activity (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_checkins_player ON daily_checkins (player_id, checkin_date)", "CREATE INDEX IF NOT EXISTS idx_arcade_player ON arcade_activity (player_id, activity_date)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_arcade_playid ON arcade_activity (player_id, play_id) WHERE play_id IS NOT NULL", "CREATE INDEX IF NOT EXISTS idx_cross_rounds_player_status ON cross_rounds (player_id, status)", "CREATE INDEX IF NOT EXISTS idx_payouts_status ON payout_requests (status, id)", "CREATE INDEX IF NOT EXISTS idx_payouts_player ON payout_requests (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_payouts_created ON payout_requests (status, created_at)", "CREATE INDEX IF NOT EXISTS idx_withdrawals_player ON withdrawals (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals (status, id)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_withdrawal_one_pending ON withdrawals (player_id) WHERE status = 'pending'", "CREATE INDEX IF NOT EXISTS idx_deposits_player ON deposits (player_id, month_key)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_deposit_reference ON deposits (reference) WHERE reference IS NOT NULL AND reference != ''", "CREATE INDEX IF NOT EXISTS idx_depsub_status ON deposit_submissions (status, id)", "CREATE INDEX IF NOT EXISTS idx_depsub_player ON deposit_submissions (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_promo_claims ON promo_claims (player_id, promo_id, day_key)", "CREATE INDEX IF NOT EXISTS idx_promo_unlocks ON promo_unlocks (player_id, promo_id, status)", "CREATE INDEX IF NOT EXISTS idx_chat_player ON chat_messages (player_id, id)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_template_trigger ON chat_templates (trigger_key) WHERE trigger_key != ''", "CREATE INDEX IF NOT EXISTS idx_push_player ON push_subs (player_id)"];
+
+type DbReport = {
+  ok: boolean;
+  missing_tables: string[];
+  missing_columns: Array<{ table: string; column: string }>;
+  missing_indexes: string[];
+  extra_tables: string[];
+  tables: number;
+  r2: boolean;
+};
+async function dbCheck(env: Env): Promise<DbReport> {
+  const have = new Map<string, Set<string>>();
+  const rows = await env.DB.prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all<{ name: string; type: string }>();
+  const idxHave = new Set<string>();
+  for (const r of rows.results || []) {
+    if (r.type === 'table') have.set(r.name, new Set());
+    else if (r.type === 'index') idxHave.add(r.name);
+  }
+  const missing_tables: string[] = [];
+  const missing_columns: Array<{ table: string; column: string }> = [];
+  for (const t of DB_SCHEMA) {
+    if (!have.has(t.t)) { missing_tables.push(t.t); continue; }
+    const info = await env.DB.prepare(`PRAGMA table_info(${t.t})`).all<{ name: string }>();
+    const cols = new Set((info.results || []).map((c) => c.name));
+    for (const [c] of t.cols) if (!cols.has(c)) missing_columns.push({ table: t.t, column: c });
+  }
+  const missing_indexes = DB_INDEXES
+    .map((i) => (i.match(/IF NOT EXISTS (\w+)/) || [])[1] || '')
+    .filter((n) => n && !idxHave.has(n));
+  const known = new Set(DB_SCHEMA.map((t) => t.t));
+  const extra_tables = [...have.keys()].filter((n) => !known.has(n) && n !== 'd1_migrations').sort();
+  return {
+    ok: !missing_tables.length && !missing_columns.length,
+    missing_tables, missing_columns, missing_indexes, extra_tables,
+    tables: have.size, r2: !!env.CHAT_IMAGES,
+  };
+}
+// Additive only: creates missing tables, adds missing columns, creates missing
+// indexes. Never drops, renames or rewrites anything. Each step is separate so
+// one failure (e.g. duplicate data blocking a unique index) can't stop the rest.
+async function dbRepair(env: Env): Promise<{ done: string[]; failed: Array<{ step: string; error: string }> }> {
+  const before = await dbCheck(env);
+  const done: string[] = [];
+  const failed: Array<{ step: string; error: string }> = [];
+  const run = async (label: string, q: string) => {
+    try { await env.DB.prepare(q).run(); done.push(label); }
+    catch (e) { failed.push({ step: label, error: String((e as Error)?.message || e).slice(0, 200) }); }
+  };
+  for (const name of before.missing_tables) {
+    const t = DB_SCHEMA.find((x) => x.t === name);
+    if (t) await run('create table ' + name, t.c.replace(/^CREATE TABLE /, 'CREATE TABLE IF NOT EXISTS '));
+  }
+  for (const mc of before.missing_columns) {
+    const t = DB_SCHEMA.find((x) => x.t === mc.table);
+    const def = t && t.cols.find((c) => c[0] === mc.column);
+    if (def) await run(`add column ${mc.table}.${mc.column}`, `ALTER TABLE ${mc.table} ADD COLUMN ${mc.column} ${def[1]}`);
+  }
+  for (const i of DB_INDEXES) {
+    const n = (i.match(/IF NOT EXISTS (\w+)/) || [])[1] || i;
+    if (before.missing_indexes.indexOf(n) !== -1) await run('index ' + n, i);
+  }
+  return { done, failed };
+}
+
 function isRtpImage(u: string): boolean {
   return /^\/api\/chat\/img\/[a-zA-Z0-9._-]{10,80}$/.test(u)
     || /^\/gameicons\/[a-z0-9_-]{1,40}\/[a-zA-Z0-9._-]{1,80}\.(webp|png|jpg|jpeg)$/.test(u);
@@ -3639,6 +3724,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
   // anything, which would defeat the whole permission system.)
   const MANAGER_ONLY = [
     '/api/admin/history/purge',
+    '/api/admin/db/check', '/api/admin/db/repair',
     '/api/admin/admins/list', '/api/admin/admins/create', '/api/admin/admins/delete',
     '/api/admin/admins/permissions', '/api/admin/admins/password',
     // Permanently deleting a player wipes their records — managers only.
@@ -3662,10 +3748,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     '/api/admin/templates/save': 'templates', '/api/admin/templates/delete': 'templates',
     '/api/admin/domains/list': 'domains', '/api/admin/domains/save': 'domains', '/api/admin/domains/delete': 'domains', '/api/admin/domains/set-primary': 'domains', '/api/admin/domains/broadcast': 'domains',
     '/api/admin/settings/get': 'settings', '/api/admin/settings/save': 'settings',
-    // Game RTP page (platforms + games + the paste-a-column RTP update).
-    '/api/admin/rtp/platforms': 'rtp', '/api/admin/rtp/platform/save': 'rtp', '/api/admin/rtp/platform/delete': 'rtp',
-    '/api/admin/rtp/games': 'rtp', '/api/admin/rtp/game/save': 'rtp', '/api/admin/rtp/game/delete': 'rtp',
-    '/api/admin/rtp/bulk-add': 'rtp', '/api/admin/rtp/bulk-import': 'rtp', '/api/admin/rtp/paste': 'rtp',
     // Slot Games launcher (same "rtp" section — the slot/games area).
     '/api/admin/slots/list': 'rtp', '/api/admin/slots/save': 'rtp', '/api/admin/slots/delete': 'rtp', '/api/admin/slots/reorder': 'rtp',
     // Home banners (site display — grouped under "settings").
@@ -4156,6 +4238,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         'point_activity', 'credit_activity', 'arcade_activity', 'daily_checkins',
         'chat_messages', 'chat_state', 'promo_claims', 'promo_unlocks',
         'vip_weekly_claims', 'vip_upgrade_grants', 'deposit_bonus_claims', 'push_subs',
+        'task_completions', 'cross_rounds', 'deposit_submissions', 'arcade_daily_rewards',
       ];
       for (const t of childTables) {
         try { await env.DB.prepare(`DELETE FROM ${t} WHERE player_id = ?`).bind(id).run(); } catch { /* table may not exist */ }
@@ -4637,74 +4720,15 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true }, 200, rid);
     }
 
-    // ---- Game RTP: platforms + games + the paste-a-column RTP update -------
-    // RTP touches no points and no money. It is display/config only.
-    case '/api/admin/rtp/platforms': {
-      try {
-        const pr = await env.DB.prepare('SELECT id, name, logo_url, sort_order, active FROM rtp_platforms ORDER BY sort_order ASC, id ASC')
-          .all<{ id: number; name: string; logo_url: string | null; sort_order: number; active: number }>();
-        const cr = await env.DB.prepare('SELECT platform_id AS pid, COUNT(*) AS c FROM rtp_games GROUP BY platform_id')
-          .all<{ pid: number; c: number }>();
-        const cmap: Record<number, number> = {};
-        for (const x of (cr.results || [])) cmap[x.pid] = x.c;
-        const platforms = (pr.results || []).map((p) => ({
-          id: p.id, name: p.name, logo_url: p.logo_url || '', sort_order: p.sort_order, active: p.active, games: cmap[p.id] || 0,
-        }));
-        return json({ ok: true, platforms }, 200, rid);
-      } catch { return json({ ok: true, platforms: [], needs_migration: true }, 200, rid); }
+    // ---- Database health: compare the live D1 with what this app needs ----
+    case '/api/admin/db/check': {
+      try { return json({ ok: true, report: await dbCheck(env) }, 200, rid); }
+      catch (e) { return fail('DB_CHECK_FAILED', String((e as Error)?.message || e).slice(0, 200), 500, rid); }
     }
-
-    case '/api/admin/rtp/platform/save': {
-      const id = Number(body.id) || 0;
-      const name = String(body.name || '').trim().slice(0, 80);
-      const logo = String(body.logo_url || '').trim().slice(0, 300);
-      const active = Number(body.active) ? 1 : 0;
-      if (!name) return fail('BAD_REQUEST', 'A platform name is required.', 400, rid);
-      if (logo && !isRtpImage(logo)) return fail('BAD_IMAGE', 'Bad logo image.', 400, rid);
-      try {
-        if (id) {
-          await env.DB.prepare('UPDATE rtp_platforms SET name=?, logo_url=?, active=? WHERE id=?').bind(name, logo || null, active, id).run();
-        } else {
-          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM rtp_platforms').first<{ n: number }>();
-          await env.DB.prepare('INSERT INTO rtp_platforms (name, logo_url, sort_order, active) VALUES (?,?,?,?)').bind(name, logo || null, m?.n || 1, active).run();
-        }
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 (the RTP tables) first.', 503, rid); }
-      return json({ ok: true }, 200, rid);
-    }
-
-    case '/api/admin/rtp/platform/delete': {
-      const id = Number(body.id);
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      try {
-        await env.DB.prepare('DELETE FROM rtp_games WHERE platform_id=?').bind(id).run();
-        await env.DB.prepare('DELETE FROM rtp_platforms WHERE id=?').bind(id).run();
-      } catch { /* tables gone */ }
-      return json({ ok: true }, 200, rid);
-    }
-
-    case '/api/admin/rtp/platform/reorder': {
-      // Move one platform up or down. Rewrites sort_order for the whole list so
-      // the order stays clean, then swaps the two neighbours. Player RTP page
-      // and admin list both read ORDER BY sort_order, so this is all that's needed.
-      const id = Number(body.id);
-      const dir = String(body.dir) === 'up' ? 'up' : 'down';
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      let ordered: { id: number }[];
-      try {
-        const r = await env.DB.prepare('SELECT id FROM rtp_platforms ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
-        ordered = r.results || [];
-      } catch {
-        return fail('NEEDS_MIGRATION', 'RTP tables are not set up yet.', 409, rid);
-      }
-      const idx = ordered.findIndex((p) => p.id === id);
-      if (idx < 0) return fail('NOT_FOUND', 'Platform not found.', 404, rid);
-      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
-      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid); // already at the edge
-      const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
-      await env.DB.batch(ordered.map((p, i) =>
-        env.DB.prepare('UPDATE rtp_platforms SET sort_order = ? WHERE id = ?').bind(i, p.id),
-      ));
-      return json({ ok: true }, 200, rid);
+    case '/api/admin/db/repair': {
+      if (!(await rateLimit(env, `dbrepair:${admin}`, 5, 600))) return fail('RATE_LIMITED', 'Please wait a few minutes before repairing again.', 429, rid);
+      const r = await dbRepair(env);
+      return json({ ok: true, ...r, report: await dbCheck(env) }, 200, rid);
     }
 
     // ---- Slot Games launcher: platforms + play links (display/link only) ----
@@ -4843,131 +4867,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         env.DB.prepare('UPDATE banners SET sort_order = ? WHERE id = ?').bind(i, p.id),
       ));
       return json({ ok: true }, 200, rid);
-    }
-
-    case '/api/admin/rtp/games': {
-      const pid = Number(body.platform_id);
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      try {
-        const r = await env.DB.prepare('SELECT id, name, image_url, rtp, sort_order, active FROM rtp_games WHERE platform_id=? ORDER BY sort_order ASC, id ASC').bind(pid).all();
-        return json({ ok: true, games: r.results || [] }, 200, rid);
-      } catch { return json({ ok: true, games: [], needs_migration: true }, 200, rid); }
-    }
-
-    case '/api/admin/rtp/game/save': {
-      const id = Number(body.id) || 0;
-      const pid = Number(body.platform_id) || 0;
-      const name = String(body.name || '').trim().slice(0, 120);
-      const img = String(body.image_url || '').trim().slice(0, 300);
-      const rtp = Math.max(0, Math.min(100, Number(body.rtp) || 0));
-      const active = Number(body.active) ? 1 : 0;
-      if (img && !isRtpImage(img)) return fail('BAD_IMAGE', 'Bad game image.', 400, rid);
-      try {
-        if (id) {
-          await env.DB.prepare('UPDATE rtp_games SET name=?, image_url=?, rtp=?, active=? WHERE id=?').bind(name, img || null, rtp, active, id).run();
-        } else {
-          if (!pid || !name) return fail('BAD_REQUEST', 'platform and name are required.', 400, rid);
-          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM rtp_games WHERE platform_id=?').bind(pid).first<{ n: number }>();
-          await env.DB.prepare('INSERT INTO rtp_games (platform_id,name,image_url,rtp,sort_order,active) VALUES (?,?,?,?,?,?)').bind(pid, name, img || null, rtp, m?.n || 1, active).run();
-        }
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      return json({ ok: true }, 200, rid);
-    }
-
-    case '/api/admin/rtp/game/delete': {
-      const id = Number(body.id);
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      try { await env.DB.prepare('DELETE FROM rtp_games WHERE id=?').bind(id).run(); } catch { /* gone */ }
-      return json({ ok: true }, 200, rid);
-    }
-
-    // Bulk-add games by pasting a list of names (one per line), kept in order.
-    case '/api/admin/rtp/bulk-add': {
-      const pid = Number(body.platform_id) || 0;
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      const names = String(body.names || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 2000);
-      if (!names.length) return fail('BAD_REQUEST', 'Paste at least one game name.', 400, rid);
-      try {
-        const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0) AS n FROM rtp_games WHERE platform_id=?').bind(pid).first<{ n: number }>();
-        let so = m?.n || 0;
-        const stmts = names.map((nm) => {
-          so++;
-          return env.DB.prepare('INSERT INTO rtp_games (platform_id,name,rtp,sort_order,active) VALUES (?,?,?,?,1)').bind(pid, nm.slice(0, 120), 0, so);
-        });
-        await env.DB.batch(stmts);
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      return json({ ok: true, added: names.length }, 200, rid);
-    }
-
-    // Bulk-import games WITH icons in one shot. Each line pairs a name with its
-    // icon file: "Game Name <TAB> file.webp". Name + icon are read from the same
-    // line together, so they can never get mixed up. Icons must already be in
-    // /public/gameicons/<folder>/. Games are appended in the pasted order.
-    case '/api/admin/rtp/bulk-import': {
-      const pid = Number(body.platform_id) || 0;
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      const folder = String(body.folder || '').trim().toLowerCase();
-      if (!/^[a-z0-9_-]{1,40}$/.test(folder)) return fail('BAD_REQUEST', 'Folder must be simple letters/numbers (e.g. ace333).', 400, rid);
-      const lines = String(body.text || '').split('\n').map((s) => s.replace(/\r$/, '')).filter((s) => s.trim());
-      if (!lines.length) return fail('BAD_REQUEST', 'Paste the name + icon list first.', 400, rid);
-      const items: Array<{ name: string; url: string }> = [];
-      const bad: string[] = [];
-      for (const ln of lines) {
-        const parts = ln.split('\t');
-        const name = (parts[0] || '').trim().slice(0, 120);
-        const file = (parts[1] || '').trim();
-        if (!name || !file) { bad.push(ln.slice(0, 40)); continue; }
-        const url = '/gameicons/' + folder + '/' + file;
-        if (!isRtpImage(url)) { bad.push(name); continue; }
-        items.push({ name, url });
-      }
-      if (!items.length) return fail('BAD_REQUEST', 'No valid rows found. Each line needs: Name [tab] file.webp', 400, rid);
-      try {
-        const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0) AS n FROM rtp_games WHERE platform_id=?').bind(pid).first<{ n: number }>();
-        let so = m?.n || 0;
-        const stmts = items.map((it) => { so++; return env.DB.prepare('INSERT INTO rtp_games (platform_id,name,image_url,rtp,sort_order,active) VALUES (?,?,?,?,?,1)').bind(pid, it.name, it.url, 0, so); });
-        for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      return json({ ok: true, added: items.length, skipped: bad.length, skipped_names: bad.slice(0, 20) }, 200, rid);
-    }
-
-    // The paste-a-column RTP update. Values line up top-to-bottom with the
-    // platform's games in their fixed order. preview:true returns the mapping
-    // without saving; without it, the RTP values are written.
-    case '/api/admin/rtp/paste': {
-      const pid = Number(body.platform_id) || 0;
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      let vals: number[];
-      if (Array.isArray(body.values)) vals = body.values.map((v: unknown) => Number(v));
-      else vals = String(body.text || '').split('\n').map((s) => s.trim()).filter(Boolean).map((s) => Number(s.replace('%', '').trim()));
-      vals = vals.filter((v) => !Number.isNaN(v));
-      if (!vals.length) return fail('BAD_REQUEST', 'No RTP numbers were found in what you pasted.', 400, rid);
-      let games: Array<{ id: number; name: string }>;
-      try {
-        const r = await env.DB.prepare('SELECT id, name FROM rtp_games WHERE platform_id=? ORDER BY sort_order ASC, id ASC').bind(pid).all<{ id: number; name: string }>();
-        games = r.results || [];
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      const n = Math.min(vals.length, games.length);
-      const rows: Array<{ game: string | null; rtp: number | null }> = [];
-      const total = Math.max(vals.length, games.length);
-      for (let i = 0; i < total; i++) {
-        rows.push({ game: games[i] ? games[i].name : null, rtp: i < vals.length ? vals[i] : null });
-      }
-      const preview = !!body.preview;
-      let applied = 0;
-      if (!preview) {
-        const stmts = [];
-        for (let i = 0; i < n; i++) {
-          const rtp = Math.max(0, Math.min(100, vals[i]));
-          stmts.push(env.DB.prepare('UPDATE rtp_games SET rtp=? WHERE id=?').bind(rtp, games[i].id));
-        }
-        if (stmts.length) await env.DB.batch(stmts);
-        applied = n;
-      }
-      return json({
-        ok: true, matched: n, pasted: vals.length, games: games.length,
-        mismatch: vals.length !== games.length, applied, preview: rows.slice(0, 600),
-      }, 200, rid);
     }
 
     case '/api/admin/promos/unlocks': {
