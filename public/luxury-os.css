@@ -1645,3 +1645,5 @@ body.gate-open{overflow:hidden}
 .os-bal-div{width:1px;align-self:stretch;background:linear-gradient(transparent,#b1996755,transparent)}
 .os-bal-hint{grid-column:1/-1;justify-self:center;margin-top:10px;border:0;background:none;color:#ffd274;font-size:12px;font-weight:700;letter-spacing:.04em;cursor:pointer;padding:4px 8px}
 @media (max-width:370px){.os-bal strong{font-size:32px}}
+/* dock sits between balances and the game stage */
+.os-balances + .os-action-dock{margin:14px 0 16px}
