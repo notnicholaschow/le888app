@@ -1608,3 +1608,27 @@ body.gate-open{overflow:hidden}
 .os-notifications{height:72px;width:52px}
 
 .av-err{margin:-4px 0 12px;padding:9px 12px;border-radius:12px;background:#3a1414;border:1px solid #ff6b6b55;color:#ffb4b4;font-size:12px;text-align:center}
+
+/* ===== Transaction history tabs ===== */
+.hist-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:4px;border-radius:14px;background:#141315;border:1px solid #ffffff12;margin:0 0 14px}
+.hist-tab{border:0;border-radius:11px;padding:10px 2px;background:none;color:#a39e96;font-size:12px;font-weight:700;cursor:pointer}
+.hist-tab.on{background:linear-gradient(#f5d99f,#dca757);color:#1a1206;box-shadow:0 2px 10px #ffb84a33}
+.hist-list .dep-item{gap:10px}
+.hist-amt{flex:none;font-size:13px;font-weight:800;margin-left:6px;white-space:nowrap}
+.hist-amt.h-in{color:#7ee2a8}.hist-amt.h-out{color:#ff9a9a}
+.hist-sum{display:flex;align-items:center;gap:10px;padding:12px 14px;margin:0 0 10px;border-radius:14px;border:1px dashed #c9a15c88;background:#1a1408}
+.hist-sum span{flex:1;color:#c9a15c;font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+.hist-sum b{color:#ffd274;font-size:18px}
+.hist-go{border:0;border-radius:10px;padding:8px 12px;background:linear-gradient(#f5d99f,#dca757);color:#1a1206;font-weight:800;font-size:12px;cursor:pointer}
+/* Rewards page: reward credits submit card */
+.rw-claim-card{display:flex;align-items:center;gap:12px;width:100%;padding:14px;margin:0 0 14px;border-radius:18px;border:1px solid #ffd27a88;background:linear-gradient(120deg,#2a1d08,#141210);color:#f8f5ef;text-align:left;cursor:pointer;box-shadow:0 0 18px #ffb84a22}
+.rw-claim-card>.icon{width:30px;height:30px;color:#ffd274;flex:none}
+.rw-claim-card span{flex:1;min-width:0}
+.rw-claim-card small{display:block;font-size:10px;letter-spacing:.16em;color:#c9a15c}
+.rw-claim-card b{display:block;font-size:22px;color:#ffd274;margin:2px 0}
+.rw-claim-card em{display:block;font-style:normal;font-size:11px;color:#b8b2a8}
+.rw-claim-card i{font-style:normal;font-size:22px;color:#ffd274}
+.wd-src input[type=radio]{width:18px!important;height:18px;flex:none;margin:2px 0 0;padding:0}
+.wd-src{align-items:flex-start}
+
+.form-panel label.wd-src,label.wd-src{display:flex!important;flex-direction:row;align-items:flex-start;gap:10px}

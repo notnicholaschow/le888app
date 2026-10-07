@@ -2772,7 +2772,16 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         var free = (res.ok && res.free_ids) ? res.free_ids : [];
 
         if (!free.length) {
-          box.innerHTML = '<span style="color:#ff9b9b">This player has no Free Credit IDs set. Add them under Players &rarr; Game ID first.</span>';
+          // First free credit: the player picked the game; staff create the
+          // account and type its ID here. It is saved as their Free Credit ID.
+          var plats = (res.free_platforms && res.free_platforms.length) ? res.free_platforms : [{ key: 'pussy888', label: 'Pussy888' }, { key: 'mega888', label: 'Mega888' }];
+          var want = p.game || plats[0].label;
+          box.innerHTML = '<div class="pd-alt-lbl">No Free Credit ID yet &mdash; create the account, then enter it</div>' +
+            '<label style="margin-top:6px">Game</label><select id="pdNewGame">' + plats.map(function (f) { return '<option' + (f.label === want ? ' selected' : '') + '>' + esc(f.label) + '</option>'; }).join('') + '</select>' +
+            '<label style="margin-top:6px">Game ID</label><input id="pdNewId" maxlength="64" placeholder="e.g. PS-12345" autocomplete="off">' +
+            '<p class="muted" style="margin:6px 0 0;font-size:12px">Saved as this player’s Free Credit ID for next time.</p>';
+          var sync = function () { var v = $('pdNewId').value.trim(); chosen = v ? { game: $('pdNewGame').value, id: v } : null; paintTarget(); };
+          $('pdNewId').oninput = sync; $('pdNewGame').onchange = sync;
           return;
         }
         // Everything that is not the currently chosen account.
