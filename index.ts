@@ -1068,8 +1068,8 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     let withdrawals: unknown[] = [];
     let pending: Record<string, unknown> | null = null;
     try {
-      const r = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>()
-        .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>());
+      const r = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>()
+        .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>());
       withdrawals = (r.results || []).map((w: any) => ({ id: w.id, amount: centsToStr(w.amount_cents), status: w.status, created_at: isoDate(w.created_at), decided_at: w.decided_at ? isoDate(w.decided_at) : null, note: w.note || '', source_type: w.source_type || null, source_game: w.source_game || null, source_game_id: w.source_game_id || null }));
       const pw = (withdrawals as any[]).find((w) => w.status === 'pending');
       if (pw) pending = pw;
@@ -1108,6 +1108,22 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       },
       submissions,
     }, 200);
+  }
+  if (p === '/api/member/deposits' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    let recorded: unknown[] = [];
+    let requests: unknown[] = [];
+    try {
+      const r = await env.DB.prepare('SELECT id, amount, created_at FROM deposits WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>();
+      recorded = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount) || 0, created_at: isoDate(x.created_at) }));
+    } catch { recorded = []; }
+    try {
+      await ensureDepositSubmissionsTable(env);
+      const r = await env.DB.prepare('SELECT id, amount, method, status, admin_note, created_at FROM deposit_submissions WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>();
+      requests = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount) || 0, method: x.method, status: x.status, note: x.admin_note || '', created_at: isoDate(x.created_at) }));
+    } catch { requests = []; }
+    return j({ ok: true, deposits: recorded, requests }, 200);
   }
   if (p === '/api/member/deposit/receipt' && method === 'POST') {
     const player = await currentPlayer();
@@ -3062,8 +3078,8 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     case '/api/withdraw/list': {
       // Only the 10 most recent requests.
       try {
-        const { results } = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all()
-          .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all());
+        const { results } = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all()
+          .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all());
         const rows = ((results || []) as any[]).map((w) => ({
           id: w.id, amount: centsToStr(w.amount_cents), status: w.status,
           created_at: w.created_at, decided_at: w.decided_at, note: w.note || '',
@@ -3426,10 +3442,14 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // accepted, so a forged request cannot send credit elsewhere.
       const ownIds = await loadFreeIds(env, player.id);
       const usable = (ownIds || []).filter((g: any) => g && g.game_id);
+      // No free credit account yet: the player picks the game (Pussy888 /
+      // Mega888) and staff create the account + enter its ID when approving.
+      let chosen: any = usable[0];
       if (!usable.length) {
-        return fail('NO_GAME_ID', 'You have no free credit account yet. Please ask staff to set one up.', 400, rid);
+        const wantPlat = String(body.platform || '').trim().toLowerCase();
+        if (!(FREE_PLATFORMS as readonly string[]).includes(wantPlat)) return fail('NEED_PLATFORM', 'Choose Pussy888 or Mega888 for your free credit.', 400, rid);
+        chosen = { platform: wantPlat, game_id: '' };
       }
-      let chosen = usable[0];
       if (usable.length > 1) {
         const wantPlat = String(body.platform || '').trim();
         const wantId = String(body.game_id || '').trim();
@@ -3438,7 +3458,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
         chosen = match;
       }
       const chosenGame = GAME_PLATFORM_LABELS[chosen.platform] || chosen.platform;
-      const chosenId = String(chosen.game_id);
+      const chosenId = chosen.game_id ? String(chosen.game_id) : null;
 
       const cur = await env.DB.prepare('SELECT reward_cents FROM players WHERE id = ?').bind(player.id).first<{ reward_cents: number }>();
       const amount = cur?.reward_cents ?? 0;
@@ -5453,6 +5473,17 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (!res[1] || (res[1].meta.changes || 0) === 0) return fail('ALREADY_DECIDED', 'This request was already decided by someone else.', 409, rid);
         decided = await env.DB.prepare('SELECT player_id, amount_cents FROM payout_requests WHERE id = ?').bind(id).first<{ player_id: number; amount_cents: number }>();
         if (!decided) return fail('ALREADY_DECIDED', 'This request was already decided.', 409, rid);
+      }
+      // First free credit for this game: remember the ID staff entered so the
+      // player's next submit (and their profile) uses it automatically.
+      if (decision === 'approved') {
+        try {
+          const platKey = FREE_PLATFORMS.find((k) => GAME_PLATFORM_LABELS[k] === game);
+          if (platKey) {
+            const has = await env.DB.prepare('SELECT 1 AS x FROM player_free_ids WHERE player_id = ? AND platform = ?').bind(decided.player_id, platKey).first();
+            if (!has) await env.DB.prepare("INSERT INTO player_free_ids (player_id, platform, game_id) VALUES (?, ?, ?) ON CONFLICT(player_id, platform) DO NOTHING").bind(decided.player_id, platKey, gameId).run();
+          }
+        } catch { /* best-effort */ }
       }
       // Best-effort push to the player - never blocks or fails the decision.
       try {
