@@ -4,12 +4,13 @@
    - NEVER caches API responses (all /api/*) or any non-GET request.
    - NEVER caches the admin app.
    - HTML: network-first, so a new deploy is never trapped behind a stale page.
+   - App code/styles (.js/.css): network-first, so updates show on the first refresh.
    - Static artwork/shell: cache-first for reliable offline loading.
    Balances, prizes, payout and account data always come from the network.
    ============================================================================ */
 'use strict';
 
-var CACHE = 'tr666-v140';
+var CACHE = 'tr666-v141';
 var STATIC = ['/', '/manifest-game.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', function (e) {
@@ -50,6 +51,22 @@ self.addEventListener('fetch', function (e) {
       }).catch(function () {
         return caches.match('/').then(function (m) { return m || caches.match(req); });
       })
+    );
+    return;
+  }
+
+  // App code + styles (.js / .css): network-first so a new upload shows on the
+  // FIRST refresh. The saved copy is only used when the phone is offline.
+  if (/\.(js|css)$/.test(url.pathname)) {
+    e.respondWith(
+      fetch(req, { cache: 'no-cache' }).then(function (res) {
+        var ct = (res && res.headers.get('content-type')) || '';
+        if (res && res.status === 200 && res.type === 'basic' && ct.indexOf('text/html') === -1) {
+          var copy = res.clone();
+          caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
+        }
+        return res;
+      }).catch(function () { return caches.match(req); })
     );
     return;
   }
