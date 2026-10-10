@@ -1508,24 +1508,6 @@ body.gate-open{overflow:hidden}
 .gp-btn.soon{background:#1c1a16;color:#8c8174;border-color:#ffffff14;box-shadow:none;cursor:default}
 .gp-info small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gp-btn{padding:9px 10px;font-size:11.5px}
 
-/* ===== Lucky Vault live ===== */
-.vault-tile{transition:transform .25s,filter .3s,opacity .3s}
-.vault-tile.locked{pointer-events:none}
-.vault-tile.shake{animation:vaultShake .9s ease-in-out}
-@keyframes vaultShake{0%,100%{transform:rotate(0)}15%{transform:rotate(-3deg) scale(1.02)}30%{transform:rotate(3deg) scale(1.03)}45%{transform:rotate(-4deg) scale(1.04)}60%{transform:rotate(4deg) scale(1.05)}75%{transform:rotate(-2deg) scale(1.04)}90%{transform:rotate(2deg) scale(1.03)}}
-.vault-tile.dim{opacity:.35;filter:grayscale(.6)}
-.vault-tile.open{transform:scale(1.04);z-index:2}
-.vault-tile.open.win{box-shadow:0 0 0 2px #ffd27a,0 0 34px #ffb84acc,inset 0 0 40px #ff8a1f55}
-.vault-tile.open.empty{box-shadow:0 0 0 2px #ffffff22;filter:saturate(.5)}
-.vault-prize{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:radial-gradient(circle at 50% 45%,#2a1a05ee,#060606dd 70%);z-index:3;text-align:center}
-.vault-tile.open .vault-prize{display:flex;animation:vaultPop .45s cubic-bezier(.2,1.4,.4,1)}
-@keyframes vaultPop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
-.vault-prize small{font-size:10px;letter-spacing:.24em;color:#c9a15c}
-.vault-prize b{font-size:22px;color:#ffd274;text-shadow:0 0 14px #ffb84a99}
-.vault-tile.open.empty .vault-prize b{color:#9b9894;text-shadow:none;font-size:16px}
-.vault-tile.open .tile-title{display:none}
-.vault-grid{position:relative}
-.vault-grid .plinko-coin{top:-6%}.vault-grid .plinko-bigwin{top:45%;width:88%}
 /* ===== Chat (real) ===== */
 .message-image img{display:block;max-width:220px;max-height:260px;border-radius:14px;margin-bottom:4px}
 .chat-attach{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:#ffffff0f;color:#ffd274;cursor:pointer;flex:none}

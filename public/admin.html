@@ -4103,7 +4103,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   // re-validates every save and every simulation, so nothing below can be
   // used to sneak past the rules by editing the page.
   // ------------------------------------------------------------------
-  var GAME_LABELS = { wheel: 'LE888 Spin', plinko: 'Orange Drop', egg: 'Lucky Vault', scratch: 'LE888 Flip', cross: 'Lucky Crossing', crown: 'Crown Pick' };
+  var GAME_LABELS = { wheel: 'LE888 Spin', plinko: 'Orange Drop', scratch: 'LE888 Flip', cross: 'Lucky Crossing', crown: 'Crown Pick' };
   var gmState = {};          // game -> { cost, prizes:[{cents,w}], enabled, version }
   var gmPointCents = 10;     // what 1 point is worth, in cents (from the top-up rate)
   var gmMaxPrizes = 10;
@@ -4159,7 +4159,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   }
 
   function gmRenderAll() {
-    var order = ['wheel', 'plinko', 'egg', 'scratch', 'cross', 'crown'];
+    var order = ['wheel', 'plinko', 'scratch', 'cross', 'crown'];
     $('gamesWrap').innerHTML = order.map(function (g) {
       return '<div class="card" id="gmCard-' + g + '"></div>';
     }).join('');
