@@ -440,6 +440,19 @@ CREATE TABLE IF NOT EXISTS referral_milestones (
   PRIMARY KEY (referrer_id, milestone)
 );
 
+-- ---------- Promotions page (view-only promos; claim via Live Chat) ----------
+CREATE TABLE IF NOT EXISTS promo_pages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  image_url TEXT,
+  details_html TEXT,                      -- shown in a sandboxed popup (HTML/CSS/JS)
+  active INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ---------- Content: banners, slot games, domains ----------
 CREATE TABLE IF NOT EXISTS banners (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

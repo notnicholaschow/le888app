@@ -426,6 +426,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     <button class="side-link" data-tab="earn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M15 9.5c-.6-1-1.7-1.5-3-1.5-1.6 0-2.8.8-2.8 2s1 1.7 2.8 2c1.8.3 2.8 1 2.8 2s-1.2 2-2.8 2c-1.3 0-2.4-.5-3-1.5"/></svg>
       Earn</button>
+    <button class="side-link" data-tab="promopages">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4a1 1 0 0 0 1 1h2l5 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+      Promotions</button>
     <button class="side-link" data-tab="activity">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h13"/></svg>
       Point activity</button>
@@ -682,7 +685,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 
     <!-- Earn (promos) -->
     <section id="tab-earn" class="hidden">
-      <div class="page-head"><h1>Earn</h1><p>Promos shown on the player Earn page &middot; gated promos need a staff unlock per claim</p></div>
+      <div class="page-head"><h1>Earn</h1><p>Rewards players claim in the app. They show on the app's <b>Rewards</b> page in two groups: <b>Free Credit</b> (these promos) and <b>Deposit Reward</b> (Deposit Bonus below). Gated promos need a staff unlock per claim. For view-only promos (claim through Live Chat) use <b>Promotions</b>.</p></div>
       <div class="card">
         <button class="btn small" id="promoNewBtn" style="margin-bottom:12px">+ New promo</button>
         <div class="tbl-wrap"><table class="tbl" id="promoTbl">
@@ -691,7 +694,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         </table></div>
       </div>
 
-      <div class="page-head" style="margin-top:22px"><h1>Deposit Bonus</h1><p>Reward players who reach a deposit amount &middot; the window can be lifetime, this month, this week or today</p></div>
+      <div class="page-head" style="margin-top:22px"><h1>Deposit Bonus <span class="muted" style="font-size:13px;font-weight:500">(app: Deposit Reward)</span></h1><p>Reward players who reach a deposit amount &middot; the window can be lifetime, this month, this week or today</p></div>
       <div class="card">
         <button class="btn small" id="dbNewBtn" style="margin-bottom:12px">+ New deposit bonus</button>
         <div class="tbl-wrap"><table class="tbl" id="dbTbl">
@@ -701,6 +704,16 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       </div>
     </section>
 
+    <section id="tab-promopages" class="hidden">
+      <div class="page-head"><h1>Promotions</h1><p>View-only promos on the app's <b>Promotions</b> page. Players tap a card to read the details, then claim by messaging Live Chat. Nothing is credited automatically.</p></div>
+      <div class="card">
+        <button class="btn small" id="ppNewBtn" style="margin-bottom:12px">+ New promotion</button>
+        <div class="tbl-wrap"><table class="tbl" id="ppTbl">
+          <thead><tr><th style="width:120px">Image</th><th>Title</th><th>Details</th><th>Showing</th><th></th></tr></thead>
+          <tbody><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
     <!-- Settings -->
     <section id="tab-games" class="hidden">
       <div class="page-head">
@@ -1044,10 +1057,10 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var ROLE = 'manager';
   var PERMS = [];
   // Sections a manager can grant to a staff. Tab key === permission key.
-  var GATED_TABS = ['players', 'earn', 'activity', 'credits', 'deposits', 'depreq', 'games', 'rules', 'vip', 'templates', 'domains', 'rtp', 'settings'];
+  var GATED_TABS = ['players', 'earn', 'promopages', 'activity', 'credits', 'deposits', 'depreq', 'games', 'rules', 'vip', 'templates', 'domains', 'rtp', 'settings'];
   var MGR_ONLY_TABS = ['admins', 'delete'];
   var SECTION_LABELS = {
-    players: 'Players', earn: 'Earn', activity: 'Point activity', credits: 'Credit activity',
+    players: 'Players', earn: 'Earn', promopages: 'Promotions', activity: 'Point activity', credits: 'Credit activity',
     deposits: 'Deposits (key in)', depreq: 'Deposit requests', games: 'Games', rules: 'Withdraw rules', vip: 'VIP bonuses',
     templates: 'Templates', domains: 'Domains', rtp: 'Slot Games', settings: 'Settings', view_app: 'View app (act as player)'
   };
@@ -1218,7 +1231,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var loaders = {
     overview: loadOverview, players: loadPlayers, activity: loadActivity,
     credits: loadCredits, deposits: loadDeposits, depreq: loadDepositRequests,
-    payouts: loadPayouts, withdrawals: loadWithdrawals, earn: function () { loadPromos(); loadDepBonus(); }, settings: loadSettings, admins: loadAdmins,
+    payouts: loadPayouts, withdrawals: loadWithdrawals, earn: function () { loadPromos(); loadDepBonus(); }, promopages: loadPromoPages, settings: loadSettings, admins: loadAdmins,
     delete: loadDelete, messages: loadChats, games: loadGames, rules: loadRules, vip: loadVipBonuses, templates: loadTemplates,
     domains: loadDomains, rtp: loadSlots
   };
@@ -3088,6 +3101,128 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       }).catch(function () { busy(saveBtn, false); toast('Network error.', true); });
     };
   }
+
+  // ------------------------------------------------------------------
+  // Promotions page: view-only promo cards + HTML/CSS/JS details popup
+  // ------------------------------------------------------------------
+  var ppCache = [];
+  // Same wrapper the app uses: details run in a sandboxed frame that cannot
+  // touch the page around it, and report their height so the frame fits.
+  function promoDoc(html) {
+    return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank">' +
+      '<meta name="color-scheme" content="dark"><style>:root{color-scheme:dark}html,body{margin:0;background:transparent;color:#ece6da;font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}body{padding:2px 2px 6px}img,video,iframe{max-width:100%;height:auto}a{color:#f2c46d}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ffffff22;padding:6px 8px}</style></head><body>' +
+      (html || '') +
+      '<script>(function(){function s(){try{parent.postMessage({le888promoH:Math.ceil(document.documentElement.scrollHeight)},"*")}catch(e){}}addEventListener("load",s);if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement);setTimeout(s,60);setTimeout(s,600)})()<\/script></body></html>';
+  }
+  window.addEventListener('message', function (e) {
+    if (!e.data || typeof e.data.le888promoH !== 'number') return;
+    Array.prototype.forEach.call(document.querySelectorAll('iframe.pp-frame'), function (f) {
+      if (f.contentWindow === e.source) f.style.height = Math.max(60, Math.min(4000, e.data.le888promoH + 4)) + 'px';
+    });
+  });
+  function ppUploadImage(file, maxW, cb) {
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onerror = function () { URL.revokeObjectURL(url); cb(null, 'Could not read that image.'); };
+    img.onload = function () {
+      URL.revokeObjectURL(url);
+      var w = img.width, h = img.height, k = Math.min(1, maxW / w, 2400 / h);
+      var cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(h * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      cv.toBlob(function (blob) {
+        if (!blob) { cb(null, 'Could not read that image.'); return; }
+        fetch('/api/admin/promo/image-upload', { method: 'POST', headers: { 'Content-Type': blob.type, 'Authorization': 'Bearer ' + (token || '') }, body: blob })
+          .then(function (r) { return r.json(); })
+          .then(function (res) { if (!res.ok) cb(null, res.error || 'Image upload failed.'); else cb(res.url); })
+          .catch(function () { cb(null, 'Network error.'); });
+      }, 'image/webp', 0.85);
+    };
+    img.src = url;
+  }
+  function loadPromoPages() {
+    api('/api/admin/promopages/list').then(function (res) {
+      if (!res.ok) { toast(res.error || 'Could not load promotions.', true); return; }
+      ppCache = res.promotions || [];
+      var tb = $('ppTbl').querySelector('tbody');
+      tb.innerHTML = ppCache.map(function (p, i, arr) {
+        var len = (p.details_html || '').length;
+        return '<tr><td>' + (p.image_url ? '<img src="' + esc(p.image_url) + '" alt="" style="width:110px;height:56px;object-fit:cover;border-radius:8px;display:block">' : '<span class="muted">No image</span>') + '</td>' +
+          '<td><span class="p-name">' + esc(p.title) + '</span><div class="p-user">' + (p.updated_by ? 'by ' + esc(p.updated_by) : '') + '</div></td>' +
+          '<td class="muted">' + (len ? (len > 999 ? Math.round(len / 1000) + 'k' : len) + ' chars' : 'none') + '</td>' +
+          '<td>' + (Number(p.active) ? '<span class="pill active">Showing</span>' : '<span class="muted">Hidden</span>') + '</td>' +
+          '<td class="act-btns">' +
+          '<button class="btn ghost small" data-pp-up="' + p.id + '"' + (i === 0 ? ' disabled' : '') + ' title="Move up">↑</button>' +
+          '<button class="btn ghost small" data-pp-down="' + p.id + '"' + (i === arr.length - 1 ? ' disabled' : '') + ' style="margin-left:4px" title="Move down">↓</button>' +
+          '<button class="btn ghost small" data-pp-edit="' + p.id + '" style="margin-left:5px">Edit</button>' +
+          '<button class="btn warn small" data-pp-del="' + p.id + '" style="margin-left:5px">Delete</button></td></tr>';
+      }).join('') || '<tr><td colspan="5" class="muted">No promotions yet. Create the first one.</td></tr>';
+      function each(attr, fn) { Array.prototype.forEach.call(tb.querySelectorAll('[' + attr + ']'), function (b) { b.onclick = function () { fn(Number(b.getAttribute(attr)), b); }; }); }
+      each('data-pp-up', function (id) { api('/api/admin/promopages/reorder', { id: id, dir: 'up' }).then(loadPromoPages); });
+      each('data-pp-down', function (id) { api('/api/admin/promopages/reorder', { id: id, dir: 'down' }).then(loadPromoPages); });
+      each('data-pp-edit', function (id) { promoPageModal(ppCache.filter(function (x) { return x.id === id; })[0]); });
+      each('data-pp-del', function (id, b) {
+        var p = ppCache.filter(function (x) { return x.id === id; })[0];
+        if (!confirm('Delete the promotion "' + (p ? p.title : '') + '"? Players will no longer see it.')) return;
+        busy(b, true);
+        api('/api/admin/promopages/delete', { id: id }).then(function (r) { if (!r.ok) { busy(b, false); toast(r.error || 'Delete failed.', true); return; } toast('Promotion deleted.'); loadPromoPages(); });
+      });
+    }).catch(function () { toast('Network error.', true); });
+  }
+  function promoPageModal(p) {
+    openModal(
+      '<h2 style="margin-top:0">' + (p ? 'Edit promotion' : 'New promotion') + '</h2>' +
+      '<label for="ppTitle">Title (shown on the card)</label><input id="ppTitle" maxlength="120" value="' + esc(p ? p.title : '') + '" placeholder="e.g. Weekend 50% Reload">' +
+      '<label style="margin-top:10px">Card image (wide picture, about 1200 &times; 600)</label>' +
+      '<div class="row" style="align-items:center;gap:10px"><img id="ppImgPv" alt="" style="width:160px;height:80px;object-fit:cover;border-radius:10px;display:none">' +
+      '<input type="file" id="ppImgFile" accept="image/*" style="max-width:220px"><button type="button" class="btn ghost small" id="ppImgRm" style="display:none">Remove</button></div>' +
+      '<p class="muted" id="ppImgStatus" style="margin:4px 0 0;min-height:16px"></p>' +
+      '<label style="margin-top:10px" for="ppHtml">Promo details &mdash; HTML, &lt;style&gt; and &lt;script&gt; allowed</label>' +
+      '<textarea id="ppHtml" rows="14" spellcheck="false" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.45" placeholder="&lt;h2&gt;Weekend Reload&lt;/h2&gt;&#10;&lt;p&gt;Deposit SGD 100, get SGD 50 free.&lt;/p&gt;&#10;&lt;ul&gt;&lt;li&gt;Min deposit SGD 30&lt;/li&gt;&lt;/ul&gt;">' + esc(p ? (p.details_html || '') : '') + '</textarea>' +
+      '<div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap"><label class="btn ghost small" style="margin:0;cursor:pointer">+ Insert image<input type="file" id="ppInsImg" accept="image/*" style="display:none"></label>' +
+      '<button type="button" class="btn ghost small" id="ppPrevBtn">Preview</button><span class="muted" id="ppInsStatus" style="align-self:center"></span></div>' +
+      '<p class="muted" style="margin:6px 0 0">Runs in a safe box inside the app: your code can style and animate the details but cannot reach the player\'s account. Links open in a new tab. The app adds a <b>Claim via Live Chat</b> button under it.</p>' +
+      '<div id="ppPrevWrap" style="display:none;margin-top:10px;padding:14px;border-radius:14px;background:#151417;border:1px solid #ffffff1a"><iframe class="pp-frame" id="ppPrev" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" style="width:100%;height:120px;border:0;display:block;background:transparent"></iframe></div>' +
+      '<label style="margin-top:10px" for="ppActive">Show in app</label><select id="ppActive"><option value="1">Yes &mdash; showing</option><option value="0">No &mdash; hidden</option></select>' +
+      '<div class="row" style="margin-top:14px;gap:8px"><button class="btn" id="ppSave">Save promotion</button><button class="btn ghost" id="ppCancel">Cancel</button></div>'
+    );
+    var seq = modalSeq;
+    $('ppActive').value = (!p || Number(p.active)) ? '1' : '0';
+    var img = p && p.image_url ? p.image_url : '';
+    function showImg() { var pv = $('ppImgPv'), rm = $('ppImgRm'); if (!pv) return; if (img) { pv.src = img; pv.style.display = ''; rm.style.display = ''; } else { pv.removeAttribute('src'); pv.style.display = 'none'; rm.style.display = 'none'; } }
+    showImg();
+    $('ppImgRm').onclick = function () { img = ''; showImg(); };
+    $('ppImgFile').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return;
+      $('ppImgStatus').textContent = 'Uploading image…';
+      ppUploadImage(f, 1400, function (u, err) { if (modalSeq !== seq) return; $('ppImgStatus').textContent = ''; if (!u) { toast(err, true); return; } img = u; showImg(); $('ppImgStatus').textContent = 'Image ready — click Save promotion to publish.'; });
+    };
+    $('ppInsImg').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return; var inp = this;
+      $('ppInsStatus').textContent = 'Uploading…';
+      ppUploadImage(f, 1400, function (u, err) {
+        if (modalSeq !== seq) return; $('ppInsStatus').textContent = ''; inp.value = '';
+        if (!u) { toast(err, true); return; }
+        var ta = $('ppHtml'), tag = '<img src="' + u + '" alt="" style="width:100%;border-radius:12px">';
+        var a = ta.selectionStart || ta.value.length, b = ta.selectionEnd || a;
+        ta.value = ta.value.slice(0, a) + tag + ta.value.slice(b); ta.focus(); ta.selectionStart = ta.selectionEnd = a + tag.length;
+        $('ppInsStatus').textContent = 'Image added to the details.';
+      });
+    };
+    $('ppPrevBtn').onclick = function () { $('ppPrevWrap').style.display = ''; $('ppPrev').srcdoc = promoDoc($('ppHtml').value); };
+    $('ppCancel').onclick = closeModal;
+    $('ppSave').onclick = function () {
+      var btn = this, title = $('ppTitle').value.trim();
+      if (!title) { toast('Enter a title.', true); return; }
+      var payload = { title: title, image_url: img || '', details_html: $('ppHtml').value, active: Number($('ppActive').value) };
+      if (p) payload.id = p.id;
+      busy(btn, true);
+      api('/api/admin/promopages/save', payload).then(function (r) {
+        busy(btn, false);
+        if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
+        toast('Promotion saved.'); closeModal(); loadPromoPages();
+      }).catch(function () { busy(btn, false); toast('Network error.', true); });
+    };
+  }
+  if ($('ppNewBtn')) $('ppNewBtn').onclick = function () { promoPageModal(null); };
 
   function loadPromos() {
     api('/api/admin/promos/list').then(function (res) {
