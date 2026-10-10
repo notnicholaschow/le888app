@@ -10,7 +10,7 @@
    ============================================================================ */
 'use strict';
 
-var CACHE = 'tr666-v141';
+var CACHE = 'tr666-v142';
 var STATIC = ['/', '/manifest-game.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', function (e) {
