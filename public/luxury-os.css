@@ -1659,3 +1659,9 @@ body.gate-open{overflow:hidden}
 .nt-item p{margin:0;color:#f3efe6;font-size:14px;line-height:1.45}
 .nt-item small{display:block;margin-top:4px;color:#8f8a83;font-size:11px}
 .nt-list .empty small{display:block;margin-top:6px;color:#8f8a83}
+.dep-noid{margin:0 0 12px;padding:10px 12px;border-radius:12px;border:1px dashed #c9a15c66;color:#c9bfae}
+.dep-noid{margin:0 0 12px;padding:10px 12px;border-radius:12px;border:1px dashed #c9a15c66;color:#c9bfae}
+/* side menu: VIP progress boxes */
+.drawer-credits .dc-vip{cursor:pointer;transition:transform .15s}
+.drawer-credits .dc-vip:active{transform:scale(.97)}
+.drawer-credits .dc-vip .dc-hint{display:block;font-style:normal;font-size:10px;color:#9b97a3;margin-top:3px}
