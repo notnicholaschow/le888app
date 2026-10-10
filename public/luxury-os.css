@@ -1738,3 +1738,7 @@ dialog.pp-modal .pp-claim svg{width:18px;height:18px}
 .rw-tabs button i{font-style:normal;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e5484d;color:#fff;font-size:10.5px;line-height:18px;text-align:center}
 .rw-pane[hidden]{display:none!important}
 .rw-pane{display:grid;gap:12px}
+@media (max-width:380px){dialog.pp-modal .pp-title{font-size:13.5px;letter-spacing:.05em}}
+/* promo popup: scroll without a visible scrollbar */
+dialog.pp-modal{scrollbar-width:none;-ms-overflow-style:none;overscroll-behavior:contain}
+dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
