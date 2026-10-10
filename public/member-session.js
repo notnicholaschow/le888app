@@ -95,12 +95,20 @@ async function memberLogout(){try{await memberRequest('logout',{});location.repl
 const memberOriginalMenu=menu;menu=function(){try{memberOriginalMenu();}catch(e){console.error('menu',e);}const lo=side.querySelector('.drawer-logout');if(lo)lo.onclick=()=>{try{side.close();}catch(e){}memberLogout();};
  /* real rank + real game accounts on the drawer card */
  try{const badge=side.querySelector('.drawer-profile .vip-badge');if(badge)badge.innerHTML=icon('crown')+' '+((memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():'NO RANK');
-  /* VIP progress: next rank + how much more deposit this month to reach it */
-  const cr=side.querySelectorAll('.drawer-credits > div');const v=memberData.vip||null;
-  const setBox=(el,label,val,hint)=>{if(!el)return;el.innerHTML='<small>'+label+'</small><strong>'+depEsc(val)+'</strong>'+(hint?'<em class="dc-hint">'+depEsc(hint)+'</em>':'');el.classList.add('dc-vip');el.setAttribute('role','button');el.tabIndex=0;const open=()=>{closeSide();go('vip');};el.onclick=open;el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}};};
-  if(!v){setBox(cr[0],'Next Rank','—','');setBox(cr[1],'Deposit Needed','—','');}
-  else if(!v.next_name){setBox(cr[0],'Your Rank',String(v.rank_name||'Legend'),'Top rank 👑');setBox(cr[1],'Deposit Needed','Max reached','Well done!');}
-  else{const need=Math.max(0,Number(v.next_deposit||0)-Number(v.deposit_total||0));const amt=need%1?need.toFixed(2):String(need);setBox(cr[0],'Next Rank',String(v.next_name),'');setBox(cr[1],'Deposit Needed','SGD '+Number(amt).toLocaleString('en-SG'),'more this month');}
+  /* VIP progress bar: current medal -> next medal, this month's deposits */
+  const box=side.querySelector('.drawer-credits');const v=memberData.vip||null;
+  if(box){const money=n=>{n=Number(n)||0;return (n%1?n.toFixed(2):String(n)).replace(/\B(?=(\d{3})+(?!\d))/g,',');};
+   const ranks=(v&&Array.isArray(v.ranks))?v.ranks:[];const i=v?Number(v.rank_idx):-1;const cur=rankMedal();
+   const nx=(v&&v.next_name)?(ranks[i+1]||{name:v.next_name,key:'member',deposit:v.next_deposit}):null;
+   const total=Number(v&&v.deposit_total)||0;const from=i>=0&&ranks[i]?Number(ranks[i].deposit)||0:0;const to=nx?Number(v.next_deposit||nx.deposit)||0:total;
+   const pct=!v?0:!nx?100:Math.max(0,Math.min(100,to>from?((total-from)/(to-from))*100:0));const need=nx?Math.max(0,to-total):0;
+   const med=(k,n,cls)=>`<span class="dcp-medal ${cls}"><img src="/assets/vip-${k}.webp" alt="${depEsc(n)}"><small>${depEsc(n)}</small></span>`;
+   const mon=new Date().toLocaleString('en-SG',{month:'long',timeZone:'Asia/Singapore'}).toUpperCase();
+   box.className='drawer-credits dcp'+(nx?'':' dcp-max');box.setAttribute('role','button');box.tabIndex=0;box.setAttribute('aria-label','VIP progress. Open VIP Club');
+   box.innerHTML=`<div class="dcp-head"><small>VIP PROGRESS · ${mon}</small><b>${v?(nx?'SGD '+money(total)+' <i>/ '+money(to)+'</i>':'MAX RANK 👑'):'—'}</b></div>
+    <div class="dcp-row">${med(cur.key,cur.name,'cur')}<div class="dcp-track"><i style="width:${pct.toFixed(1)}%"></i></div>${nx?med(nx.key||'member',nx.name,'next'):med(cur.key,cur.name,'next')}</div>
+    <p class="dcp-foot">${!v?'Your VIP progress will show here.':nx?`Deposit <b>SGD ${money(need)}</b> more this month to reach <b>${depEsc(nx.name)}</b>`:`You are at the top rank. Well done!`}</p>`;
+   const open=()=>{closeSide();go('vip');};box.onclick=open;box.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}};}
   }catch(e){}};
 
 const BANK_LIST=["DBS Bank", "POSB", "OCBC Singapore", "United Overseas Bank Singapore", "Maybank Singapore", "Hong Leong Bank Singapore", "HSBC Bank Singapore", "ABN AMRO", "BNP Paribas", "Citibank Singapore", "Standard Chartered", "CIMB Singapore", "RHB Singapore", "Bank Of India", "Barclays", "Bank Of China", "Industrial & Commercial Bank Of China", "Trust Bank Singapore Limited", "GXS BANK", "DBS Revolut Bank", "Singcash Bank", "Transferwise Singapore Pte Ltd", "GPAYNETWORK (S) PTE LTD", "SING INVESTMENT & FINANCE LIMITED BANK", "Wise Asia-Pacific Pte. Ltd. (Formerly TransferWise)", "PayNow VPA", "MatchMove Pay Pte Ltd", "MariBank", "ANEXT Bank", "Grab VPA", "Unique Entity Number", "PayNow (UEN)", "DBS Hugosave", "Liquid Pay VPA", "Australia and New Zealand Banking Group Ltd", "ASPIRE Bank", "AIRWALLEX Bank", "Grabpay", "Shopeepay", "bigpay", "YouBiz", "TNG Bank", "Singtel Dash E Wallet Bank", "CIMB CORPORATE bank", "GXS Corp Bank", "Bank of Singapore", "LIQUID GROUP BANK"];

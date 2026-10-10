@@ -1661,10 +1661,29 @@ body.gate-open{overflow:hidden}
 .nt-list .empty small{display:block;margin-top:6px;color:#8f8a83}
 .dep-noid{margin:0 0 12px;padding:10px 12px;border-radius:12px;border:1px dashed #c9a15c66;color:#c9bfae}
 .dep-noid{margin:0 0 12px;padding:10px 12px;border-radius:12px;border:1px dashed #c9a15c66;color:#c9bfae}
-/* side menu: VIP progress boxes */
-.drawer-credits .dc-vip{cursor:pointer;transition:transform .15s}
-.drawer-credits .dc-vip:active{transform:scale(.97)}
-.drawer-credits .dc-vip .dc-hint{display:block;font-style:normal;font-size:10px;color:#9b97a3;margin-top:3px}
+/* side menu: VIP progress bar */
+.drawer-credits.dcp{display:block;position:relative;overflow:hidden;padding:12px 14px 12px;border-radius:16px;cursor:pointer;background:radial-gradient(120% 140% at 0% 0%,#c9a15c26,transparent 55%),linear-gradient(160deg,#1c1a1ff2,#0e0d10f2);border:1px solid #d9b06a40;box-shadow:inset 0 1px 0 #ffffff12,0 10px 24px #0006;transition:transform .15s}
+.drawer-credits.dcp:active{transform:scale(.985)}
+.dcp-max .dcp-medal.cur{display:none}
+.drawer-credits.dcp>div{padding:0;background:none;border:0;border-radius:0;box-shadow:none}
+.drawer-credits.dcp small{margin:0}
+.dcp-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.dcp-head small{font-size:9px;letter-spacing:.14em;color:#b59b74;font-weight:700}
+.dcp-head b{font-size:13px;color:#f6dfae;font-weight:700;white-space:nowrap}
+.dcp-head b i{font-style:normal;color:#8d8578;font-weight:600}
+.dcp-row{display:flex;align-items:center;gap:8px;margin-top:10px}
+.dcp-medal{flex:0 0 46px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.dcp-medal img{width:38px;height:38px;object-fit:contain;filter:drop-shadow(0 3px 6px #0009)}
+.dcp-medal small{font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:#cfc3ad;font-weight:700;white-space:nowrap;max-width:60px;overflow:hidden;text-overflow:ellipsis}
+.dcp-medal.next img{opacity:.55;filter:grayscale(.55) drop-shadow(0 3px 6px #0009)}
+.dcp-max .dcp-medal.next img{opacity:1;filter:drop-shadow(0 0 8px #f2c46d88)}
+.dcp-track{flex:1;height:10px;border-radius:99px;background:#000000a6;box-shadow:inset 0 1px 3px #000c,0 1px 0 #ffffff10;overflow:hidden;margin-bottom:14px}
+.dcp-track i{display:block;height:100%;min-width:10px;border-radius:inherit;background:linear-gradient(90deg,#8a5f22,#e2b462 55%,#fff0c4);box-shadow:0 0 10px #f0c06a99;position:relative;overflow:hidden;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+.dcp-track i::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,#ffffff80 50%,transparent 80%);transform:translateX(-100%);animation:dcpShine 2.6s ease-in-out infinite}
+@keyframes dcpShine{60%,100%{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.dcp-track i::after{animation:none}}
+.dcp-foot{margin:8px 0 0;font-size:11px;color:#a9a19a;text-align:center;line-height:1.4}
+.dcp-foot b{color:#f6dfae}
 /* Invite Friends (referral) */
 .ref-code-card{margin-top:15px}
 .ref-code{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 12px;padding:12px 14px;border-radius:14px;border:1px dashed #c9a15c88;background:#c9a15c12}
