@@ -1724,3 +1724,7 @@ dialog.pp-modal .pp-claim svg{width:18px;height:18px}
 /* promo popup: scroll without a visible scrollbar */
 dialog.pp-modal{scrollbar-width:none;-ms-overflow-style:none;overscroll-behavior:contain}
 dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
+/* Rewards cards: show the whole banner across the top (any wide image, e.g. 1080x600) */
+.rw-promo:has(>img){flex-direction:column;align-items:stretch;padding:0;overflow:hidden;gap:0}
+.rw-promo>img{width:100%;height:auto;aspect-ratio:auto;max-height:none;object-fit:contain;border-radius:0;display:block;background:#0b0a0d}
+.rw-promo:has(>img) .rw-promo-body{padding:12px 14px 14px}
