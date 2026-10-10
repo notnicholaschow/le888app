@@ -1743,3 +1743,11 @@ dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
 .wl-cx-btn:active{transform:scale(.98)}
 .wl-cx-btn:disabled{opacity:.6}
 .primary-btn.wl-cd b{font-variant-numeric:tabular-nums}
+/* Side menu: make the profile row and VIP card look tappable */
+.drawer-profile{position:relative;margin:0 0 12px!important;padding:10px 12px!important;border-radius:16px!important;border:1px solid #d9b06a33!important;background:linear-gradient(180deg,#ffffff0a,#ffffff03)!important;cursor:pointer;transition:transform .15s,border-color .2s}
+.drawer-profile:active{transform:scale(.985)}
+.drawer-profile .dp-cta{display:inline-flex;align-items:center;gap:3px;margin-top:5px;font-style:normal;font-size:11px;font-weight:700;color:#e9bd5a;letter-spacing:.02em}
+.drawer-credits.dcp .dcp-cta{display:flex;align-items:center;justify-content:center;gap:6px;margin:10px auto 0;width:max-content;padding:7px 16px;border-radius:999px;border:1px solid #e9bd5a77;background:linear-gradient(180deg,#e9bd5a26,#e9bd5a10);color:#f3d48a;font-size:12px;font-weight:800;letter-spacing:.03em}
+.drawer-credits.dcp .dcp-cta i{font-style:normal;font-size:16px;line-height:1;animation:dcpNudge 1.6s ease-in-out infinite}
+@keyframes dcpNudge{50%{transform:translateX(3px)}}
+@media (prefers-reduced-motion:reduce){.drawer-credits.dcp .dcp-cta i{animation:none}}

@@ -95,7 +95,7 @@ quickProfile=function(){modal.className='quick-profile accounts-profile';modal.i
 async function memberLogout(){try{await memberRequest('logout',{});location.replace('/login');}catch(e){toast('Unable to sign out. Please try again.');}}
 const memberOriginalMenu=menu;menu=function(){try{memberOriginalMenu();}catch(e){console.error('menu',e);}const lo=side.querySelector('.drawer-logout');if(lo)lo.onclick=()=>{try{side.close();}catch(e){}memberLogout();};
  /* real rank + real game accounts on the drawer card */
- try{const badge=side.querySelector('.drawer-profile .vip-badge');if(badge)badge.innerHTML=icon('crown')+' '+((memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():'NO RANK');
+ try{const prof=side.querySelector('.drawer-profile');if(prof&&!prof.querySelector('.dp-cta')){const cp=prof.querySelector('.drawer-profile-copy');if(cp)cp.insertAdjacentHTML('beforeend','<em class="dp-cta">View profile ›</em>');prof.setAttribute('aria-label','Open your profile');}const badge=side.querySelector('.drawer-profile .vip-badge');if(badge)badge.innerHTML=icon('crown')+' '+((memberData.vip&&memberData.vip.rank_name)?String(memberData.vip.rank_name).toUpperCase():'NO RANK');
   /* VIP progress bar: current medal -> next medal, this month's deposits */
   const box=side.querySelector('.drawer-credits');const v=memberData.vip||null;
   if(box){const money=n=>{n=Number(n)||0;return (n%1?n.toFixed(2):String(n)).replace(/\B(?=(\d{3})+(?!\d))/g,',');};
@@ -108,7 +108,7 @@ const memberOriginalMenu=menu;menu=function(){try{memberOriginalMenu();}catch(e)
    box.className='drawer-credits dcp'+(nx?'':' dcp-max');box.setAttribute('role','button');box.tabIndex=0;box.setAttribute('aria-label','VIP progress. Open VIP Club');
    box.innerHTML=`<div class="dcp-head"><small>VIP PROGRESS · ${mon}</small><b>${v?(nx?'SGD '+money(total)+' <i>/ '+money(to)+'</i>':'MAX RANK 👑'):'—'}</b></div>
     <div class="dcp-row">${med(cur.key,cur.name,'cur')}<div class="dcp-track"><i style="width:${pct.toFixed(1)}%"></i></div>${nx?med(nx.key||'member',nx.name,'next'):med(cur.key,cur.name,'next')}</div>
-    <p class="dcp-foot">${!v?'Your VIP progress will show here.':nx?`Deposit <b>SGD ${money(need)}</b> more this month to reach <b>${depEsc(nx.name)}</b>`:`You are at the top rank. Well done!`}</p>`;
+    <p class="dcp-foot">${!v?'Your VIP progress will show here.':nx?`Deposit <b>SGD ${money(need)}</b> more this month to reach <b>${depEsc(nx.name)}</b>`:`You are at the top rank. Well done!`}</p><span class="dcp-cta">View VIP rewards <i>›</i></span>`;
    const open=()=>{closeSide();go('vip');};box.onclick=open;box.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}};}
   }catch(e){}};
 
