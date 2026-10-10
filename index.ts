@@ -2004,6 +2004,16 @@ const DB_INDEXES: string[] = ["CREATE INDEX IF NOT EXISTS idx_activity_player ON
 // ---------------------------------------------------------------------------
 // Promotions page: view-only promo cards. Staff write the details as HTML/CSS/JS;
 // the app shows it inside a sandboxed iframe (no access to the player's session).
+// Reward submit cooldown: 10 minutes counted from when staff APPROVED the
+// player's last submission. Cancelled and rejected submissions never cause a wait.
+const REWARD_COOLDOWN_SECONDS = 600;
+async function rewardCooldownSeconds(env: Env, playerId: number): Promise<number> {
+  const r = await env.DB.prepare(
+    "SELECT CAST(? - (julianday('now') - julianday(MAX(decided_at))) * 86400 AS INTEGER) AS s FROM payout_requests WHERE player_id = ? AND status = 'approved' AND decided_at > datetime('now', ?)",
+  ).bind(REWARD_COOLDOWN_SECONDS, playerId, `-${REWARD_COOLDOWN_SECONDS} seconds`).first<{ s: number | null }>();
+  return Math.max(0, Number(r?.s ?? 0));
+}
+
 async function ensurePromoPages(env: Env): Promise<void> {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS promo_pages (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, image_url TEXT, details_html TEXT, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, updated_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
 }
@@ -3338,12 +3348,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // Seconds left on the reward-submit cooldown (0 = can submit now). Lets the
       // app disable Submit and show a live countdown instead of a bare error.
       let submitCooldown = 0;
-      try {
-        const cd = await env.DB.prepare(
-          "SELECT CAST(600 - (julianday('now') - julianday(MAX(created_at))) * 86400 AS INTEGER) AS s FROM payout_requests WHERE player_id = ? AND status NOT IN ('cancelled', 'rejected') AND created_at > datetime('now', '-600 seconds')",
-        ).bind(player.id).first<{ s: number | null }>();
-        submitCooldown = Math.max(0, Number(cd?.s ?? 0));
-      } catch { /* ignore */ }
+      try { submitCooldown = await rewardCooldownSeconds(env, player.id); } catch { /* ignore */ }
 
       // Latest "Free Credit" account handed to the player (from the most recent
       // approved reward payout) — offered as a withdrawal source.
@@ -3590,21 +3595,14 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     case '/api/reward/submit': {
       if (!(await rateLimit(env, `submit:${player.id}`, 12, 60))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
 
-      // Cooldown: after a submission that is still pending or was approved, the
-      // player must wait 10 minutes before submitting again. It is measured from
-      // the submission time (created_at), so a later staff approval never resets
-      // or extends the clock. Cancelled AND rejected submissions are excluded, so
-      // a cancel-within-10s or a staff rejection never triggers the wait.
-      // Uses only created_at + status values, so it needs no schema migration.
+      // One submission at a time: blocked while one is pending. After staff
+      // APPROVE it, the player waits 10 minutes (counted from the approval).
+      // Cancelled (within the 10s window) and rejected submissions never wait.
       try {
-        const recent = await env.DB.prepare(
-          "SELECT created_at FROM payout_requests WHERE player_id = ? AND status NOT IN ('cancelled', 'rejected') AND created_at > datetime('now', '-600 seconds') ORDER BY id DESC LIMIT 1",
-        ).bind(player.id).first<{ created_at: string }>();
-        if (recent) {
-          const left = await env.DB.prepare(
-            "SELECT CAST((600 - (julianday('now') - julianday(?)) * 86400) AS INTEGER) AS s",
-          ).bind(recent.created_at).first<{ s: number }>();
-          const secs = Math.max(1, left?.s ?? 600);
+        const pend = await env.DB.prepare("SELECT 1 AS x FROM payout_requests WHERE player_id = ? AND status = 'pending' LIMIT 1").bind(player.id).first();
+        if (pend) return fail('PENDING', 'Your last submission is still being processed.', 409, rid);
+        const secs = await rewardCooldownSeconds(env, player.id);
+        if (secs > 0) {
           const mins = Math.max(1, Math.ceil(secs / 60));
           return fail('COOLDOWN', `Please wait about ${mins} minute${mins === 1 ? '' : 's'} before submitting again.`, 429, rid);
         }
@@ -5703,6 +5701,13 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       if (decision === 'approved') {
         if (!FREE_GAME_LABELS.includes(game)) return fail('BAD_GAME', 'Free credit can only go to Pussy888 or Mega888.', 400, rid);
         if (!gameId) return fail('GAME_ID_REQUIRED', 'Enter the player’s Game ID.', 400, rid);
+      }
+
+      // The player has 10 seconds after submitting to cancel. Staff can't decide
+      // during that window (the request is also hidden from the queue until then).
+      {
+        const hold = await env.DB.prepare("SELECT 1 AS x FROM payout_requests WHERE id = ? AND status = 'pending' AND created_at > datetime('now', '-10 seconds')").bind(id).first();
+        if (hold) return fail('ON_HOLD', 'The player can still cancel this for a few seconds. Try again shortly.', 409, rid);
       }
 
       let decided: { player_id: number; amount_cents: number } | null;
