@@ -60,7 +60,7 @@ interface PlayerRow {
 
 const ADMIN_SESSION_SECONDS = 24 * 60 * 60; // 24 hours
 const PLAYER_SESSION_SECONDS = 30 * 24 * 60 * 60; // 30 days
-const ALLOWED_GAMES = ['wheel', 'plinko', 'egg', 'scratch', 'cross', 'crown'] as const;
+const ALLOWED_GAMES = ['wheel', 'plinko', 'scratch', 'cross', 'crown'] as const;
 // Lucky Crossing: a cash-out ladder. Its `prizes` are LANES — cents = the lane's prize, w = survive % (0-100].
 const CROSS_MAX_LANES = 6;
 const MAX_PRIZES = 10;          // per game, enforced server-side on save
@@ -70,7 +70,7 @@ const MAX_BODY_BYTES = 192 * 1024; // 192 KB request body cap (templates can emb
 const GAME_LABELS: Record<string, string> = {
   wheel: 'LE888 Spin',
   plinko: 'Orange Drop',
-  egg: 'Lucky Vault',
+  egg: 'Lucky Vault', // removed game: kept only so old play history still reads correctly
   scratch: 'LE888 Flip',
   cross: 'Lucky Crossing',
   crown: 'Crown Pick',
@@ -4078,9 +4078,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         await env.DB.prepare(
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('wheel', 1, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 0, w: 20 }, { cents: 50, w: 25 }, { cents: 100, w: 20 }, { cents: 200, w: 15 }, { cents: 500, w: 10 }, { cents: 888, w: 6 }, { cents: 2888, w: 3 }, { cents: 8888, w: 1 }])).run();
-        await env.DB.prepare(
-          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('egg', 5, ?, 0, 1, datetime('now'), 'system')`,
-        ).bind(JSON.stringify([{ cents: 0, w: 35 }, { cents: 100, w: 30 }, { cents: 288, w: 20 }, { cents: 888, w: 10 }, { cents: 2888, w: 4 }, { cents: 8888, w: 1 }])).run();
         await env.DB.prepare(
           `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('crown', 10, ?, 0, 1, datetime('now'), 'system')`,
         ).bind(JSON.stringify([{ cents: 7777, w: 2 }, { cents: 5077, w: 6 }, { cents: 3077, w: 15 }, { cents: 1077, w: 32 }, { cents: 0, w: 45 }])).run();
