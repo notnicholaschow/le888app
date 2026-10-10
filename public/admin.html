@@ -192,6 +192,11 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 .pill { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; font-weight: 500; }
 .pill.active { background: var(--green-bg); color: var(--green); }
 .pill.blocked { background: var(--red-bg); color: var(--red); }
+.pill.waiting { background: rgba(231,197,107,.14); color: var(--gold,#e7c56b); }
+.ref-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+.ref-stats div { border: 1px solid var(--border,#222); border-radius: 10px; padding: 8px 10px; }
+.ref-stats small { display: block; color: var(--dim); font-size: 11.5px; }
+.ref-stats b { font-size: 18px; }
 .tag-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
   background: rgba(217,180,81,.14); color: var(--gold); border: 1px solid rgba(217,180,81,.28); white-space: nowrap; }
 .conv-gameids { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
@@ -406,7 +411,10 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       Reward requests<span class="side-badge hidden" id="payoutBadge">0</span></button>
     <button class="side-link" data-tab="withdrawals">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.4"/><path d="M6 9v.01M18 15v.01"/></svg>
-      Withdrawals<span class="side-badge hidden" id="withdrawBadge">0</span></button>
+      Withdrawal requests<span class="side-badge hidden" id="withdrawBadge">0</span></button>
+    <button class="side-link" data-tab="depreq">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M12 9v6M9.5 12.5 12 15l2.5-2.5"/></svg>
+      Deposit requests<span class="side-badge hidden" id="depReqBadge">0</span></button>
     <button class="side-link" data-tab="messages">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-11.9 7.6L4 20l1-4.9A8.4 8.4 0 1 1 21 11.5Z"/></svg>
       Messages<span class="side-badge hidden" id="chatBadgeSide">0</span></button>
@@ -538,23 +546,28 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       </div>
     </section>
 
-    <!-- Deposits -->
-    <section id="tab-deposits" class="hidden">
-      <div class="page-head"><h1>Deposits</h1><p>Requests from the app need your approval &middot; approved deposits count toward VIP rank &middot; times in SGT</p></div>
+    <!-- Deposit requests (receipt check only) -->
+    <section id="tab-depreq" class="hidden">
+      <div class="page-head"><h1>Deposit requests</h1><p>Receipt check only &middot; times in SGT</p></div>
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-          <h2 style="margin:0">Deposit requests <span class="pill" id="depReqCount" style="display:none">0</span></h2>
+          <h2 style="margin:0">Requests <span class="pill" id="depReqCount" style="display:none">0</span></h2>
           <div class="row">
             <select id="depReqStatus"><option value="pending">Pending</option><option value="all">All (recent)</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
             <button class="btn ghost small" id="depReqRefresh">Refresh</button>
           </div>
         </div>
-        <p class="muted" style="margin:0 0 10px">The player transferred money to your PayNow / bank and submitted this. Open the receipt, check the amount arrived, then Approve (records the deposit, grants deposit points and VIP bonuses, and messages the player) or Reject (messages the player with your reason).</p>
+        <p class="muted" style="margin:0 0 10px">Players submit these from the app after transferring to your PayNow / bank. Open the receipt and check the money arrived, then <b>Approve</b> or <b>Reject</b>. <b>Approving only confirms the receipt</b> &mdash; it does NOT give PTS, VIP progress or bonuses. To credit the deposit, key it in under <b>Manage &rarr; Deposits</b>.</p>
         <div class="tbl-wrap"><table class="tbl" id="depReqTbl">
-          <thead><tr><th>Submitted (SGT)</th><th>Player</th><th>Amount</th><th>Method</th><th>Receipt</th><th>Reference</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Submitted (SGT)</th><th>Player</th><th>Deposit ID</th><th>Amount</th><th>Method</th><th>Receipt</th><th>Reference</th><th>Status</th><th></th></tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
+    </section>
+
+    <!-- Deposits -->
+    <section id="tab-deposits" class="hidden">
+      <div class="page-head"><h1>Deposits</h1><p>Key in deposits here &mdash; only these count toward VIP rank, deposit PTS and deposit bonuses &middot; times in SGT</p></div>
       <div class="page-head" style="margin-top:18px"><h1 style="font-size:18px">Deposit history</h1><p>Every deposit logged &rarr; VIP rank</p></div>
       <div class="card">
         <div class="row" style="margin-bottom:12px">
@@ -913,6 +926,19 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         <button class="btn" id="settingsSaveBtn" style="margin-top:12px">Save settings</button>
       </div>
       <div class="card">
+        <h2 style="margin-top:0">&#129309; Referral program</h2>
+        <p class="muted" style="margin:0 0 6px">Staff link friends in <b>Players &rarr; Referral</b> (or &ldquo;Referred by&rdquo; when creating a player). When the friend has a deposit keyed in under <b>Manage &rarr; Deposits</b>, the player who invited them gets PTS automatically &mdash; even if the friend deposited before being linked. Deposit <i>requests</i> don&rsquo;t count. 0 = off.</p>
+        <div class="row">
+          <div style="flex:1"><label for="sRefPts">PTS for each friend who deposits</label><input id="sRefPts" type="number" min="0" placeholder="0"></div>
+          <div style="flex:1"><label for="sRefMin">Friend&rsquo;s minimum total deposit (SGD, 0 = any deposit)</label><input id="sRefMin" type="number" min="0" placeholder="0"></div>
+        </div>
+        <div class="row">
+          <div style="flex:1"><label for="sRefEvery">Extra bonus every &hellip; successful friends</label><input id="sRefEvery" type="number" min="1" max="1000" placeholder="10"></div>
+          <div style="flex:1"><label for="sRefBonus">Extra bonus PTS</label><input id="sRefBonus" type="number" min="0" placeholder="0"></div>
+        </div>
+        <button class="btn" id="refSaveBtn" style="margin-top:12px">Save referral settings</button>
+      </div>
+      <div class="card">
         <h2>Deposit info (shown on the player's Deposit page)</h2>
         <p class="muted" style="margin-bottom:6px">The app never takes payments. Players transfer to this account, then submit the amount + receipt; you approve it under <b>Deposits &rarr; Deposit requests</b>.</p>
         <label>PayNow number / mobile</label><input id="sDepPaynow" maxlength="60" placeholder="e.g. +65 8123 4567">
@@ -1018,11 +1044,11 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var ROLE = 'manager';
   var PERMS = [];
   // Sections a manager can grant to a staff. Tab key === permission key.
-  var GATED_TABS = ['players', 'earn', 'activity', 'credits', 'deposits', 'games', 'rules', 'vip', 'templates', 'domains', 'rtp', 'settings'];
+  var GATED_TABS = ['players', 'earn', 'activity', 'credits', 'deposits', 'depreq', 'games', 'rules', 'vip', 'templates', 'domains', 'rtp', 'settings'];
   var MGR_ONLY_TABS = ['admins', 'delete'];
   var SECTION_LABELS = {
     players: 'Players', earn: 'Earn', activity: 'Point activity', credits: 'Credit activity',
-    deposits: 'Deposits', games: 'Games', rules: 'Withdraw rules', vip: 'VIP bonuses',
+    deposits: 'Deposits (key in)', depreq: 'Deposit requests', games: 'Games', rules: 'Withdraw rules', vip: 'VIP bonuses',
     templates: 'Templates', domains: 'Domains', rtp: 'Slot Games', settings: 'Settings', view_app: 'View app (act as player)'
   };
   // Keys shown in the Access checklist = the tabs plus non-tab action permissions.
@@ -1100,7 +1126,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   var PT_LABELS = {
     arcade_play: 'Game play', arcade_daily: 'Arcade daily reward', checkin: 'Daily check-in',
     task: 'Task reward', task_complete: 'Task reward', admin_correction: 'Staff correction',
-    vip_upgrade: 'VIP tier bonus', vip_weekly: 'VIP weekly bonus', reward_submit: 'Reward submitted', deposit_bonus: 'Deposit bonus'
+    vip_upgrade: 'VIP tier bonus', vip_weekly: 'VIP weekly bonus', reward_submit: 'Reward submitted', deposit_bonus: 'Deposit bonus',
+    referral: 'Referral reward', referral_bonus: 'Referral bonus (every N friends)'
   };
   function ptLabel(t) { return PT_LABELS[t] || esc(t); }
   var CRED_LABELS = {
@@ -1190,7 +1217,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   // ------------------------------------------------------------------
   var loaders = {
     overview: loadOverview, players: loadPlayers, activity: loadActivity,
-    credits: loadCredits, deposits: loadDeposits,
+    credits: loadCredits, deposits: loadDeposits, depreq: loadDepositRequests,
     payouts: loadPayouts, withdrawals: loadWithdrawals, earn: function () { loadPromos(); loadDepBonus(); }, settings: loadSettings, admins: loadAdmins,
     delete: loadDelete, messages: loadChats, games: loadGames, rules: loadRules, vip: loadVipBonuses, templates: loadTemplates,
     domains: loadDomains, rtp: loadSlots
@@ -1272,6 +1299,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       setPayoutBadge(res.pending_payouts || 0);
       setChatBadge(res.chat_unread || 0);
       setWithdrawBadge(res.pending_withdrawals || 0);
+      setDepReqBadge(res.pending_deposit_requests || 0);
       setMobileBadge((res.pending_payouts || 0) + (res.chat_unread || 0) + (res.pending_withdrawals || 0));
       if (admAlarm) { admAlarm.setCounts(res.pending_payouts || 0, res.chat_unread || 0); admAlarm.tick(); }
     });
@@ -1413,6 +1441,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
             '<button class="btn ghost small" data-pts-player="' + p.id + '">Points</button>' +
             '<button class="btn ghost small" data-cred-player="' + p.id + '">Credits</button>' +
             '<button class="btn ghost small" data-gid-player="' + p.id + '">Game ID</button>' +
+            '<button class="btn ghost small" data-ref-player="' + p.id + '">Referral</button>' +
             (hasPerm('view_app') ? '<button class="btn ghost small" data-view-player="' + p.id + '">View app</button>' : '') +
             '<button class="btn ghost small" data-edit-player="' + p.id + '">Manage</button></td></tr>';
       }).join('') || '<tr><td colspan="7" class="muted">No players yet. Tap "+ New player" to create the first account.</td></tr>';
@@ -1422,6 +1451,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       });
       Array.prototype.forEach.call(tb.querySelectorAll('[data-gid-player]'), function (b) {
         b.onclick = function () { gameIdModal(findP('data-gid-player', b)); };
+      });
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-ref-player]'), function (b) {
+        b.onclick = function () { referralModal(findP('data-ref-player', b)); };
       });
       Array.prototype.forEach.call(tb.querySelectorAll('[data-dep-player]'), function (b) {
         b.onclick = function () { depositModal(findP('data-dep-player', b)); };
@@ -1472,16 +1504,18 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       '<label>Username / Player ID (3-32 chars: letters, numbers, dot, underscore)</label><input id="npUser" autocapitalize="none" placeholder="e.g. GC2805">' +
       '<label>Password (min 8 chars)</label><input id="npPass">' +
       '<label>Display name (optional)</label><input id="npName">' +
+      '<label>Referred by (optional) &mdash; the Player ID of the friend who invited them</label><input id="npRef" autocapitalize="none" placeholder="e.g. LE2805">' +
       '<button class="btn" id="npBtn" style="margin-top:12px;width:100%">Create player</button>'
     );
     $('npBtn').onclick = function () {
       api('/api/admin/player/create', {
         username: $('npUser').value.trim(),
         password: $('npPass').value,
-        display_name: $('npName').value.trim()
+        display_name: $('npName').value.trim(),
+        referred_by: $('npRef').value.trim()
       }).then(function (res) {
         if (!res.ok) { toast(res.error || 'Create failed.', true); return; }
-        toast('Player created: @' + res.username);
+        toast('Player created: @' + res.username + ($('npRef') && $('npRef').value.trim() ? ' · referral linked' : ''));
         closeModal(); loadPlayers();
       });
     };
@@ -1515,6 +1549,75 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         }).catch(function () { busy(btn, false); toast('Network error.', true); });
       };
     }).catch(function () { var box = $('mExtras'); if (box) box.innerHTML = '<p class="muted">Network error.</p>'; });
+  }
+
+  // ---- Referral modal: friends this player referred ----
+  function referralModal(p) {
+    if (!p) return;
+    openModal(
+      '<h2>Referrals &mdash; ' + esc(p.display_name || p.username) + '</h2>' +
+      '<p class="muted">@' + esc(p.username) + '</p>' +
+      '<div id="refBody"><p class="muted">Loading&hellip;</p></div>'
+    );
+    var myModal = modalSeq;
+    function load() {
+      api('/api/admin/referrals/get', { id: p.id }).then(function (res) {
+        if (modalSeq !== myModal) return;
+        var box = $('refBody'); if (!box) return;
+        if (!res.ok) { box.innerHTML = '<p class="muted">' + esc(res.error || 'Could not load.') + '</p>'; return; }
+        var c = res.config || {}, rows = res.referrals || [], every = c.every || 10;
+        var left = every - (res.success % every);
+        var rowsHtml = rows.map(function (r) {
+          var st = r.status === 'rewarded'
+            ? '<span class="pill active">Deposited &middot; +' + Number(r.points_added || 0) + ' PTS</span>'
+            : '<span class="pill waiting">Waiting for deposit</span>';
+          return '<tr><td>' + playerCell(r.username || ('#' + r.referred_id), r.display_name) + '</td>' +
+            '<td>' + Number(r.deposit_total || 0).toFixed(2) + '</td>' +
+            '<td>' + st + '</td>' +
+            '<td class="muted">' + esc(String(r.created_at || '').slice(0, 10)) + (r.added_by ? ' &middot; ' + esc(r.added_by) : '') + '</td>' +
+            '<td>' + (r.status === 'rewarded' ? '' : '<button class="btn ghost small" data-ref-del="' + r.id + '">Remove</button>') + '</td></tr>';
+        }).join('') || '<tr><td colspan="5" class="muted">No referred friends yet.</td></tr>';
+        box.innerHTML =
+          '<div class="ref-stats">' +
+            '<div><small>Successful (deposited)</small><b>' + res.success + '</b></div>' +
+            '<div><small>Waiting for deposit</small><b>' + (rows.length - res.success) + '</b></div>' +
+            '<div><small>Next bonus</small><b>' + (c.bonus ? left + ' more' : 'off') + '</b></div>' +
+          '</div>' +
+          '<p class="muted" style="margin:0 0 10px">Rules: each friend who deposits = <b>' + Number(c.per || 0) + ' PTS</b>; every <b>' + every + '</b> friends = extra <b>' + Number(c.bonus || 0) + ' PTS</b>' +
+            (c.min_deposit ? '; friend needs at least <b>SGD ' + c.min_deposit + '</b> deposited' : '') +
+            '. Only deposits keyed in under <b>Manage &rarr; Deposits</b> count. Change the amounts in <b>Settings &rarr; Referral program</b>.</p>' +
+          (res.referred_by ? '<p class="muted" style="margin:0 0 10px">This player was referred by <b>@' + esc(res.referred_by.username) + '</b>.</p>' : '') +
+          '<label for="refFriend">Add a friend this player referred (friend&rsquo;s Player ID)</label>' +
+          '<div class="row" style="align-items:center"><input id="refFriend" autocapitalize="none" placeholder="e.g. LE2810" style="flex:1"><button class="btn small" id="refAdd">Add referral</button></div>' +
+          '<p class="muted" style="margin:4px 0 12px">If the friend already has deposits keyed in, the PTS are given straight away.</p>' +
+          '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Friend</th><th>Deposits (SGD)</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+        $('refAdd').onclick = function () {
+          var btn = this, f = $('refFriend').value.trim();
+          if (!f) { toast('Enter the friend’s Player ID.', true); return; }
+          busy(btn, true);
+          api('/api/admin/referrals/add', { id: p.id, friend: f }).then(function (r) {
+            busy(btn, false);
+            if (!r.ok) { toast(r.error || 'Could not add.', true); return; }
+            toast(r.rewarded
+              ? ('Added @' + r.friend + ' · already deposited, +' + r.points + ' PTS given' + (r.bonus ? ' (+' + r.bonus + ' bonus)' : ''))
+              : ('Added @' + r.friend + ' · PTS will be given when their deposit is keyed in.'));
+            load();
+          }).catch(function () { busy(btn, false); toast('Network error.', true); });
+        };
+        Array.prototype.forEach.call(box.querySelectorAll('[data-ref-del]'), function (b) {
+          b.onclick = function () {
+            if (!confirm('Remove this friend from the referral list?')) return;
+            busy(b, true);
+            api('/api/admin/referrals/remove', { ref_id: Number(b.getAttribute('data-ref-del')) }).then(function (r) {
+              busy(b, false);
+              if (!r.ok) { toast(r.error || 'Could not remove.', true); return; }
+              toast('Removed.'); load();
+            }).catch(function () { busy(b, false); toast('Network error.', true); });
+          };
+        });
+      }).catch(function () { var box = $('refBody'); if (box) box.innerHTML = '<p class="muted">Network error.</p>'; });
+    }
+    load();
   }
 
   // ---- Game ID modal: Deposit IDs (7 games) + Free Credit IDs (2 games) ----
@@ -1957,14 +2060,18 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   $('depQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.depOffset = 0; loadDeposits(); } });
   $('depPrev').onclick = function () { state.depOffset = Math.max(0, state.depOffset - 50); loadDeposits(); };
   $('depNext').onclick = function () { state.depOffset += 50; loadDeposits(); };
+  function setDepReqBadge(n) {
+    var b = $('depReqBadge'); if (!b) return;
+    b.textContent = n > 99 ? '99+' : n;
+    b.classList.toggle('hidden', !n);
+  }
   function loadDepositRequests() {
     var st = $('depReqStatus') ? $('depReqStatus').value : 'pending';
     api('/api/admin/deposits/requests', { status: st }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load deposit requests.', true); return; }
       var badge = $('depReqCount');
       if (badge) { badge.textContent = res.pending; badge.style.display = res.pending > 0 ? '' : 'none'; }
-      var side = document.querySelector('.side-link[data-tab="deposits"]');
-      if (side) { var dot = side.querySelector('.req-dot'); if (res.pending > 0) { if (!dot) { dot = document.createElement('span'); dot.className = 'req-dot'; dot.style.cssText = 'margin-left:auto;background:#e0a84a;color:#111;border-radius:10px;padding:0 7px;font-size:11px;font-weight:700'; side.appendChild(dot); } dot.textContent = res.pending; } else if (dot) dot.remove(); }
+      setDepReqBadge(res.pending || 0);
       $('depReqTbl').querySelector('tbody').innerHTML = res.requests.map(function (r) {
         var chip = r.status === 'pending' ? '<span class="pill" style="background:#3a2d12;color:#ffd27a">Pending</span>' : r.status === 'approved' ? '<span class="pill" style="background:#143322;color:#8be3a8">Approved</span>' : '<span class="pill" style="background:#3a1616;color:#ff9a9a">Rejected</span>';
         var act = r.status === 'pending'
@@ -1972,23 +2079,23 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
           : '<span class="muted">' + esc(r.admin_username || '') + (r.admin_note ? ' · ' + esc(r.admin_note) : '') + '</span>';
         return '<tr><td class="muted">' + sgt(r.created_at) + '</td>' +
           '<td>' + (r.username ? playerCell(r.username, r.display_name) : r.player_id) + '</td>' +
+          '<td>' + (r.game_id ? esc(r.game || '') + ' &middot; <b>' + esc(r.game_id) + '</b>' : '<span class="muted">&mdash;</span>') + '</td>' +
           '<td><b>$' + Number(r.amount).toLocaleString('en-US', { minimumFractionDigits: 2 }) + '</b></td>' +
           '<td class="muted">' + (r.method === 'bank' ? 'Bank transfer' : 'PayNow') + '</td>' +
           '<td>' + (r.receipt_url ? '<a href="' + esc(r.receipt_url) + '" target="_blank" rel="noopener"><img src="' + esc(r.receipt_url) + '" alt="receipt" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid #ffffff22"></a>' : '<span class="muted">—</span>') + '</td>' +
           '<td class="muted">' + esc(r.reference || '') + '</td>' +
           '<td>' + chip + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
-      }).join('') || '<tr><td colspan="8" class="muted">No deposit requests.</td></tr>';
+      }).join('') || '<tr><td colspan="9" class="muted">No deposit requests.</td></tr>';
       Array.prototype.forEach.call(document.querySelectorAll('[data-dep-approve]'), function (b) {
         b.onclick = function () {
           var id = b.getAttribute('data-dep-approve'); var amt = b.getAttribute('data-amount');
-          var v = prompt('Approve deposit request #' + id + '.\nAmount that actually arrived (SGD):', amt);
-          if (v === null) return; var amount = Number(v); if (!(amount > 0)) { toast('Enter a valid amount.', true); return; }
+          if (!confirm('Approve deposit request #' + id + ' (SGD ' + amt + ')?\n\nThis only confirms the receipt. To give PTS / VIP, key the deposit in under Manage \u2192 Deposits.')) return;
           busy(b, true);
-          api('/api/admin/deposits/decide', { id: Number(id), action: 'approve', amount: amount }).then(function (res) {
+          api('/api/admin/deposits/decide', { id: Number(id), action: 'approve' }).then(function (res) {
             busy(b, false);
             if (!res.ok) { toast(res.error || 'Approve failed.', true); return; }
-            toast('Deposit recorded · ' + res.deposit_points_granted + ' PTS granted' + (res.rank_name ? ' · rank ' + res.rank_name : '') + '.');
-            loadDepositRequests(); loadDeposits();
+            toast('Approved \u00b7 player told in Live Chat. Remember to key the deposit in under Manage \u2192 Deposits.');
+            loadDepositRequests();
           }).catch(function () { busy(b, false); toast('Network error.', true); });
         };
       });
@@ -2010,7 +2117,6 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
   $('depReqRefresh') && ($('depReqRefresh').onclick = loadDepositRequests);
   $('depReqStatus') && ($('depReqStatus').onchange = loadDepositRequests);
   function loadDeposits() {
-    loadDepositRequests();
     api('/api/admin/deposits/all', {
       q: $('depQ').value.trim(), from: $('depFrom').value, to: $('depTo').value,
       offset: state.depOffset, limit: 50
@@ -3301,6 +3407,10 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       $('sTerms').value = s.terms_text || '';
       $('sCheckinMinDep').value = s.checkin_min_deposit || '10';
       if ($('sChatKeep')) $('sChatKeep').value = s.chat_keep_messages || '100';
+      $('sRefPts').value = s.referral_points || '0';
+      $('sRefMin').value = s.referral_min_deposit || '0';
+      $('sRefEvery').value = s.referral_bonus_every || '10';
+      $('sRefBonus').value = s.referral_bonus_points || '0';
       $('sDepositRate').value = s.deposit_point_rate || '10';
       $('sDepPaynow').value = s.deposit_paynow || '';
       $('sDepName').value = s.deposit_name || '';
@@ -3386,6 +3496,17 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     }).catch(function () { busy(btn, false); toast('Network error.', true); });
   });
 
+  $('refSaveBtn').onclick = function () {
+    var btn = this; busy(btn, true);
+    api('/api/admin/settings/save', { settings: {
+      referral_points: $('sRefPts').value, referral_min_deposit: $('sRefMin').value,
+      referral_bonus_every: $('sRefEvery').value, referral_bonus_points: $('sRefBonus').value
+    } }).then(function (res) {
+      busy(btn, false);
+      if (!res.ok) { toast(res.error || 'Save failed.', true); return; }
+      toast('Referral settings saved.'); flashDone(btn, 'Saved ✓');
+    }).catch(function () { busy(btn, false); toast('Network error.', true); });
+  };
   $('settingsSaveBtn').onclick = function () {
     api('/api/admin/settings/save', {
       settings: {
@@ -3484,6 +3605,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     welcome: { when: 'a new player signs up', vars: [['{player_id}', 'login username'], ['{password}', 'starting login password (new accounts only)']] },
     first_deposit: { when: "a player's first deposit is recorded", vars: [['{deposit_amount}', 'the deposit amount'], ['{points_added}', 'points given']] },
     deposit_received: { when: 'a deposit is recorded (after the first)', vars: [['{deposit_amount}', 'the deposit amount'], ['{points_added}', 'points given']] },
+    referral_reward: { when: 'a referred friend has a deposit keyed in (Manage \u2192 Deposits) — sent to the player who invited them', vars: [['{friend_id}', 'the friend\u2019s ID, partly hidden (e.g. le**10)'], ['{referral_points}', 'PTS given for this friend'], ['{referral_count}', 'total successful referrals']] },
+    referral_milestone: { when: 'a player reaches every N successful referrals (10, 20, 30 …)', vars: [['{referral_count}', 'successful referrals reached'], ['{referral_bonus}', 'bonus PTS given']] },
+    deposit_request_approved: { when: 'staff approve a deposit request (Monitor \u2192 Deposit requests)', vars: [['{deposit_amount}', 'the amount on the request'], ['{deposit_game}', 'game chosen by the player'], ['{deposit_game_id}', 'the Deposit ID chosen']] },
     withdrawal_rejected: { when: 'a withdrawal is rejected', vars: [['{amount}', 'the withdrawal amount']] },
     reward_rejected: { when: 'a reward request is rejected', vars: [['{amount}', 'the reward amount']] },
     vip_rank_up: { when: 'a player reaches a new VIP rank', vars: [['{rank}', 'the rank name'], ['{rank_icon}', 'the rank badge image (use in an <img src>)']] },
@@ -4185,6 +4309,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       setPayoutBadge(res.pending_payouts || 0);
       setChatBadge(res.chat_unread || 0);
       setWithdrawBadge(res.pending_withdrawals || 0);
+      setDepReqBadge(res.pending_deposit_requests || 0);
       setMobileBadge((res.pending_payouts || 0) + (res.chat_unread || 0) + (res.pending_withdrawals || 0));
       if (admAlarm) { admAlarm.setCounts(res.pending_payouts || 0, res.chat_unread || 0); admAlarm.tick(); }
     }).catch(function () {});

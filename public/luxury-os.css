@@ -1665,3 +1665,22 @@ body.gate-open{overflow:hidden}
 .drawer-credits .dc-vip{cursor:pointer;transition:transform .15s}
 .drawer-credits .dc-vip:active{transform:scale(.97)}
 .drawer-credits .dc-vip .dc-hint{display:block;font-style:normal;font-size:10px;color:#9b97a3;margin-top:3px}
+/* Invite Friends (referral) */
+.ref-code-card{margin-top:15px}
+.ref-code{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 12px;padding:12px 14px;border-radius:14px;border:1px dashed #c9a15c88;background:#c9a15c12}
+.ref-code b{font-size:24px;letter-spacing:2px;color:#f3d48b}
+.ref-steps{margin-top:15px;padding:14px 16px}
+.ref-steps ol{margin:6px 0 0;padding:0;list-style:none;counter-reset:rs}
+.ref-steps li{position:relative;padding:8px 0 8px 38px;counter-increment:rs}
+.ref-steps li::before{content:counter(rs);position:absolute;left:0;top:8px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:13px;color:#1b1406;background:linear-gradient(135deg,#f6dc93,#c9a15c)}
+.ref-steps li>b{display:block;font-size:14px}
+.ref-steps li>span{display:block;font-size:12.5px;color:#a9a3b0;margin-top:2px}
+.ref-prog{margin-top:15px;padding:14px 16px}
+.ref-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ref-stats div{padding:10px;border-radius:12px;background:#ffffff08;border:1px solid #ffffff12;text-align:center}
+.ref-stats small{display:block;font-size:11px;color:#9b97a3}
+.ref-stats b{display:block;font-size:20px;margin-top:2px;color:#f3d48b}
+.ref-bar-label{display:flex;justify-content:space-between;font-size:12.5px;margin:14px 0 6px;color:#cfc8d6}
+.ref-bar{height:10px;border-radius:99px;background:#ffffff12;overflow:hidden}
+.ref-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#c9a15c,#f6dc93);min-width:4px}
+.ref-bar-note{font-size:12px;color:#9b97a3;margin:8px 0 0}
