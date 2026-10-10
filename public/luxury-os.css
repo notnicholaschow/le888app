@@ -1729,3 +1729,11 @@ dialog.pp-modal .pp-body{padding:0 16px}
 dialog.pp-modal .pp-frame{display:block;width:100%;height:80px;border:0;background:transparent;color-scheme:dark}
 dialog.pp-modal .pp-claim{margin:14px 16px 0;width:calc(100% - 32px);display:flex;align-items:center;justify-content:center;gap:8px}
 dialog.pp-modal .pp-claim svg{width:18px;height:18px}
+/* Rewards page: Free Credit | Deposit Reward tabs */
+.rw-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:18px 0 12px;padding:4px;border-radius:16px;background:#0b0a0dcc;border:1px solid #ffffff14;box-shadow:inset 0 1px 3px #0008}
+.rw-tabs button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 8px;border:0;border-radius:12px;background:transparent;color:#a6a0a8;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;transition:background .2s,color .2s}
+.rw-tabs button.on{background:linear-gradient(145deg,#f3d08a,#b98538);color:#1b1206;box-shadow:0 6px 14px #0007}
+.rw-tab-ic{display:grid;place-items:center}.rw-tab-ic svg{width:16px;height:16px}
+.rw-tabs button i{font-style:normal;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e5484d;color:#fff;font-size:10.5px;line-height:18px;text-align:center}
+.rw-pane[hidden]{display:none!important}
+.rw-pane{display:grid;gap:12px}
