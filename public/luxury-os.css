@@ -1817,3 +1817,7 @@ dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
 .inst-pop-go:active{transform:scale(.96)}
 .inst-pop-x{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;border:1px solid #ffffff26;background:#ffffff0f;color:#cbbd9f;font-size:17px;line-height:1;cursor:pointer;padding:0}
 @media (prefers-reduced-motion:reduce){.inst-pop{transition:none}}
+
+/* ===== Settings: Notifications switch ===== */
+.push-hint{margin:-2px 14px 10px 50px;font-size:11.5px;line-height:1.4;color:#a8997c}
+.toggle.busy{opacity:.55;pointer-events:none}
