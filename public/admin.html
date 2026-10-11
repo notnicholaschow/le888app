@@ -929,6 +929,8 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         </div>
         <label for="sTerms">Terms &amp; Conditions (player app &rarr; Settings &rarr; Terms). One rule per line; blank line = new paragraph. Empty = built-in default text.</label>
         <textarea id="sTerms" rows="8" placeholder="1. LE888 is a rewards app. Points (PTS) have no cash value&hellip;"></textarea>
+        <label>Daily check-in rewards (PTS for each day of the streak). After day 7 the player keeps getting the Day 7 amount every day.</label>
+        <div class="row" id="sCiRow" style="gap:6px;flex-wrap:wrap"><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 1</small><input id="sCi1" type="number" min="0" max="100000" step="1" style="text-align:center"></div><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 2</small><input id="sCi2" type="number" min="0" max="100000" step="1" style="text-align:center"></div><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 3</small><input id="sCi3" type="number" min="0" max="100000" step="1" style="text-align:center"></div><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 4</small><input id="sCi4" type="number" min="0" max="100000" step="1" style="text-align:center"></div><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 5</small><input id="sCi5" type="number" min="0" max="100000" step="1" style="text-align:center"></div><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 6</small><input id="sCi6" type="number" min="0" max="100000" step="1" style="text-align:center"></div><div style="flex:1;min-width:52px"><small style="display:block;text-align:center;opacity:.7">Day 7</small><input id="sCi7" type="number" min="0" max="100000" step="1" style="text-align:center"></div></div>
         <div class="row">
           <div style="flex:1"><label for="sCheckinMinDep">Check-in min deposit (SGD) — a player can check in on a day only if their deposits that day total this amount</label><input id="sCheckinMinDep" type="number" min="0"></div>
           <div style="flex:1"><label for="sDepositRate">Deposit points: $ per 1 point (0 = off)</label><input id="sDepositRate" type="number" min="0"></div>
@@ -3547,6 +3549,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       $('sTelegram').value = s.contact_telegram || '';
       $('sTerms').value = s.terms_text || '';
       $('sCheckinMinDep').value = s.checkin_min_deposit || '10';
+      (function () { var ci = String(s.checkin_rewards || '1,2,3,4,5,8,10').split(','); for (var d = 1; d <= 7; d++) { if ($('sCi' + d)) $('sCi' + d).value = ci[d - 1] || '0'; } })();
       if ($('sChatKeep')) $('sChatKeep').value = s.chat_keep_messages || '100';
       $('sRefPts').value = s.referral_points || '0';
       $('sRefMin').value = s.referral_min_deposit || '0';
@@ -3657,6 +3660,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         contact_telegram: $('sTelegram').value.trim(),
         terms_text: $('sTerms').value.trim(),
         checkin_min_deposit: $('sCheckinMinDep').value,
+        checkin_rewards: [1, 2, 3, 4, 5, 6, 7].map(function (d) { return String(Math.max(0, Math.floor(Number($('sCi' + d).value) || 0))); }).join(','),
         chat_keep_messages: $('sChatKeep') ? $('sChatKeep').value : '100',
         deposit_point_rate: $('sDepositRate').value,
         tasks_enabled: $('sTasksOn').value
