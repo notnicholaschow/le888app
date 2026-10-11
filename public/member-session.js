@@ -125,14 +125,16 @@ async function pushOn(){
  const j=sub.toJSON();await memberRequest('push/subscribe',{endpoint:j.endpoint,p256dh:j.keys&&j.keys.p256dh,auth:j.keys&&j.keys.auth,lang:state.language==='简体中文'?'zh':'en'});
  toast('Notifications are on ✓');return true;}
 async function pushOff(silent){try{const sub=await pushCurrent();if(sub){const ep=sub.endpoint;try{await sub.unsubscribe();}catch(e){}try{await memberRequest('push/unsubscribe',{endpoint:ep});}catch(e){}}if(!silent)toast('Notifications are off.');}catch(e){}}
-function wirePushToggle(){const nt=document.querySelector('[data-toggle="notifications"]');if(!nt)return;const row=nt.closest('.settings-row');
- if(window.memberImp){row.remove();return;}
- if(!row.nextElementSibling||!row.nextElementSibling.classList.contains('push-hint'))row.insertAdjacentHTML('afterend','<p class="push-hint">Deposits, withdrawals, chat replies, check-in &amp; VIP rewards. This phone only.</p>');
+function wirePushSwitch(nt){if(!nt||nt.dataset.wired==='1')return;nt.dataset.wired='1';
  const set=on=>{nt.classList.toggle('on',on);nt.setAttribute('aria-checked',String(on));nt.setAttribute('aria-pressed',String(on));};
  set(false);pushCurrent().then(sub=>set(!!sub&&(!('Notification' in window)||Notification.permission==='granted')));
  let busy=false;nt.onclick=async()=>{if(busy)return;busy=true;nt.classList.add('busy');const wasOn=nt.classList.contains('on');
   try{if(wasOn){await pushOff();set(false);}else{set(await pushOn());}}catch(e){set(false);toast(e&&e.message&&e.message!=='sw'?e.message:'Could not turn on notifications. Please try again.');}
   finally{busy=false;nt.classList.remove('busy');}};}
+function wirePushToggle(){const nt=document.querySelector('[data-toggle="notifications"]');if(!nt)return;const row=nt.closest('.settings-row');
+ if(window.memberImp){row.remove();return;}
+ if(!row.nextElementSibling||!row.nextElementSibling.classList.contains('push-hint'))row.insertAdjacentHTML('afterend','<p class="push-hint">Deposits, withdrawals, chat replies, check-in &amp; VIP rewards. This phone only.</p>');
+ wirePushSwitch(nt);}
 const memberOriginalMenu=menu;menu=function(){try{memberOriginalMenu();}catch(e){console.error('menu',e);}const lo=side.querySelector('.drawer-logout');if(lo)lo.onclick=()=>{try{side.close();}catch(e){}memberLogout();};
  try{const ic=installCard();if(ic&&lo&&!side.querySelector('.inst-sec')){lo.insertAdjacentHTML('beforebegin',ic);side.querySelector('#inst-btn').onclick=()=>{try{side.close();}catch(e){}installApp();};}}catch(e){}
  try{const ct=contactCards('ct-drawer');if(ct&&lo&&!side.querySelector('.ct-drawer'))lo.insertAdjacentHTML('beforebegin','<div class="drawer-section ct-sec"><p class="drawer-section-label">CONTACT US</p>'+ct+'</div>');}catch(e){}
@@ -346,7 +348,7 @@ function paintBell(){if(state.page!=='home')return;const b=document.querySelecto
  if(b.dataset.bell!=='1'){b.dataset.bell='1';b.setAttribute('aria-label','Notifications');b.innerHTML=icon('bell')+'<span class="notice-dot"></span>';b.onclick=e=>{e.preventDefault();openNotices();};}
  const d=b.querySelector('.notice-dot');if(d)d.style.display=noticeUnread()?'':'none';
  const st=document.querySelector('#os-notifications');if(st&&st.dataset.chat!=='1'){st.dataset.chat='1';st.setAttribute('aria-label','Live chat');st.onclick=e=>{e.preventDefault();go('chat');};}}
-async function openNotices(){showModal('Notifications','<div class="nt-list"><div class="empty">Loading…</div></div>');modal.classList.add('nt-modal');
+async function openNotices(){showModal('Notifications',(window.memberImp?'':`<div class="nt-push"><span class="nt-push-ic">${icon('bell')}</span><div class="nt-push-txt"><b>Phone notifications</b><small>Deposits, withdrawals, chat replies &amp; rewards</small></div><button type="button" class="toggle" id="nt-push-sw" role="switch" aria-label="Phone notifications" aria-checked="false"></button></div>`)+'<div class="nt-list"><div class="empty">Loading…</div></div>');modal.classList.add('nt-modal');wirePushSwitch(modal.querySelector('#nt-push-sw'));
  try{const d=await memberRequest('notifications');const list=d.notifications||[];const box=modal.querySelector('.nt-list');if(!box)return;
   const seen=noticeSeen();box.innerHTML=list.length?list.map(n=>`<article class="nt-item${n.id>seen?' new':''}"><span class="nt-ic">${icon('bell')}</span><div><p>${depEsc(n.message).replace(/\n/g,'<br>')}</p><small>${depWhen(n.created_at)}</small></div></article>`).join(''):'<div class="empty">No announcements yet.<br><small>Updates about your deposits, withdrawals and free credit are sent to you in Live Chat.</small></div>';
   const top=list.length?Number(list[0].id)||0:0;const latest=Math.max(top,Number(memberData&&memberData.notice_latest)||0);try{localStorage.setItem('le888-notice-seen',String(latest));}catch(e){}if(memberData)memberData.notice_latest=latest;paintBell();}

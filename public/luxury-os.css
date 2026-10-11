@@ -1821,3 +1821,12 @@ dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
 /* ===== Settings: Notifications switch ===== */
 .push-hint{margin:-2px 14px 10px 50px;font-size:11.5px;line-height:1.4;color:#a8997c}
 .toggle.busy{opacity:.55;pointer-events:none}
+
+/* ===== Bell pop-up: phone notifications switch ===== */
+.nt-push{display:flex;align-items:center;gap:11px;margin:0 0 12px;padding:12px;border-radius:16px;border:1px solid #f3d27a7a;background:radial-gradient(120% 160% at 0 0,#e9bd5a2b,transparent 55%),linear-gradient(140deg,#2a2416,#141210)}
+.nt-push-ic{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:11px;border:1px solid #e9bd5a73;background:linear-gradient(180deg,#2a2318,#141016);color:#e9bd5a}
+.nt-push-ic svg{width:19px;height:19px}
+.nt-push-txt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.nt-push-txt b{font-size:14px;font-weight:800;color:#fff}
+.nt-push-txt small{margin-top:3px;font-size:11.5px;color:#cdb98f}
+.nt-push .toggle{flex:none}
