@@ -971,6 +971,8 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       notice_latest: noticeLatest,
       settings: {
         contact_url: appSettings.contact_url || '',
+        contact_whatsapp: appSettings.contact_whatsapp || '',
+        contact_telegram: appSettings.contact_telegram || '',
         announcement_text: appSettings.announcement_text || '',
         terms_text: appSettings.terms_text || '',
         chat_keep: chatKeepFrom(appSettings),
@@ -1830,6 +1832,19 @@ async function clearAuthFail(env: Env, key: string): Promise<void> {
 // URL validation (tasks + contact link)
 // ---------------------------------------------------------------------------
 
+// Staff can type a plain phone number / @username; turn it into a proper link.
+// Returns '' for empty, 'BAD' for something unusable.
+function normalizeContactLink(key: string, raw: string): string {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (/^https:\/\//i.test(v)) return isSafeExternalUrl(v) ? v : 'BAD';
+  if (key === 'contact_whatsapp') {
+    const digits = v.replace(/[\s+\-()]/g, '');
+    return /^\d{6,15}$/.test(digits) ? 'https://wa.me/' + digits : 'BAD';
+  }
+  const user = v.replace(/^@/, '').replace(/^(t\.me\/|telegram\.me\/)/i, '');
+  return /^[A-Za-z0-9_]{4,32}$/.test(user) ? 'https://t.me/' + user : 'BAD';
+}
 function isSafeExternalUrl(raw: unknown): boolean {
   const s = String(raw || '').trim();
   if (!s || s.length > 500) return false;
@@ -2241,6 +2256,8 @@ function publicSettings(s: Record<string, string>) {
     tasks_enabled: s.tasks_enabled === '1',
     announcement_text: s.announcement_text || '',
     contact_url: s.contact_url || '',
+    contact_whatsapp: s.contact_whatsapp || '',
+    contact_telegram: s.contact_telegram || '',
     // Dollars a player deposits to earn 1 point (shown on the Play page).
     deposit_point_rate: Math.max(0, Math.floor(Number(s.deposit_point_rate ?? '10'))),
     deposit_paynow: s.deposit_paynow || '',
@@ -2892,6 +2909,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
     return json({
       ok: true,
       contact_url: s.contact_url || '',
+      contact_whatsapp: s.contact_whatsapp || '',
+      contact_telegram: s.contact_telegram || '',
       game_costs: games.game_costs,
       game_prizes: games.game_prizes,
       game_enabled: games.game_enabled,
@@ -5869,7 +5888,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit'];
+      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'contact_whatsapp', 'contact_telegram', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
@@ -5877,6 +5896,10 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (key === 'contact_url') {
           val = val.trim();
           if (val && !isSafeExternalUrl(val)) return fail('BAD_URL', 'Contact URL must be a valid https link (WhatsApp/Telegram allowed).', 400, rid);
+        }
+        if (key === 'contact_whatsapp' || key === 'contact_telegram') {
+          val = normalizeContactLink(key, val);
+          if (val === 'BAD') return fail('BAD_URL', key === 'contact_whatsapp' ? 'WhatsApp: enter a phone number (e.g. 6591234567) or an https://wa.me/ link.' : 'Telegram: enter a username (e.g. @le888) or an https://t.me/ link.', 400, rid);
         }
         if (key === 'announcement_text') val = val.slice(0, 500);
         if (key === 'terms_text') val = val.slice(0, 20000);
