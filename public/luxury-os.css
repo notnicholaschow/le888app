@@ -1757,3 +1757,32 @@ dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
 .copy-account-id.copied,.gp-copy.copied,.dep-copy.copied{background:#1f3a26!important;color:#8ff0a8!important;border-color:#5fd27f88!important}
 .le-copied{animation:leCopyPop .45s cubic-bezier(.2,1.6,.4,1)}
 @keyframes leCopyPop{0%{transform:scale(.85)}60%{transform:scale(1.08)}100%{transform:scale(1)}}
+/* Crown Pick: iPhone Safari doesn't stretch square <button> tiles in a grid
+   (their content is absolutely positioned, so they shrink). Force full column width. */
+.crown-grid{width:100%;margin:0 2px;box-sizing:border-box;width:calc(100% - 4px)}
+.crown-tile{display:block;width:100%;min-width:0;justify-self:stretch;align-self:start;height:auto;-webkit-appearance:none;appearance:none}
+.crown-tile::before{content:"";display:block;padding-top:100%}
+/* HTML template messages: ignore the code's own line breaks/indentation (only typed messages keep them) */
+.message-bubble.is-html{white-space:normal}
+.message-bubble.is-html img{max-width:100%;height:auto}
+
+/* ===== Contact us: WhatsApp / Telegram ===== */
+.ct-label{margin:18px 2px 8px;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#c9a96a}
+.ct-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ct-grid.ct-one{grid-template-columns:1fr}
+.ct-btn{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border-radius:16px;border:1px solid #c4a56e40;background:linear-gradient(140deg,#2a2620cc,#17151bcc);box-shadow:inset 0 1px 0 #ffffff0d,0 8px 18px #0004;color:#f5ead6;text-decoration:none;transition:transform .15s,border-color .15s}
+.ct-btn:active{transform:scale(.97)}
+.ct-btn:hover{border-color:#e9bd5a99}
+.ct-ic{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;box-shadow:inset 0 1px 0 #fff4,0 4px 10px #0005}
+.ct-ic svg{width:23px;height:23px}
+.ct-wa .ct-ic{background:linear-gradient(160deg,#5be37f,#1faa52)}
+.ct-tg .ct-ic{background:linear-gradient(160deg,#3fb8f0,#1a86c8)}
+.ct-txt{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.ct-txt b{font-size:14px;font-weight:800;color:#fff}
+.ct-txt small{margin-top:3px;font-size:11.5px;font-weight:700;color:#e2bf72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-sec{margin-top:4px}
+.ct-drawer .ct-btn{padding:10px;border-radius:14px}
+.ct-drawer .ct-ic{width:32px;height:32px}
+.ct-drawer .ct-ic svg{width:19px;height:19px}
+.ct-drawer .ct-txt b{font-size:13px}
+.ct-drawer .ct-txt small{font-size:10.5px}
