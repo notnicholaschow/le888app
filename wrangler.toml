@@ -10,6 +10,12 @@ run_worker_first = true
 html_handling = "none"
 not_found_handling = "single-page-application"
 
+# ---- Public settings (safe to keep in GitHub) ----
+# VAPID_PUBLIC_KEY is the PUBLIC half of the notification keys (phones need it).
+# The PRIVATE half (VAPID_PRIVATE_KEY) must stay a Secret in Cloudflare only.
+[vars]
+VAPID_PUBLIC_KEY = "BHbqDCGgqE9stivhaPKiqKWQfyCoBWFd9mIuYHGqvELV4WiN-jfBmh1aZE8oFqG5RFgwK6YjvbzcIpb_UEZeWrU"
+
 # ---- Your database (already created + filled) ----
 [[d1_databases]]
 binding = "DB"
