@@ -481,10 +481,15 @@ const POINT_TYPES = {
 // Daily check-in reward schedule (points for day 1..7 of the streak). DO NOT
 // reorder without also updating the player UI. Once the streak reaches day 7 it
 // STAYS at day 7's reward for every further consecutive day (never cycles back).
-const CHECKIN_REWARDS = [1, 2, 3, 4, 5, 8, 10];
-function checkinPointsForStreak(streak: number): number {
-  const idx = Math.min(Math.max(streak, 1), CHECKIN_REWARDS.length) - 1;
-  return CHECKIN_REWARDS[idx];
+const CHECKIN_REWARDS = [1, 2, 3, 4, 5, 8, 10]; // default, used until staff save their own in Admin -> Settings
+// The 7 day rewards staff set in Admin -> Settings ("checkin_rewards", e.g. "1,2,3,4,5,8,10").
+function checkinRewards(s: Record<string, string>): number[] {
+  const parts = String(s.checkin_rewards || '').split(/[\s,]+/).filter(Boolean).map((x) => Math.floor(Number(x)));
+  return parts.length === 7 && parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 100000) ? parts : CHECKIN_REWARDS.slice();
+}
+function checkinPointsForStreak(streak: number, rewards: number[] = CHECKIN_REWARDS): number {
+  const idx = Math.min(Math.max(streak, 1), rewards.length) - 1;
+  return rewards[idx];
 }
 // Default minimum qualifying deposit (SGD) to unlock a day's check-in.
 const CHECKIN_MIN_DEPOSIT_DEFAULT = 10;
@@ -2292,7 +2297,7 @@ async function saveSettings(env: Env, updates: Record<string, string>): Promise<
 function publicSettings(s: Record<string, string>) {
   return {
     checkin_min_deposit: Number(s.checkin_min_deposit || String(CHECKIN_MIN_DEPOSIT_DEFAULT)),
-    checkin_rewards: CHECKIN_REWARDS,
+    checkin_rewards: checkinRewards(s),
     tasks_enabled: s.tasks_enabled === '1',
     announcement_text: s.announcement_text || '',
     contact_url: s.contact_url || '',
@@ -2490,14 +2495,15 @@ async function checkinStatus(env: Env, playerId: number, settings: Record<string
   ]);
   const checkedInToday = !!todayRow;
   const streak = checkedInToday ? todayRow!.streak : ((prevRow?.streak ?? 0) + 1);
-  const currentDay = Math.min(streak, CHECKIN_REWARDS.length);
+  const rewards = checkinRewards(settings);
+  const currentDay = Math.min(streak, rewards.length);
   return {
-    rewards: CHECKIN_REWARDS, min_deposit: min,
+    rewards, min_deposit: min,
     checked_in_today: checkedInToday,
     deposit_ok: depositTotal >= min,
     streak,
     standing_streak: checkedInToday ? streak : (prevRow?.streak ?? 0),
-    current_day: currentDay, current_points: checkinPointsForStreak(streak),
+    current_day: currentDay, current_points: checkinPointsForStreak(streak, rewards),
     can_check_in: !checkedInToday && depositTotal >= min,
   };
 }
@@ -3501,9 +3507,10 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // otherwise it restarts at day 1. Escalating reward per day (1..7, cycles).
       const prev = await env.DB.prepare('SELECT streak FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(player.id, sgtYesterdayKey()).first<{ streak: number }>();
       const streak = (prev?.streak ?? 0) + 1;
-      const points = checkinPointsForStreak(streak);
+      const ciRewards = checkinRewards(settings);
+      const points = checkinPointsForStreak(streak, ciRewards);
 
-      const day = Math.min(streak, CHECKIN_REWARDS.length);
+      const day = Math.min(streak, ciRewards.length);
       // Claim + points in ONE transaction. The UNIQUE(player_id, checkin_date)
       // makes a duplicate fail the whole batch, so a player can never be marked
       // "checked in" without receiving the points.
@@ -5928,7 +5935,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'contact_whatsapp', 'contact_telegram', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit'];
+      const allowed = ['checkin_min_deposit', 'checkin_rewards', 'tasks_enabled', 'announcement_text', 'contact_url', 'contact_whatsapp', 'contact_telegram', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
@@ -5940,6 +5947,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (key === 'contact_whatsapp' || key === 'contact_telegram') {
           val = normalizeContactLink(key, val);
           if (val === 'BAD') return fail('BAD_URL', key === 'contact_whatsapp' ? 'WhatsApp: enter a phone number (e.g. 6591234567) or an https://wa.me/ link.' : 'Telegram: enter a username (e.g. @le888) or an https://t.me/ link.', 400, rid);
+        }
+        if (key === 'checkin_rewards') {
+          const nums = val.split(/[\s,]+/).filter(Boolean).map((x) => Number(x));
+          if (nums.length !== 7 || !nums.every((n) => Number.isInteger(n) && n >= 0 && n <= 100000)) return fail('BAD_REQUEST', 'Check-in rewards need exactly 7 whole numbers (day 1 to day 7), e.g. 1,2,3,4,5,8,10.', 400, rid);
+          val = nums.join(',');
         }
         if (key === 'announcement_text') val = val.slice(0, 500);
         if (key === 'terms_text') val = val.slice(0, 20000);
