@@ -1,3 +1,5 @@
+/* PWA: turn on the LE888 service worker (installable app + offline screen). */
+if('serviceWorker' in navigator)window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});});
 const form=document.querySelector('#member-login-form'),error=document.querySelector('#login-error'),password=document.querySelector('#password');
 document.querySelector('#show-password').onclick=e=>{const show=password.type==='password';password.type=show?'text':'password';e.currentTarget.textContent=show?'Hide':'Show';e.currentTarget.setAttribute('aria-label',show?'Hide password':'Show password');e.currentTarget.setAttribute('aria-pressed',String(show));};
 document.querySelector('#forgot-password').onclick=()=>{document.querySelector('#recovery-note').hidden=false;};

@@ -1,16 +1,19 @@
 {
-  "name": "MyApp",
-  "short_name": "MyApp",
-  "description": "Play mini-games and earn rewards.",
+  "id": "/",
+  "name": "LE888",
+  "short_name": "LE888",
+  "description": "LE888 · Play more together. Mini games, rewards and VIP perks.",
+  "lang": "en",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#050505",
-  "theme_color": "#050505",
+  "theme_color": "#060606",
+  "categories": ["entertainment", "games"],
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

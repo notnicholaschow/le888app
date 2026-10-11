@@ -1,3 +1,6 @@
+/* PWA: turn on the LE888 service worker (installable app + offline screen). */
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();window.leInstallEvt=e;});window.addEventListener('appinstalled',()=>{window.leInstallEvt=null;document.querySelectorAll('.inst-sec').forEach(x=>x.remove());});
+if('serviceWorker' in navigator)window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});});
 /* Staff "View app": the player's short-lived token arrives as #imp=… from admin.
    Keep it in THIS tab only and send it with every API call, so this tab shows that
    player while the browser's own logged-in account (cookie) is left untouched. */
