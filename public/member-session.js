@@ -211,7 +211,7 @@ wireChat=function(){const form=document.querySelector('#chat-form');if(!form)ret
  const qi=document.querySelector('#chat-q'),qc=document.querySelector('#chat-q-clear'),tlEl=document.querySelector('#chat-messages');let qt=null;if(qi){qi.oninput=()=>{clearTimeout(qt);qt=setTimeout(()=>chatSetQuery(qi.value),120);};qi.onkeydown=e=>{if(e.key==='Escape'){qi.value='';chatSetQuery('');qi.blur();}};}
  if(qc)qc.onclick=()=>{if(qi)qi.value='';chatSetQuery('');};if(tlEl)tlEl.onclick=e=>{if(!chatState.q||e.target.closest('a'))return;const row=e.target.closest('.message-row.is-result');if(row)chatJump(row.dataset.id);};if(chatState.q)chatPaint();
  const nm=document.querySelector('#chat-new-message');if(nm)nm.onclick=()=>chatBottom();if(area)area.onscroll=()=>{if(area.scrollHeight-area.scrollTop-area.clientHeight<35&&nm)nm.hidden=true;};resize();requestAnimationFrame(()=>chatBottom(false));chatStart();};
-function chatDot(){const n=Number(memberData&&memberData.chat_unread)||0;document.querySelectorAll('.chat-dot').forEach(d=>{d.style.display=n>0?'':'none';});const nb=document.querySelector('#os-notifications i');if(nb){nb.textContent=String(n);nb.style.display=n>0?'':'none';}}
+function chatDot(){const n=Number(memberData&&memberData.chat_unread)||0;document.querySelectorAll('.chat-dot').forEach(d=>{d.style.display=n>0?'':'none';});const nb=document.querySelector('#os-notifications i');if(nb){nb.textContent=String(n);nb.style.display=n>0?'':'none';}const fb=document.querySelector('#chat-fab i');if(fb){fb.textContent=n>99?'99+':String(n);fb.style.display=n>0?'':'none';document.querySelector('#chat-fab').classList.toggle('has-unread',n>0);}}
 
 /* ===== REWARDS: daily check-in, VIP weekly bonus, promotions — all from Admin. ===== */
 let rwLoading=false;
@@ -415,3 +415,9 @@ document.addEventListener('click',async e=>{const b=e.target.closest('.copy-acco
  const prev=render;render=function(){prev();if(state.page==='home')setTimeout(show,1200);else remove();};
  window.addEventListener('appinstalled',remove);
  if(state.page==='home')setTimeout(show,1500);})();
+
+/* ===== Floating Live Chat button: always reachable (hidden inside chat and while playing a game) ===== */
+(function(){const HIDE={chat:1,game:1};
+ const ensure=()=>{let b=document.querySelector('#chat-fab');if(!b){b=document.createElement('button');b.type='button';b.id='chat-fab';b.setAttribute('aria-label','Live chat');b.innerHTML=icon('chat')+'<i style="display:none">0</i>';b.onclick=()=>go('chat');document.body.append(b);}return b;};
+ const sync=()=>{const b=ensure();b.hidden=!!HIDE[state.page];chatDot();};
+ const prev=render;render=function(){prev();sync();};sync();})();
