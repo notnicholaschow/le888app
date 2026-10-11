@@ -1491,7 +1491,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
           api('/api/admin/player/impersonate', { id: p.id }).then(function (r) {
             busy(b, false);
             if (!r.ok) { toast(r.error || 'Could not open player app.', true); return; }
-            window.open(location.origin + '/#imp=' + encodeURIComponent(r.token), '_blank');
+            window.open(location.origin + '/?view=1#imp=' + encodeURIComponent(r.token), '_blank');
             toast('Opening @' + p.username + '’s app in a new tab…');
           }).catch(function () { busy(b, false); toast('Network error.', true); });
         };
@@ -2193,7 +2193,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       api('/api/admin/player/impersonate', { id: acPlayer.id }).then(function (r) {
         busy(cv, false);
         if (!r.ok) { toast(r.error || 'Could not open player app.', true); return; }
-        window.open(location.origin + '/#imp=' + encodeURIComponent(r.token), '_blank');
+        window.open(location.origin + '/?view=1#imp=' + encodeURIComponent(r.token), '_blank');
         toast('Opening @' + acPlayer.username + '’s app…');
       }).catch(function () { busy(cv, false); toast('Network error.', true); });
     };

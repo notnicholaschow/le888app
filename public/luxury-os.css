@@ -1786,3 +1786,6 @@ dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
 .ct-drawer .ct-ic svg{width:19px;height:19px}
 .ct-drawer .ct-txt b{font-size:13px}
 .ct-drawer .ct-txt small{font-size:10.5px}
+
+/* Staff "View app" tab marker */
+.imp-bar{position:fixed;left:50%;bottom:calc(10px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:10000;pointer-events:none;padding:6px 14px;border-radius:999px;background:#b3261ecc;border:1px solid #ff8a80aa;color:#fff;font:800 11px/1 system-ui,sans-serif;letter-spacing:.12em;box-shadow:0 6px 16px #0007;white-space:nowrap}
