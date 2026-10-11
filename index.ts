@@ -853,13 +853,23 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       status,
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
-    if (cookie !== undefined) {
+    // Staff "View app" tab: never touch the browser's own player cookie.
+    if (cookie !== undefined && !impToken()) {
       const maxAge = cookie ? PLAYER_SESSION_SECONDS : 0;
       r.headers.append('Set-Cookie', COOKIE + '=' + cookie + '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=' + maxAge);
     }
     return r;
   }
+  // "View app" (staff acting as a player) sends the short-lived player token
+  // in this header, from ONE browser tab only. It wins over the cookie so the
+  // staff see the chosen player, not whoever is logged in on this browser.
+  function impToken(): string {
+    const t = (request.headers.get('X-LE888-Imp') || '').trim();
+    return /^[A-Za-z0-9._~+\/=-]{20,2000}$/.test(t) ? t : '';
+  }
   function cookieToken(): string {
+    const imp = impToken();
+    if (imp) return imp;
     const c = request.headers.get('Cookie') || '';
     for (const part of c.split(/;\s*/)) {
       if (part.indexOf(COOKIE + '=') === 0) return part.slice(COOKIE.length + 1);
@@ -1410,7 +1420,10 @@ export default {
         return decorateAsset(res, true);
       }
       if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        const authed = (request.headers.get('Cookie') || '').indexOf('le888sid=') !== -1;
+        // ?view=1 is the staff "View app" tab: its login token lives in the tab
+        // (URL #fragment -> sessionStorage), not in a cookie. Serving the static
+        // page is harmless; every API call is still checked.
+        const authed = (request.headers.get('Cookie') || '').indexOf('le888sid=') !== -1 || url.searchParams.get('view') === '1';
         if (!authed) return Response.redirect(new URL('/login', request.url).toString(), 302);
         // authed -> fall through and serve public/index.html via ASSETS below
       }
