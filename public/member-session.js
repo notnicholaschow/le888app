@@ -367,3 +367,17 @@ async function leCopy(text){try{if(navigator.clipboard&&window.isSecureContext){
  try{const host=(document.querySelector('dialog[open]')||document.body);const t=document.createElement('textarea');t.value=text;t.setAttribute('readonly','');t.style.cssText='position:fixed;top:0;left:0;opacity:0;font-size:16px';host.appendChild(t);t.select();t.setSelectionRange(0,text.length);const ok=document.execCommand('copy');t.remove();return ok;}catch(e){return false;}}
 function leCopied(b){if(!b.dataset.label)b.dataset.label=b.textContent;b.textContent='Copied ✓';b.classList.remove('le-copied');void b.offsetWidth;b.classList.add('copied','le-copied');try{if(navigator.vibrate&&state.vibration!==false)navigator.vibrate(25);}catch(e){}clearTimeout(b._cpT);b._cpT=setTimeout(()=>{b.textContent=b.dataset.label;b.classList.remove('copied','le-copied');},1600);}
 document.addEventListener('click',async e=>{const b=e.target.closest('.copy-account-id,.gp-copy,.dep-copy');if(!b||b.onclick)return;const text=b.dataset.accountId||b.dataset.copy||'';if(!text)return;e.preventDefault();if(await leCopy(text)){leCopied(b);toast('Copied: '+text);}else toast('Copy unavailable — press and hold the ID to copy it.');});
+
+/* ===== Install pop-up: small floating card at the bottom of Home (hidden once installed; × hides it for 3 days) ===== */
+(function(){const KEY='le888-inst-hide',DAYS=3;
+ const hidden=()=>{try{return Date.now()-Number(localStorage.getItem(KEY)||0)<DAYS*86400000;}catch(e){return false;}};
+ const remove=()=>{const p=document.querySelector('.inst-pop');if(p){p.classList.remove('show');setTimeout(()=>p.remove(),250);}};
+ const show=()=>{if(state.page!=='home'||memberIsApp()||window.memberImp||hidden()||document.querySelector('.inst-pop'))return;
+  const p=document.createElement('div');p.className='inst-pop';p.setAttribute('role','dialog');p.setAttribute('aria-label','Install the LE888 app');
+  p.innerHTML='<img src="/icon-192.png" alt="" width="44" height="44"><span class="inst-pop-txt"><b>Install LE888 App</b><small>Faster access · full screen</small></span><button type="button" class="inst-pop-go">Install</button><button type="button" class="inst-pop-x" aria-label="Not now">×</button>';
+  document.body.append(p);requestAnimationFrame(()=>requestAnimationFrame(()=>p.classList.add('show')));
+  p.querySelector('.inst-pop-go').onclick=()=>{remove();installApp();};
+  p.querySelector('.inst-pop-x').onclick=()=>{try{localStorage.setItem(KEY,String(Date.now()));}catch(e){}remove();};};
+ const prev=render;render=function(){prev();if(state.page==='home')setTimeout(show,1200);else remove();};
+ window.addEventListener('appinstalled',remove);
+ if(state.page==='home')setTimeout(show,1500);})();
