@@ -1373,6 +1373,33 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   }
 
+  // ---- PUSH NOTIFICATIONS (Settings -> Notifications switch) ----
+  // Same player session, handed to the existing /api/push/* handlers.
+  if ((p === '/api/member/push/key' && method === 'GET') || ((p === '/api/member/push/subscribe' || p === '/api/member/push/unsubscribe') && method === 'POST')) {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (impToken() && p !== '/api/member/push/key') return j({ error: 'Not available in Staff View.' }, 403);
+    const raw = method === 'POST' ? await request.text() : '{}';
+    const fwd = new Request(new URL(p.replace('/api/member/push/', '/api/push/'), request.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip },
+      body: raw,
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    // Turning notifications on sends one confirmation to THIS phone so the
+    // player (and you) can see straight away that it works.
+    if (p === '/api/member/push/subscribe' && res.ok) {
+      try {
+        const b = JSON.parse(raw || '{}');
+        const zh = String(b.lang || '') === 'zh';
+        ctx.waitUntil(sendWebPush(env, { endpoint: String(b.endpoint || ''), p256dh: String(b.p256dh || ''), auth: String(b.auth || '') },
+          JSON.stringify(zh ? { title: 'LE888 通知已开启 ✓', body: '存款、提款、客服回复和奖励都会在这里通知你。' } : { title: 'LE888 notifications are on ✓', body: 'We\'ll let you know about deposits, withdrawals, chat replies and rewards.' })));
+      } catch { /* the switch still works without the test message */ }
+    }
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+
   // ---- LOGOUT ----
   if (p === '/api/member/logout' && method === 'POST') {
     return j({ ok: true }, 200, '');
