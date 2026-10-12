@@ -493,6 +493,8 @@ function checkinPointsForStreak(streak: number, rewards: number[] = CHECKIN_REWA
 }
 // Default minimum qualifying deposit (SGD) to unlock a day's check-in.
 const CHECKIN_MIN_DEPOSIT_DEFAULT = 10;
+// How far back staff may date a deposit in Manage -> Deposits.
+const DEPOSIT_BACKDATE_DAYS = 90;
 
 // VIP ranks. DO NOT CHANGE. Rank is based on total deposits recorded in the
 // current month (Singapore time).
@@ -2526,12 +2528,25 @@ async function getVipStatus(env: Env, playerId: number): Promise<VipStatus> {
 // VIP upgrade bonuses and the auto messages. Used by Admin -> Players (manual
 // entry) and by approving a player's deposit request from the app.
 type RecordDepositResult = { ok: true; deposit_total: number; rank_name: string | null; upgrade_points_granted: number; deposit_points_granted: number } | { ok: false; code: string; msg: string; status: number };
-async function recordDeposit(env: Env, id: number, amount: number, note: string, reference: string, admin: string): Promise<RecordDepositResult> {
+async function recordDeposit(env: Env, id: number, amount: number, note: string, reference: string, admin: string, dateKey = ''): Promise<RecordDepositResult> {
   if (!id || !Number.isFinite(amount) || amount <= 0) return { ok: false, code: 'BAD_REQUEST', msg: 'A player id and a positive deposit amount are required.', status: 400 };
   if (amount > 100000000) return { ok: false, code: 'AMOUNT_RANGE', msg: 'Deposit amount is too large.', status: 400 };
   const exists = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(id).first();
   if (!exists) return { ok: false, code: 'PLAYER_NOT_FOUND', msg: 'Player not found.', status: 404 };
-  const monthKey = monthKeySGT();
+  // Deposit date (Singapore). Staff may back-date a deposit they forgot to key
+  // in: not in the future, and at most DEPOSIT_BACKDATE_DAYS back. A back-dated
+  // deposit is stamped 12:00 noon SGT on that day, so it counts for that day's
+  // check-in and that month's VIP rank. Today = the normal "now" time.
+  const todayKey = sgtDateKey();
+  let createdAt: string | null = null;
+  if (dateKey && dateKey !== todayKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || isNaN(Date.parse(dateKey + 'T00:00:00Z'))) return { ok: false, code: 'BAD_DATE', msg: 'Invalid deposit date.', status: 400 };
+    if (dateKey > todayKey) return { ok: false, code: 'BAD_DATE', msg: 'The deposit date cannot be in the future.', status: 400 };
+    const oldest = new Date(sgtNow().getTime() - DEPOSIT_BACKDATE_DAYS * 86400000).toISOString().slice(0, 10);
+    if (dateKey < oldest) return { ok: false, code: 'BAD_DATE', msg: `The deposit date can be at most ${DEPOSIT_BACKDATE_DAYS} days ago.`, status: 400 };
+    createdAt = dateKey + ' 04:00:00'; // 12:00 SGT = 04:00 UTC
+  }
+  const monthKey = createdAt ? dateKey.slice(0, 7) : monthKeySGT();
   // Rank BEFORE this deposit, so we can detect a rank-up afterwards.
   const rankBefore = (await getVipStatus(env, id)).rank_idx;
   // Duplicate-reference guard: if staff paste the bank/receipt reference, the
@@ -2543,12 +2558,12 @@ async function recordDeposit(env: Env, id: number, amount: number, note: string,
     } catch { /* reference column not migrated yet */ }
   }
   try {
-    await env.DB.prepare('INSERT INTO deposits (player_id, amount, month_key, note, admin_username, reference) VALUES (?, ?, ?, ?, ?, ?)').bind(id, amount, monthKey, note || null, admin, reference || null).run();
+    await env.DB.prepare("INSERT INTO deposits (player_id, amount, month_key, note, admin_username, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))").bind(id, amount, monthKey, note || null, admin, reference || null, createdAt).run();
   } catch (e) {
     const msg = String((e as any)?.message || e);
     if (/UNIQUE/i.test(msg)) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
     // Pre-migration fallback: record without the reference column.
-    await env.DB.prepare('INSERT INTO deposits (player_id, amount, month_key, note, admin_username) VALUES (?, ?, ?, ?, ?)').bind(id, amount, monthKey, note || null, admin).run();
+    await env.DB.prepare("INSERT INTO deposits (player_id, amount, month_key, note, admin_username, created_at) VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))").bind(id, amount, monthKey, note || null, admin, createdAt).run();
   }
   // Deposit bonus points: $rate deposited = 1 point (Settings, default $10;
   // 0 disables). Logged like every other point movement, with the staff name.
@@ -4593,7 +4608,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const amount = Number(body.amount);
       const note = String(body.note || '').trim().slice(0, 300);
       const reference = String(body.reference || '').trim().slice(0, 80);
-      const res = await recordDeposit(env, id, amount, note, reference, admin);
+      const res = await recordDeposit(env, id, amount, note, reference, admin, String(body.date || '').trim());
       if (!res.ok) return fail(res.code, res.msg, res.status, rid);
       return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, upgrade_points_granted: res.upgrade_points_granted, deposit_points_granted: res.deposit_points_granted }, 200, rid);
     }
