@@ -238,8 +238,10 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 .p-name { font-weight: 600; color: var(--text); }
 .p-user { color: var(--dim); font-size: 12px; }
 .pid { color: var(--text-2); font-weight: 400; }
-.act-btns { white-space: nowrap; text-align: right; }
-.act-btns .btn + .btn { margin-left: 5px; }
+.act-btns { white-space: normal; text-align: right; }
+.act-btns .btn { margin: 3px 0 3px 5px; }
+/* Players list: buttons wrap onto a 2nd line on narrower screens instead of spilling past the card */
+#playerTbl td.act-btns { min-width: 300px; }
 
 /* Toolbar rows */
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
