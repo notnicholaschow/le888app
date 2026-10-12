@@ -1828,6 +1828,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       '<h2>Deposits &mdash; @' + esc(p.username) + '</h2>' +
       '<p class="muted" id="mVipStatus">Loading VIP status&hellip;</p>' +
       '<label>New deposit amount (drives VIP rank)</label><input id="mDeposit" type="number" min="0" placeholder="e.g. 500">' +
+      '<label>Deposit date (Singapore time) &mdash; change only if the deposit was on an earlier day</label><input id="mDepDate" type="date"><p class="muted" id="mDepDateHint" style="margin:4px 0 0;font-size:12px"></p>' +
       '<label>Bank reference (recommended — blocks duplicates)</label><input id="mDepRef" placeholder="e.g. bank txn ref / receipt no.">' +
       '<label>Note (optional)</label><input id="mDepNote" placeholder="Method / remarks">' +
       '<button class="btn" id="mDepBtn" style="margin-top:12px;width:100%">Record deposit</button>' +
@@ -1836,6 +1837,18 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
       '<p class="muted">Editing or removing recalculates the VIP rank. Deposit-bonus and upgrade-bonus points already granted are not taken back automatically &mdash; use Points if needed.</p>' +
       '<div id="mDepList" class="muted" style="margin-top:8px">Loading&hellip;</div>'
     );
+    // Date picker: defaults to today (SGT); up to 90 days back, never the future.
+    var sgDay = function (offsetDays) { return new Date(Date.now() + 8 * 3600000 - (offsetDays || 0) * 86400000).toISOString().slice(0, 10); };
+    var dEl = $('mDepDate');
+    function resetDepDate() { dEl.value = sgDay(0); dEl.max = sgDay(0); dEl.min = sgDay(90); depDateHint(); }
+    function depDateHint() {
+      var h = $('mDepDateHint'); if (!h) return;
+      var today = sgDay(0);
+      if (!dEl.value || dEl.value === today) { h.textContent = 'Today'; h.style.color = ''; }
+      else { h.textContent = '\u26A0 Back-dated to ' + dEl.value + ' \u2014 counts for that day\u2019s check-in and that month\u2019s VIP.'; h.style.color = '#e9bd5a'; }
+    }
+    dEl.onchange = depDateHint; dEl.oninput = depDateHint;
+    resetDepDate();
     function refreshVip(res) {
       $('mVipStatus').textContent = 'This month: $' + Number(res.deposit_total).toLocaleString('en-US') +
         ' deposited • Rank: ' + (res.rank_name || 'none');
@@ -1879,15 +1892,19 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
     $('mDepBtn').onclick = function () {
       var amount = Number($('mDeposit').value);
       if (!amount || amount <= 0) { toast('Enter a positive deposit amount.', true); return; }
+      var depDate = dEl.value || sgDay(0);
+      if (depDate > sgDay(0)) { toast('The deposit date cannot be in the future.', true); return; }
+      if (depDate !== sgDay(0) && !confirm('Record SGD ' + amount + ' as a deposit on ' + depDate + ' (not today)?')) return;
       var btn = this; busy(btn, true);
-      api('/api/admin/deposit/record', { id: p.id, amount: amount, note: $('mDepNote').value.trim(), reference: ($('mDepRef') ? $('mDepRef').value.trim() : '') }).then(function (res) {
+      api('/api/admin/deposit/record', { id: p.id, amount: amount, date: depDate, note: $('mDepNote').value.trim(), reference: ($('mDepRef') ? $('mDepRef').value.trim() : '') }).then(function (res) {
         busy(btn, false);
         if (!res.ok) { toast(res.error || 'Deposit failed.', true); return; }
         var msg = 'Deposit recorded. Rank: ' + (res.rank_name || 'none');
         if (res.deposit_points_granted > 0) msg += ' • +' + res.deposit_points_granted + ' deposit pts';
         if (res.upgrade_points_granted > 0) msg += ' • +' + res.upgrade_points_granted + ' upgrade pts';
+        if (res.checkin) msg += ' • Check-in day ' + res.checkin.day + ' (+' + res.checkin.points + ' pts)' + (res.checkin.fixed ? ' • streak fixed for ' + res.checkin.fixed + ' later day(s)' : '');
         toast(msg);
-        $('mDeposit').value = ''; $('mDepNote').value = '';
+        $('mDeposit').value = ''; $('mDepNote').value = ''; if ($('mDepRef')) $('mDepRef').value = ''; resetDepDate();
         loadList(); loadPlayers();
       }).catch(function () { busy(btn, false); toast('Network error.', true); });
     };
@@ -1914,6 +1931,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
         if (!res.ok) { toast(res.error || 'Save failed.', true); return; }
         var msg = 'Deposit updated. Rank: ' + (res.rank_name || 'none');
         if (res.upgrade_points_granted > 0) msg += ' • +' + res.upgrade_points_granted + ' upgrade pts';
+        if (res.checkin) msg += ' • Check-in day ' + res.checkin.day + ' (+' + res.checkin.points + ' pts)' + (res.checkin.fixed ? ' • streak fixed for ' + res.checkin.fixed + ' later day(s)' : '');
         toast(msg);
         loadPlayers();
         back();
