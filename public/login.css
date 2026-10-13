@@ -26,3 +26,16 @@ footer{margin-top:20px}
 
 /* uploaded LE888 logo image */
 .login-brand .login-logo-img{display:block;width:min(270px,72%);height:auto;margin:0 auto;filter:drop-shadow(0 3px 14px #000)}
+
+/* Contact buttons (WhatsApp / Telegram) */
+.login-contact{margin-top:14px}
+.lc-label{display:block;font-size:9px;letter-spacing:2.3px;color:#c3a774;text-transform:uppercase;margin-bottom:10px}
+.lc-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lc-row.one{grid-template-columns:1fr}
+.lc-btn{display:flex;align-items:center;justify-content:center;gap:9px;height:46px;border-radius:12px;border:1px solid #c4a56a40;background:linear-gradient(180deg,#1b1812,#0e0d0a);color:#f8f1df;text-decoration:none;font-size:14px}
+.lc-btn b{font-weight:700}
+.lc-btn:active{transform:scale(.97)}
+.lc-ic{display:grid;place-items:center;width:28px;height:28px;border-radius:50%}
+.lc-ic svg{width:17px;height:17px}
+.lc-wa .lc-ic{background:linear-gradient(160deg,#5be37f,#1faa52)}
+.lc-tg .lc-ic{background:linear-gradient(160deg,#3fb8f0,#1a86c8)}
