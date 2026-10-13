@@ -1843,3 +1843,8 @@ dialog.pp-modal::-webkit-scrollbar{display:none;width:0;height:0}
 @media (prefers-reduced-motion:reduce){#chat-fab.has-unread{animation:none}}
 /* lift it above the Install pop-up when that is showing */
 body:has(.inst-pop.show) #chat-fab{bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+
+/* VIP medals: bigger on My Rank + the rank popup (beats the 54px default above) */
+body.luxury-os .my-rank-panel .rank-emblem{width:150px;height:150px;margin:0 auto 12px}
+body.luxury-os .vip-detail-emblem.rank-emblem{width:140px;height:140px;margin:6px auto 12px}
+body.luxury-os .rw-row .rank-emblem{width:60px;height:60px}
