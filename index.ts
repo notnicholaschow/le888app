@@ -1742,7 +1742,7 @@ async function runScheduledPushes(env: Env): Promise<void> {
           const ins = await env.DB.prepare('INSERT OR IGNORE INTO push_log (kind, key) VALUES (?, ?)').bind('checkin', pid + ':' + today).run();
           if (ins.meta.changes) {
             await pushToPlayer(env, pid,
-              { title: 'Daily check-in', body: 'Deposit today and check in to grow your streak reward.' },
+              { title: 'Daily check-in', body: 'Deposit today to keep your check-in streak going.' },
               { title: '\u6bcf\u65e5\u7b7e\u5230', body: '\u4eca\u5929\u5b58\u6b3e\u5e76\u7b7e\u5230\uff0c\u8fde\u7eed\u7b7e\u5230\u5956\u52b1\u66f4\u4e30\u539a\u3002' });
           }
         }
@@ -2527,7 +2527,49 @@ async function getVipStatus(env: Env, playerId: number): Promise<VipStatus> {
 // Record a verified deposit for a player: deposit row, deposit bonus points,
 // VIP upgrade bonuses and the auto messages. Used by Admin -> Players (manual
 // entry) and by approving a player's deposit request from the app.
-type RecordDepositResult = { ok: true; deposit_total: number; rank_name: string | null; upgrade_points_granted: number; deposit_points_granted: number } | { ok: false; code: string; msg: string; status: number };
+type RecordDepositResult = { ok: true; deposit_total: number; rank_name: string | null; upgrade_points_granted: number; deposit_points_granted: number; checkin?: { day: number; points: number; fixed: number } | null } | { ok: false; code: string; msg: string; status: number };
+// ---- Deposit-driven check-in -------------------------------------------------
+// Check-in follows DEPOSITS, not app visits: when staff record a deposit and
+// that Singapore day's deposits reach the check-in minimum, the day is checked
+// in automatically (points + streak). Works for back-dated deposits too: the
+// missed day is filled in and every later consecutive day is re-numbered
+// (e.g. a "Day 1" becomes "Day 2"), with the point difference paid out.
+function shiftSgtDay(day: string, n: number): string {
+  return new Date(Date.parse(day + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+}
+async function depositCheckin(env: Env, playerId: number, day: string): Promise<{ day: number; points: number; fixed: number } | null> {
+  const s = await getSettings(env);
+  const min = Math.max(0, Number(s.checkin_min_deposit || String(CHECKIN_MIN_DEPOSIT_DEFAULT)));
+  const total = await depositTotalForSgtDay(env, playerId, day);
+  if (total <= 0 || total < min) return null;
+  const have = await env.DB.prepare('SELECT 1 AS x FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, day).first();
+  if (have) return null;
+  const rewards = checkinRewards(s);
+  const prev = await env.DB.prepare('SELECT streak FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, shiftSgtDay(day, -1)).first<{ streak: number }>();
+  const streak = (prev?.streak ?? 0) + 1;
+  const points = checkinPointsForStreak(streak, rewards);
+  const dayNo = Math.min(streak, rewards.length);
+  try {
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO daily_checkins (player_id, checkin_date, points_added, streak) VALUES (?, ?, ?, ?)').bind(playerId, day, points, streak),
+      ...pointRewardStmts(env, playerId, POINT_TYPES.CHECKIN, points, `Daily check-in (day ${dayNo}) · ${day}`),
+    ]);
+  } catch { return null; } // already checked in (race) - nothing to do
+  // Re-number the following consecutive days, if any were already checked in.
+  let d = day, st = streak, fixed = 0;
+  for (let i = 0; i < 400; i++) {
+    d = shiftSgtDay(d, 1); st += 1;
+    const row = await env.DB.prepare('SELECT id, streak, points_added FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, d).first<{ id: number; streak: number; points_added: number }>();
+    if (!row || row.streak === st) break;
+    const newPts = checkinPointsForStreak(st, rewards);
+    const diff = newPts - Number(row.points_added || 0);
+    const stmts: any[] = [env.DB.prepare('UPDATE daily_checkins SET streak = ?, points_added = ? WHERE id = ?').bind(st, newPts, row.id)];
+    if (diff !== 0) stmts.push(...pointRewardStmts(env, playerId, POINT_TYPES.CHECKIN, diff, `Check-in streak fix: ${d} is now day ${Math.min(st, rewards.length)}`));
+    await env.DB.batch(stmts);
+    fixed++;
+  }
+  return { day: dayNo, points, fixed };
+}
 async function recordDeposit(env: Env, id: number, amount: number, note: string, reference: string, admin: string, dateKey = ''): Promise<RecordDepositResult> {
   if (!id || !Number.isFinite(amount) || amount <= 0) return { ok: false, code: 'BAD_REQUEST', msg: 'A player id and a positive deposit amount are required.', status: 400 };
   if (amount > 100000000) return { ok: false, code: 'AMOUNT_RANGE', msg: 'Deposit amount is too large.', status: 400 };
@@ -2574,6 +2616,9 @@ async function recordDeposit(env: Env, id: number, amount: number, note: string,
     depositPoints = Math.floor(amount / rate);
     if (depositPoints > 0) await awardPoints(env, id, POINT_TYPES.DEPOSIT_BONUS, depositPoints, `Deposit bonus: $${amount}`, admin);
   }
+  // Check-in follows deposits: this day may now count as checked in.
+  let checkin: { day: number; points: number; fixed: number } | null = null;
+  try { checkin = await depositCheckin(env, id, createdAt ? dateKey : todayKey); } catch { /* best-effort */ }
   const vip = await getVipStatus(env, id);
   const granted = await grantUpgradeBonuses(env, id, vip);
   // Auto-messages (best-effort): first deposit vs later, and a rank-up note.
@@ -2586,7 +2631,7 @@ async function recordDeposit(env: Env, id: number, amount: number, note: string,
   } catch { /* best-effort */ }
   // Referral: this player's deposit may complete their inviter's referral.
   try { await checkReferral(env, id, admin); } catch { /* best-effort */ }
-  return { ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints };
+  return { ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints, checkin };
 }
 
 // Game platforms shown on the app's Game Platforms page (Admin -> Slot Games).
@@ -2741,7 +2786,7 @@ async function renderChatTemplate(env: Env, content: string, player: PlayerRow, 
   const p = player as any;
   const vars: Record<string, string> = {
     name: p.display_name || p.username,
-    player_id: p.username,
+    player_id: String(p.username || '').toUpperCase(), // shown in capitals, e.g. LE8904
     points: String(p.points ?? 0),
     credits: centsToStr(p.reward_cents ?? 0),
     tag: p.tag || '',
@@ -4610,7 +4655,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const reference = String(body.reference || '').trim().slice(0, 80);
       const res = await recordDeposit(env, id, amount, note, reference, admin, String(body.date || '').trim());
       if (!res.ok) return fail(res.code, res.msg, res.status, rid);
-      return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, upgrade_points_granted: res.upgrade_points_granted, deposit_points_granted: res.deposit_points_granted }, 200, rid);
+      return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, upgrade_points_granted: res.upgrade_points_granted, deposit_points_granted: res.deposit_points_granted, checkin: (res as any).checkin || null }, 200, rid);
     }
 
     case '/api/admin/deposit/list': {
