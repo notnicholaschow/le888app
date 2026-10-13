@@ -1168,9 +1168,11 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     if (a.type === 'payout paid') return '<span class="muted">&mdash;</span>';
     return '<span class="' + (amt >= 0 ? 'amt-pos' : 'amt-neg') + '">' + (amt >= 0 ? '+' : '') + amt.toFixed(2) + '</span>';
   }
+  // Player IDs are always SHOWN in capitals (LE8904). Stored + login stay case-insensitive.
+  function U(x) { return String(x == null ? '' : x).toUpperCase(); }
   function playerCell(username, displayName) {
-    return '<div class="p-name">' + esc(displayName || username) + '</div>' +
-      '<div class="p-user">@' + esc(username || '?') + '</div>';
+    return '<div class="p-name">' + esc(displayName || U(username)) + '</div>' +
+      '<div class="p-user">@' + esc(U(username || '?')) + '</div>';
   }
 
   // ------------------------------------------------------------------
@@ -1452,7 +1454,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       var tb = $('playerTbl').querySelector('tbody');
       tb.innerHTML = res.players.map(function (p) {
         return '<tr><td>' + playerCell(p.username, p.display_name) + '</td>' +
-          '<td class="pid">' + esc(p.username) + '</td>' +
+          '<td class="pid">' + esc(U(p.username)) + '</td>' +
           '<td><select class="tag-inline ' + tagClass(p.tag) + '" data-tag-player="' + p.id + '">' + tagSelectHtml(p.tag) + '</select></td>' +
           '<td>' + Number(p.points).toLocaleString('en-US') + '</td>' +
           '<td>' + ((p.reward_cents || 0) / 100).toFixed(2) + '</td>' +
@@ -1498,7 +1500,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
             busy(b, false);
             if (!r.ok) { toast(r.error || 'Could not open player app.', true); return; }
             window.open(location.origin + '/?view=1#imp=' + encodeURIComponent(r.token), '_blank');
-            toast('Opening @' + p.username + '’s app in a new tab…');
+            toast('Opening @' + U(p.username) + '’s app in a new tab…');
           }).catch(function () { busy(b, false); toast('Network error.', true); });
         };
       });
@@ -1538,7 +1540,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         referred_by: $('npRef').value.trim()
       }).then(function (res) {
         if (!res.ok) { toast(res.error || 'Create failed.', true); return; }
-        toast('Player created: @' + res.username + ($('npRef') && $('npRef').value.trim() ? ' · referral linked' : ''));
+        toast('Player created: @' + U(res.username) + ($('npRef') && $('npRef').value.trim() ? ' · referral linked' : ''));
         closeModal(); loadPlayers();
       });
     };
@@ -1578,8 +1580,8 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   function referralModal(p) {
     if (!p) return;
     openModal(
-      '<h2>Referrals &mdash; ' + esc(p.display_name || p.username) + '</h2>' +
-      '<p class="muted">@' + esc(p.username) + '</p>' +
+      '<h2>Referrals &mdash; ' + esc(p.display_name || U(p.username)) + '</h2>' +
+      '<p class="muted">@' + esc(U(p.username)) + '</p>' +
       '<div id="refBody"><p class="muted">Loading&hellip;</p></div>'
     );
     var myModal = modalSeq;
@@ -1609,7 +1611,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           '<p class="muted" style="margin:0 0 10px">Rules: each friend who deposits = <b>' + Number(c.per || 0) + ' PTS</b>; every <b>' + every + '</b> friends = extra <b>' + Number(c.bonus || 0) + ' PTS</b>' +
             (c.min_deposit ? '; friend needs at least <b>SGD ' + c.min_deposit + '</b> deposited' : '') +
             '. Only deposits keyed in under <b>Manage &rarr; Deposits</b> count. Change the amounts in <b>Settings &rarr; Referral program</b>.</p>' +
-          (res.referred_by ? '<p class="muted" style="margin:0 0 10px">This player was referred by <b>@' + esc(res.referred_by.username) + '</b>.</p>' : '') +
+          (res.referred_by ? '<p class="muted" style="margin:0 0 10px">This player was referred by <b>@' + esc(U(res.referred_by.username)) + '</b>.</p>' : '') +
           '<label for="refFriend">Add a friend this player referred (friend&rsquo;s Player ID)</label>' +
           '<div class="row" style="align-items:center"><input id="refFriend" autocapitalize="none" placeholder="e.g. LE2810" style="flex:1"><button class="btn small" id="refAdd">Add referral</button></div>' +
           '<p class="muted" style="margin:4px 0 12px">If the friend already has deposits keyed in, the PTS are given straight away.</p>' +
@@ -1647,8 +1649,8 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   function gameIdModal(p) {
     if (!p) return;
     openModal(
-      '<h2>Game IDs &mdash; ' + esc(p.display_name || p.username) + '</h2>' +
-      '<p class="muted">@' + esc(p.username) + '</p>' +
+      '<h2>Game IDs &mdash; ' + esc(p.display_name || U(p.username)) + '</h2>' +
+      '<p class="muted">@' + esc(U(p.username)) + '</p>' +
       '<div id="gidBody"><p class="muted">Loading&hellip;</p></div>'
     );
     var myModal = modalSeq;
@@ -1697,7 +1699,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // ---- Manage modal: identity (name / Player ID / status / note) + password ----
   function playerModal(p) {
     openModal(
-      '<h2>' + esc(p.display_name || p.username) + ' (@' + esc(p.username) + ')</h2>' +
+      '<h2>' + esc(p.display_name || U(p.username)) + ' (@' + esc(U(p.username)) + ')</h2>' +
       '<p class="muted">Points ' + Number(p.points).toLocaleString('en-US') +
         ' &middot; Credits ' + ((p.reward_cents || 0) / 100).toFixed(2) + '</p>' +
       '<label>Display name</label><input id="mName" value="' + esc(p.display_name || '') + '">' +
@@ -1721,7 +1723,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         '<hr style="border-color:var(--line);margin:16px 0">' +
         '<h2 style="color:var(--red)">Danger zone</h2>' +
         '<p class="muted" style="margin:0 0 8px">Permanently delete this account and all its data. This cannot be undone. To remove access without deleting, reset the password above instead.</p>' +
-        '<label>Type <b>' + esc(p.username) + '</b> to confirm</label>' +
+        '<label>Type <b>' + esc(U(p.username)) + '</b> to confirm</label>' +
         '<input id="mDelConfirm" autocapitalize="none" placeholder="' + esc(p.username) + '">' +
         '<button class="btn warn" id="mDelBtn" style="margin-top:10px;width:100%">Delete player permanently</button>'
       : '')
@@ -1753,19 +1755,19 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       if (next.length < 8) { toast('Password must be at least 8 characters.', true); return; }
       api('/api/admin/player/password', { id: p.id, new_password: next }).then(function (res) {
         if (!res.ok) { toast(res.error || 'Reset failed.', true); return; }
-        toast('Password reset for @' + p.username + '.');
+        toast('Password reset for @' + U(p.username) + '.');
         $('mNewPass').value = '';
       });
     };
     if ($('mDelBtn')) $('mDelBtn').onclick = function () {
       var typed = $('mDelConfirm').value.trim();
-      if (typed !== p.username) { toast('Type the exact username to confirm.', true); return; }
-      if (!confirm('Permanently delete @' + p.username + ' and ALL their data?\n\nThis cannot be undone.')) return;
+      if (typed.toLowerCase() !== String(p.username).toLowerCase()) { toast('Type the exact username to confirm.', true); return; } typed = p.username;
+      if (!confirm('Permanently delete @' + U(p.username) + ' and ALL their data?\n\nThis cannot be undone.')) return;
       var btn = this; busy(btn, true);
       api('/api/admin/player/delete', { id: p.id, confirm_username: typed }).then(function (res) {
         busy(btn, false);
         if (!res.ok) { toast(res.error || 'Delete failed.', true); return; }
-        toast('Deleted @' + p.username + '.'); closeModal(); loadPlayers();
+        toast('Deleted @' + U(p.username) + '.'); closeModal(); loadPlayers();
       }).catch(function () { busy(btn, false); toast('Network error.', true); });
     };
   }
@@ -1773,7 +1775,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // ---- Points modal: point corrections ----
   function pointsModal(p) {
     openModal(
-      '<h2>Points &mdash; @' + esc(p.username) + '</h2>' +
+      '<h2>Points &mdash; @' + esc(U(p.username)) + '</h2>' +
       '<p class="muted">Current balance: <b>' + Number(p.points).toLocaleString('en-US') + '</b> points</p>' +
       (isMgr() ? '' : '<p class="muted">Staff limit: \u00b1200 points per correction.</p>') +
       '<label>Amount (negative to subtract)</label><input id="mAmount" type="number" placeholder="e.g. 50 or -20">' +
@@ -1786,7 +1788,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       if (!amount || !isFinite(amount)) { toast('Enter a non-zero amount.', true); return; }
       if (Math.floor(amount) !== amount || Math.abs(amount) > 1000000) { toast('Amount must be a whole number up to 1,000,000.', true); return; }
       if (!reason) { toast('A reason is required.', true); return; }
-      var msg = (amount < 0 ? 'Subtract ' + Math.abs(amount) : 'Add ' + amount) + ' points for @' + p.username + '?';
+      var msg = (amount < 0 ? 'Subtract ' + Math.abs(amount) : 'Add ' + amount) + ' points for @' + U(p.username) + '?';
       if (Math.abs(amount) >= 1000) msg += '\n\nThis is a large correction — please confirm.';
       if (!confirm(msg)) return;
       var btn = this; busy(btn, true);
@@ -1801,7 +1803,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // ---- Reward Credits modal: corrections ----
   function creditsModal(p) {
     openModal(
-      '<h2>Credits &mdash; @' + esc(p.username) + '</h2>' +
+      '<h2>Credits &mdash; @' + esc(U(p.username)) + '</h2>' +
       '<p class="muted">Current balance: <b>' + ((p.reward_cents || 0) / 100).toFixed(2) + '</b> credits</p>' +
       (isMgr() ? '' : '<p class="muted">Staff limit: \u00b110.00 credits per correction.</p>') +
       '<label>Amount in credits (e.g. 2.88 or -1.50)</label><input id="mCredAmount" type="number" step="0.01" placeholder="e.g. 2.88 or -1.50">' +
@@ -1814,7 +1816,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       if (!amount || !isFinite(amount)) { toast('Enter a non-zero amount.', true); return; }
       if (Math.abs(amount) > 1000000) { toast('Amount is too large.', true); return; }
       if (!reason) { toast('A reason is required.', true); return; }
-      var msg = (amount < 0 ? 'Subtract ' + Math.abs(amount).toFixed(2) : 'Add ' + amount.toFixed(2)) + ' credits for @' + p.username + '?';
+      var msg = (amount < 0 ? 'Subtract ' + Math.abs(amount).toFixed(2) : 'Add ' + amount.toFixed(2)) + ' credits for @' + U(p.username) + '?';
       if (Math.abs(amount) >= 100) msg += '\n\nThis is a large correction — please confirm.';
       if (!confirm(msg)) return;
       var btn = this; busy(btn, true);
@@ -1829,7 +1831,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // ---- Deposit modal (per player): add / edit / remove deposit records ----
   function depositModal(p) {
     openModal(
-      '<h2>Deposits &mdash; @' + esc(p.username) + '</h2>' +
+      '<h2>Deposits &mdash; @' + esc(U(p.username)) + '</h2>' +
       '<p class="muted" id="mVipStatus">Loading VIP status&hellip;</p>' +
       '<label>New deposit amount (drives VIP rank)</label><input id="mDeposit" type="number" min="0" placeholder="e.g. 500">' +
       '<label>Deposit date (Singapore time) &mdash; change only if the deposit was on an earlier day</label><input id="mDepDate" type="date"><p class="muted" id="mDepDateHint" style="margin:4px 0 0;font-size:12px"></p>' +
@@ -1876,7 +1878,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       Array.prototype.forEach.call(el.querySelectorAll('[data-dep-del]'), function (b) {
         b.onclick = function () {
           var d = deposits.find(function (x) { return String(x.id) === b.getAttribute('data-dep-del'); });
-          if (!confirm('Remove this $' + Number(d.amount).toLocaleString('en-US') + ' deposit for @' + p.username + '?\n\nThe VIP rank will be recalculated.')) return;
+          if (!confirm('Remove this $' + Number(d.amount).toLocaleString('en-US') + ' deposit for @' + U(p.username) + '?\n\nThe VIP rank will be recalculated.')) return;
           api('/api/admin/deposit/delete', { deposit_id: d.id }).then(function (res) {
             if (!res.ok) { toast(res.error || 'Remove failed.', true); return; }
             toast('Deposit removed. Rank: ' + (res.rank_name || 'none'));
@@ -1918,7 +1920,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   function depositEditModal(p, d, onBack) {
     var back = onBack || function () { depositModal(p); };
     openModal(
-      '<h2>Edit deposit &mdash; @' + esc(p.username) + '</h2>' +
+      '<h2>Edit deposit &mdash; @' + esc(U(p.username)) + '</h2>' +
       '<p class="muted">Logged ' + sgt(d.created_at) + ' &middot; month ' + esc(d.month_key) + '</p>' +
       '<label>Deposit amount</label><input id="deAmount" type="number" min="0" value="' + Number(d.amount) + '">' +
       '<label>Note (optional)</label><input id="deNote" value="' + esc(d.note || '') + '">' +
@@ -1947,7 +1949,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   //      SGT date filter, deposits editable/removable ----
   function historyModal(p, startTab) {
     openModal(
-      '<h2>History &mdash; @' + esc(p.username) + '</h2>' +
+      '<h2>History &mdash; @' + esc(U(p.username)) + '</h2>' +
       '<p class="muted">Points ' + Number(p.points).toLocaleString('en-US') +
         ' &middot; Credits ' + ((p.reward_cents || 0) / 100).toFixed(2) + ' &middot; times &amp; dates in SGT</p>' +
       '<div class="row" style="margin-top:10px">' +
@@ -2011,7 +2013,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         Array.prototype.forEach.call(el.querySelectorAll('[data-hdep-del]'), function (b) {
           b.onclick = function () {
             var d = deps.find(function (x) { return String(x.id) === b.getAttribute('data-hdep-del'); });
-            if (!confirm('Remove this $' + Number(d.amount).toLocaleString('en-US') + ' deposit for @' + p.username + '?\n\nThe VIP rank will be recalculated.')) return;
+            if (!confirm('Remove this $' + Number(d.amount).toLocaleString('en-US') + ' deposit for @' + U(p.username) + '?\n\nThe VIP rank will be recalculated.')) return;
             api('/api/admin/deposit/delete', { deposit_id: d.id }).then(function (res) {
               if (!res.ok) { toast(res.error || 'Remove failed.', true); return; }
               toast('Deposit removed. Rank: ' + (res.rank_name || 'none'));
@@ -2060,7 +2062,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       $('actPage').textContent = 'Page ' + (state.actOffset / 50 + 1);
       $('actTbl').querySelector('tbody').innerHTML = res.activity.map(function (a) {
         return '<tr><td class="muted">' + sgt(a.created_at) + '</td>' +
-          '<td>' + (a.username ? '@' + esc(a.username) : a.player_id) + '</td>' +
+          '<td>' + (a.username ? '@' + esc(U(a.username)) : a.player_id) + '</td>' +
           '<td>' + ptLabel(a.type) + '</td>' +
           '<td class="' + (a.amount >= 0 ? 'amt-pos' : 'amt-neg') + '">' + (a.amount >= 0 ? '+' : '') + a.amount + '</td>' +
           '<td>' + a.points_after + '</td>' +
@@ -2085,7 +2087,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       $('credPage').textContent = 'Page ' + (state.credOffset / 50 + 1);
       $('credTbl').querySelector('tbody').innerHTML = res.activity.map(function (a) {
         return '<tr><td class="muted">' + sgt(a.created_at) + '</td>' +
-          '<td>' + (a.username ? '@' + esc(a.username) : a.player_id) + '</td>' +
+          '<td>' + (a.username ? '@' + esc(U(a.username)) : a.player_id) + '</td>' +
           '<td>' + credCell(a.type) + '</td>' +
           '<td>' + credAmount(a) + '</td>' +
           '<td class="muted">' + esc(a.note || '') + '</td>' +
@@ -2218,7 +2220,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         busy(cv, false);
         if (!r.ok) { toast(r.error || 'Could not open player app.', true); return; }
         window.open(location.origin + '/?view=1#imp=' + encodeURIComponent(r.token), '_blank');
-        toast('Opening @' + acPlayer.username + '’s app…');
+        toast('Opening @' + U(acPlayer.username) + '’s app…');
       }).catch(function () { busy(cv, false); toast('Network error.', true); });
     };
     var ct = $('caTag');
@@ -2251,8 +2253,8 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       el.innerHTML = (res.threads || []).map(function (t) {
         var unread = t.admin_unread ? '<span class="side-badge" style="position:static">' + t.admin_unread + '</span>' : '';
         return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(t.username || '') + '" data-chat-tag="' + esc(t.tag || '') + '">' +
-          '<div class="ct-main"><div class="ct-name">' + esc(t.username || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '') + '</div>' +
-          '<div class="ct-last">' + esc(String(t.last_body || '').replace(/\n/g, ' ').slice(0, 40)) + '</div></div>' +
+          '<div class="ct-main"><div class="ct-name">' + esc(U(t.username) || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '') + '</div>' +
+          '<div class="ct-last">' + esc(String(t.last_body || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)) + '</div></div>' +
           '<div class="ct-right"><div class="ct-time">' + sgt(t.last_msg_at).slice(5) + '</div>' + unread + '</div></div>';
       }).join('') || '<p class="muted" style="padding:14px">No conversations yet.</p>';
       Array.prototype.forEach.call(el.querySelectorAll('[data-chat-open]'), function (b) {
@@ -2427,7 +2429,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     // record replaces it as soon as the profile fetch returns.
     acPlayer = { id: pid, username: username, display_name: username, tag: tag || '' };
     clearPending(); if ($('acText')) $('acText').value = '';
-    $('convName').textContent = '@' + (username || pid);
+    $('convName').textContent = '@' + (U(username) || pid);
     setConvTagPill(tag || '');
     if ($('caTag')) { $('caTag').innerHTML = tagSelectHtml(tag || ''); colorTagSelect($('caTag'), tag || ''); }
     if ($('convActions')) $('convActions').style.display = '';
@@ -2648,7 +2650,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       $('payoutSummary').textContent = res.pending_count + ' pending • ' + (res.pending_cents / 100).toFixed(2) + ' awaiting approval • times in SGT';
       var tb = $('payoutTbl').querySelector('tbody');
       tb.innerHTML = res.payouts.map(function (p) {
-        var who = p.username ? '@' + esc(p.username) : ('#' + p.player_id);
+        var who = p.username ? '@' + esc(U(p.username)) : ('#' + p.player_id);
         var amt = (p.amount_cents / 100).toFixed(2);
         var statusCell = '<span class="pill ' + (p.status === 'approved' ? 'active' : (p.status === 'rejected' ? 'blocked' : '')) + '">' + esc(p.status) + '</span>';
         var decidedBy = p.status === 'pending' ? '<span class="muted">&mdash;</span>'
@@ -2719,14 +2721,17 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         : (res.pending_count + ' pending • ' + (res.pending_cents / 100).toFixed(2) + ' awaiting • times in SGT');
       var tb = $('wdTbl').querySelector('tbody');
       tb.innerHTML = (res.withdrawals || []).map(function (w) {
-        var who = w.username ? '@' + esc(w.username) : ('#' + w.player_id);
+        var who = w.username ? '@' + esc(U(w.username)) : ('#' + w.player_id);
         var amt = (w.amount_cents / 100).toFixed(2);
         var srcHtml = '';
         if (w.source_type) {
           var srcName = w.source_type === 'free_credit' ? 'Free Credit ID' : 'Deposit ID';
           if (w.source_type === 'free_credit' && w.free_credit_cents != null) {
-            srcName += ' · FC $' + (w.free_credit_cents / 100).toFixed(2) +
-              (w.winover_x ? ' · wager ' + w.winover_x + '×' : ' · no wager');
+            var m2 = function (c) { return '$' + (Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+            var fcC = Number(w.free_credit_cents) || 0;
+            srcName += ' · Free credit ' + m2(fcC) +
+              (Number(w.winover_x) > 0 ? ' · Hit ' + m2(Math.round(fcC * Number(w.winover_x))) : ' · No hit needed') +
+              ' · Withdraw ' + m2(w.rule_cap_cents != null ? w.rule_cap_cents : w.amount_cents);
           }
           srcHtml = '<div class="p-user">' + esc(srcName) + (w.source_game ? ' &middot; ' + esc(w.source_game) : '') + (w.source_game_id ? ' &middot; <b>' + esc(w.source_game_id) + '</b>' : '') + '</div>';
         }
@@ -2747,7 +2752,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   }
   function wdConfirm(w, decision) {
     if (!w) return;
-    var who = w.username ? '@' + esc(w.username) : ('#' + w.player_id);
+    var who = w.username ? '@' + esc(U(w.username)) : ('#' + w.player_id);
     var amt = (w.amount_cents / 100).toFixed(2);
     var isReject = decision === 'rejected';
     // Modal-scoped, NOT global: a slow upload from a previous modal must never
@@ -2830,7 +2835,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // for when they ask to switch after the fact.
   function editPayoutId(p) {
     if (!p) return;
-    var who = p.username ? '@' + esc(p.username) : ('#' + p.player_id);
+    var who = p.username ? '@' + esc(U(p.username)) : ('#' + p.player_id);
     openModal(
       '<h2>Change account</h2>' +
       '<p class="muted">Player: <b>' + who + '</b> &middot; Amount: <b>' + (p.amount_cents / 100).toFixed(2) + '</b></p>' +
@@ -2883,7 +2888,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 
   function payoutConfirm(p, decision) {
     if (!p) return;
-    var who = p.username ? '@' + esc(p.username) : ('#' + p.player_id);
+    var who = p.username ? '@' + esc(U(p.username)) : ('#' + p.player_id);
     var amt = (p.amount_cents / 100).toFixed(2);
     var isReject = decision === 'rejected';
 
@@ -3410,7 +3415,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // Per-player unlock panel (Earn button on the Players page)
   function earnUnlockModal(p) {
     openModal(
-      '<h2>Earn unlocks &mdash; @' + esc(p.username) + '</h2>' +
+      '<h2>Earn unlocks &mdash; @' + esc(U(p.username)) + '</h2>' +
       '<p class="muted">Each unlock = ONE claim. After the player claims it, unlock again for the next one. Revoke takes back an unused unlock.</p>' +
       '<div id="euList" class="muted" style="margin-top:10px">Loading&hellip;</div>'
     );
@@ -3442,7 +3447,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
             api('/api/admin/promos/grant', { player_id: p.id, promo_id: Number(b.getAttribute('data-eu-grant')) }).then(function (res) {
               busy(b, false);
               if (!res.ok) { toast(res.error || 'Unlock failed.', true); return; }
-              toast('Unlocked 1 claim for @' + p.username + '.'); load();
+              toast('Unlocked 1 claim for @' + U(p.username) + '.'); load();
             }).catch(function () { busy(b, false); toast('Network error.', true); });
           };
         });
