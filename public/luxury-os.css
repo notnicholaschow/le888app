@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&display=swap');
 /* Luxury Gaming OS — layered black glass, precision gold, a spatial game stage. */
 body.luxury-os {
   --os-accent: 246, 172, 65;
@@ -1848,3 +1849,87 @@ body:has(.inst-pop.show) #chat-fab{bottom:calc(92px + env(safe-area-inset-bottom
 body.luxury-os .my-rank-panel .rank-emblem{width:150px;height:150px;margin:0 auto 12px}
 body.luxury-os .vip-detail-emblem.rank-emblem{width:140px;height:140px;margin:6px auto 12px}
 body.luxury-os .rw-row .rank-emblem{width:60px;height:60px}
+
+
+/* =====================================================================
+   VIP CLUB — "members' plaque" redesign
+   One engraved serif (Cinzel) for rank names + amounts; each rank glows
+   in its own metal via --rank-color. Gold foil = #fff0b8 → #e9bd5a → #9c6b22.
+   ===================================================================== */
+body.luxury-os{--vip-foil:linear-gradient(135deg,#fff3c4 0%,#e9bd5a 38%,#9c6b22 62%,#f6d98a 100%);--vip-ink:#f3e6c8;--vip-mute:#a8997c}
+body.luxury-os .vc-name,body.luxury-os .vr-copy b,body.luxury-os .vip-detail-modal h2,body.luxury-os .vd-req strong,body.luxury-os .vc-next-copy b{font-family:'Cinzel',Georgia,'Times New Roman',serif;letter-spacing:.02em}
+
+/* ---------- My Rank: membership card ---------- */
+body.luxury-os .my-rank-panel.vip-card{position:relative;overflow:hidden;text-align:center;padding:26px 20px 20px;border-radius:26px;border:1px solid transparent;
+ background:radial-gradient(90% 55% at 50% 22%,color-mix(in srgb,var(--rank-color) 26%,transparent),transparent 70%) padding-box,
+  repeating-linear-gradient(135deg,#ffffff05 0 1px,transparent 1px 9px) padding-box,
+  linear-gradient(180deg,#1b1610,#0d0b08 70%) padding-box,
+  var(--vip-foil) border-box;
+ box-shadow:0 22px 50px #000a,inset 0 1px 0 #fff2}
+body.luxury-os .vip-card::after{content:"";position:absolute;inset:7px;border-radius:20px;border:1px solid #e9bd5a2e;pointer-events:none}
+body.luxury-os .vc-stage{position:relative;display:grid;place-items:center;margin:0 auto 6px;width:190px;height:178px}
+body.luxury-os .vc-stage::before{content:"";position:absolute;inset:6px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 8%,color-mix(in srgb,var(--rank-color) 30%,transparent) 10%,transparent 16% 33%,color-mix(in srgb,var(--rank-color) 24%,transparent) 36%,transparent 42% 58%,color-mix(in srgb,var(--rank-color) 28%,transparent) 61%,transparent 67% 83%,color-mix(in srgb,var(--rank-color) 22%,transparent) 86%,transparent 92%);-webkit-mask:radial-gradient(circle,#000 30%,transparent 70%);mask:radial-gradient(circle,#000 30%,transparent 70%);animation:vcRays 24s linear infinite}
+body.luxury-os .my-rank-panel.vip-card .rank-emblem{position:relative;width:158px;height:158px;margin:0}
+body.luxury-os .my-rank-panel.vip-card .rank-emblem img{filter:drop-shadow(0 10px 22px #000c) drop-shadow(0 0 18px color-mix(in srgb,var(--rank-color) 35%,transparent))}
+@keyframes vcRays{to{transform:rotate(360deg)}}
+body.luxury-os .vc-kicker{margin:0;font-size:12px;color:var(--vip-mute)}
+body.luxury-os .vc-name{margin:4px 0 6px;font-size:40px;font-weight:800;line-height:1.05;background:linear-gradient(180deg,#fff6d6 8%,color-mix(in srgb,var(--rank-color) 70%,#e9bd5a) 52%,#8a5d1d 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 0 #0009)}
+body.luxury-os .vc-dep{margin:0;font-size:13.5px;color:#cdbf9f}
+body.luxury-os .vc-dep b{color:var(--vip-ink)}
+body.luxury-os .vc-track{margin:18px 2px 4px}
+body.luxury-os .vip-card .vip-progress{position:relative;height:10px;margin:0;border-radius:99px;background:#000a;box-shadow:inset 0 1px 3px #000,0 0 0 1px #e9bd5a26;overflow:visible}
+body.luxury-os .vip-card .vip-progress i{position:relative;height:100%;border-radius:99px;background:linear-gradient(90deg,#8a5d1d,#e9bd5a 60%,#fff3c4);box-shadow:0 0 14px #e9bd5a66}
+body.luxury-os .vip-card .vip-progress i::after{content:"";position:absolute;right:-3px;top:50%;width:14px;height:14px;transform:translateY(-50%);border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#ffe39a 45%,#c08a2e);box-shadow:0 0 12px #ffd77a}
+body.luxury-os .vc-ends{display:flex;justify-content:space-between;margin-top:9px;font-size:11.5px;color:var(--vip-mute)}
+body.luxury-os .vc-next{display:flex;align-items:center;gap:12px;width:100%;margin:16px 0 0;padding:10px 14px 10px 10px;border-radius:16px;border:1px solid color-mix(in srgb,var(--rank-color) 35%,#3a3023);background:linear-gradient(90deg,color-mix(in srgb,var(--rank-color) 12%,#14110c),#100e0b);color:inherit;text-align:left;cursor:pointer}
+body.luxury-os .vc-next .rank-emblem{width:54px;height:54px;flex:none}
+body.luxury-os .vc-next-copy{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+body.luxury-os .vc-next-copy small{font-size:11px;color:var(--vip-mute)}
+body.luxury-os .vc-next-copy b{font-size:17px;color:color-mix(in srgb,var(--rank-color) 75%,#fff)}
+body.luxury-os .vc-next-copy span{font-size:12px;color:#cdbf9f}
+body.luxury-os .vc-top{margin:16px 0 0;font-size:13px;color:#e2c98c}
+body.luxury-os .vip-card .vc-all{margin-top:16px}
+
+/* ---------- All Ranks: ladder ---------- */
+body.luxury-os .vip-ladder{position:relative;list-style:none;margin:6px 0 0;padding:0}
+body.luxury-os .vip-ladder::before{content:"";position:absolute;left:43px;top:34px;bottom:34px;width:2px;background:linear-gradient(180deg,#e9bd5a00,#e9bd5a80 8%,#e9bd5a80 92%,#e9bd5a00)}
+body.luxury-os .vip-ladder li{position:relative;margin:0 0 10px}
+body.luxury-os .vip-rung{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:78px;padding:8px 14px 8px 8px;border-radius:18px;border:1px solid #ffffff12;background:linear-gradient(90deg,color-mix(in srgb,var(--rank-color) 10%,#15120e) 0%,#0f0d0a 70%);color:inherit;text-align:left;cursor:pointer;transition:border-color .2s,transform .15s}
+body.luxury-os .vip-rung:hover{border-color:color-mix(in srgb,var(--rank-color) 45%,transparent)}
+body.luxury-os .vip-rung:active{transform:scale(.985)}
+body.luxury-os .vr-medal{position:relative;display:grid;place-items:center;width:72px;height:62px;flex:none}
+body.luxury-os .vr-medal::before{content:"";position:absolute;width:60px;height:60px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--rank-color) 30%,transparent),transparent 68%)}
+body.luxury-os .vip-rung .rank-emblem{position:relative;width:60px;height:60px}
+body.luxury-os .vr-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+body.luxury-os .vr-copy b{font-size:18px;font-weight:700;color:color-mix(in srgb,var(--rank-color) 70%,#fff3d6);line-height:1.1}
+body.luxury-os .vr-copy small{font-size:12px;color:var(--vip-mute)}
+body.luxury-os .vr-perk{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;flex:none}
+body.luxury-os .vr-perk b{font-size:16px;font-weight:800;color:#f3d27a}
+body.luxury-os .vr-perk small{font-size:10.5px;color:var(--vip-mute)}
+body.luxury-os .vr-chev{flex:none;font-size:20px;color:#e9bd5a99;margin-left:2px}
+body.luxury-os .vr-tag{flex:none;font-style:normal;font-size:11px;font-weight:800;color:#1a1206;padding:5px 10px;border-radius:99px;background:var(--vip-foil);box-shadow:0 2px 8px #0008}
+/* current rank: foil frame + glow */
+body.luxury-os .vip-rung.is-current{border:1px solid transparent;background:linear-gradient(90deg,color-mix(in srgb,var(--rank-color) 22%,#1a150e),#120f0b 75%) padding-box,var(--vip-foil) border-box;box-shadow:0 0 0 3px #e9bd5a14,0 12px 28px #000a}
+body.luxury-os .vip-rung.is-current .rank-emblem img{filter:drop-shadow(0 4px 9px #000b) drop-shadow(0 0 12px color-mix(in srgb,var(--rank-color) 55%,transparent))}
+/* passed ranks: small check on the medal */
+body.luxury-os .vip-rung.is-passed .vr-medal::after{content:"✓";position:absolute;right:4px;bottom:2px;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#1faa52;color:#fff;font-size:11px;font-weight:900;box-shadow:0 0 0 2px #0f0d0a}
+
+/* ---------- Rank popup ---------- */
+body.luxury-os dialog.vip-detail-modal{text-align:center;border:1px solid transparent;background:radial-gradient(90% 45% at 50% 18%,color-mix(in srgb,var(--rank-color,#e9bd5a) 22%,transparent),transparent 70%) padding-box,linear-gradient(180deg,#1b1610,#0d0b08) padding-box,var(--vip-foil) border-box}
+body.luxury-os .vip-detail-modal h2{margin:2px 0 0;font-size:30px;font-weight:800;text-align:center;background:linear-gradient(180deg,#fff6d6 8%,color-mix(in srgb,var(--rank-color,#e9bd5a) 70%,#e9bd5a) 55%,#8a5d1d);-webkit-background-clip:text;background-clip:text;color:transparent}
+body.luxury-os .vd-stage{display:grid;place-items:center;margin:4px auto 0}
+body.luxury-os .vd-stage .vip-detail-emblem.rank-emblem{width:150px;height:150px;margin:0}
+body.luxury-os .vd-stage .rank-emblem img{filter:drop-shadow(0 10px 22px #000c) drop-shadow(0 0 18px color-mix(in srgb,var(--rank-color) 40%,transparent))}
+body.luxury-os .vd-tier{margin:2px 0 14px;font-size:12px;color:var(--vip-mute)}
+body.luxury-os .vd-req{margin:0 0 12px;padding:14px;border-radius:16px;border:1px solid color-mix(in srgb,var(--rank-color) 35%,#3a3023);background:linear-gradient(180deg,#15120d,#0e0c09)}
+body.luxury-os .vd-req small{display:block;font-size:12px;color:var(--vip-mute);margin-bottom:4px}
+body.luxury-os .vd-req strong{font-size:30px;font-weight:800;background:var(--vip-foil);-webkit-background-clip:text;background-clip:text;color:transparent}
+body.luxury-os .vip-detail-modal .vip-perks{margin-bottom:14px}
+body.luxury-os .vip-detail-modal .vip-perks>div{border:1px solid #e9bd5a2e;background:linear-gradient(180deg,#17130d,#0e0c09)}
+body.luxury-os .vip-detail-modal .vip-perks b{color:#f3d27a}
+@media (prefers-reduced-motion:reduce){body.luxury-os .vc-stage::before{animation:none}}
+
+body.luxury-os .my-rank-panel.vip-card .vc-next .rank-emblem{width:56px;height:56px;margin:0}
+body.luxury-os .my-rank-panel.vip-card .vc-next .rank-emblem img{filter:drop-shadow(0 4px 9px #000b)}
+body.luxury-os dialog.vip-detail-modal .vd-tier,body.luxury-os dialog.vip-detail-modal .vd-req{text-align:center}
+body.luxury-os dialog.vip-detail-modal .vip-perks small{text-transform:none;letter-spacing:0;font-size:12px}
