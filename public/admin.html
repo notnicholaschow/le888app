@@ -499,7 +499,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       <div class="card">
         <div class="row" style="margin-bottom:12px">
           <input id="playerQ" placeholder="Search username, name or tag">
-          <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option></select>
+          <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option></select>
           <button class="btn ghost small" id="playerSearchBtn">Search</button>
           <button class="btn ghost small" id="playerBulkBtn" style="display:none">Bulk import</button>
           <button class="btn small" id="playerNewBtn">+ New player</button>
@@ -1632,7 +1632,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 
 
   // ---- Reusable user-tag helpers (players list + chat) --------------------
-  var TAG_PRESETS = ['Free credit', 'Deposit', 'VIP', 'Blacklist'];
+  var TAG_PRESETS = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD'];
   // Map any tag to a colour class. Unknown (typed) tags use the "custom" colour.
   function tagKey(t) {
     var m = { 'free credit': 'freecredit', 'deposit': 'deposit', 'vip': 'vip', 'blacklist': 'blacklist' };
@@ -1924,7 +1924,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       '<label>WhatsApp (optional)</label><input id="mWhatsapp" placeholder="+60 12-345 6789" value="' + esc(p.whatsapp || '') + '">' +
       '<label>Status</label><select id="mStatus"><option value="active">active</option><option value="blocked">blocked</option></select>' +
       '<label>User tag (admin only — not shown to the player)</label>' +
-      '<select id="mTag"><option value="">None</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="__other">Custom…</option></select>' +
+      '<select id="mTag"><option value="">None</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option><option value="__other">Custom…</option></select>' +
       '<input id="mTagOther" placeholder="Custom tag" maxlength="40" style="margin-top:6px;display:none">' +
       '<label>Note</label><input id="mNote" value="' + esc(p.note || '') + '">' +
       '<button class="btn" id="mSaveBtn" style="margin-top:12px;width:100%">Save player</button>' +
@@ -1946,7 +1946,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     );
     $('mStatus').value = p.status;
     (function () {
-      var presets = ['Free credit', 'Deposit', 'VIP', 'Blacklist'], t = p.tag || '';
+      var presets = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD'], t = p.tag || '';
       if (!t) $('mTag').value = '';
       else if (presets.indexOf(t) >= 0) $('mTag').value = t;
       else { $('mTag').value = '__other'; $('mTagOther').value = t; $('mTagOther').style.display = ''; }
