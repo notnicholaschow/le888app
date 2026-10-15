@@ -1449,6 +1449,9 @@ export default {
       if (url.pathname.startsWith('/api/member/')) {
         return await handleMember(request, env, url, ctx, rid);
       }
+      if (request.method === 'GET' && url.pathname.startsWith('/go/')) {
+        return await handleLoginLink(request, env, url.pathname.slice(4).replace(/\/+$/, ''));
+      }
       if (request.method === 'GET' && (url.pathname === '/login' || url.pathname === '/login.html')) {
         const res = await env.ASSETS.fetch(new Request(new URL('/login.html', request.url).toString(), request));
         return decorateAsset(res, true);
@@ -2910,6 +2913,43 @@ async function ensureAutoTemplates(env: Env): Promise<void> {
 // API router
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// One-tap login links (admin -> player). 24h, reusable until expiry, and
+// cancelled when a newer link is made or the player's sessions are reset.
+// Only the SHA-256 of the token is stored, so a DB leak cannot log anyone in.
+// ---------------------------------------------------------------------------
+const LOGIN_LINK_SECONDS = 24 * 3600;
+async function ensureLoginLinks(env: Env): Promise<void> {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS login_links (token_hash TEXT PRIMARY KEY, player_id INTEGER NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, created_by TEXT, expires_at INTEGER NOT NULL, uses INTEGER NOT NULL DEFAULT 0, last_used_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+}
+async function sha256HexStr(s: string): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+  return Array.from(d).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function loginLinkErrorPage(): Response {
+  const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link expired</title>' +
+    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b0d;color:#eee;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:20px;box-sizing:border-box}' +
+    '.c{max-width:360px;text-align:center;background:#16161a;border:1px solid #2a2a30;border-radius:16px;padding:28px 22px}h1{font-size:20px;margin:0 0 8px;color:#e8c26a}p{margin:0 0 18px;color:#aaa}' +
+    'a{display:inline-block;background:#c9a24a;color:#111;text-decoration:none;font-weight:600;padding:11px 22px;border-radius:10px}</style></head>' +
+    '<body><div class="c"><h1>This login link has expired</h1><p>Login links only work for 24 hours. Please ask customer service for a new link, or log in with your Player ID and password.</p><a href="/login">Go to login</a></div></body></html>';
+  return new Response(html, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+async function handleLoginLink(request: Request, env: Env, token: string): Promise<Response> {
+  if (!/^[A-Za-z0-9_-]{30,64}$/.test(token)) return loginLinkErrorPage();
+  if (!(await rateLimit(env, 'golink:ip:' + clientIp(request), 40, 300))) return loginLinkErrorPage();
+  try { await ensureLoginLinks(env); } catch { return loginLinkErrorPage(); }
+  const hash = await sha256HexStr(token);
+  const link = await env.DB.prepare('SELECT * FROM login_links WHERE token_hash = ?').bind(hash).first<any>();
+  if (!link || Number(link.expires_at) < Math.floor(Date.now() / 1000)) return loginLinkErrorPage();
+  const row = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(Number(link.player_id)).first<PlayerRow>();
+  if (!row || row.status !== 'active' || (row.session_version || 1) !== Number(link.session_version)) return loginLinkErrorPage();
+  await env.DB.prepare("UPDATE login_links SET uses = uses + 1, last_used_at = datetime('now') WHERE token_hash = ?").bind(hash).run();
+  const session = await signToken(env, 'player', String(row.id), row.session_version || 1, PLAYER_SESSION_SECONDS);
+  const r = new Response(null, { status: 302, headers: { Location: '/', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' } });
+  r.headers.append('Set-Cookie', 'le888sid=' + session + '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=' + PLAYER_SESSION_SECONDS);
+  return r;
+}
+
 async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid: string): Promise<Response> {
   const path = new URL(request.url).pathname;
 
@@ -4077,6 +4117,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     '/api/admin/banners/list': 'settings', '/api/admin/banners/save': 'settings', '/api/admin/banners/delete': 'settings', '/api/admin/banners/reorder': 'settings',
     // "View app" (act as player) — grantable to trusted staff.
     '/api/admin/player/impersonate': 'view_app',
+    '/api/admin/player/login-link': 'view_app',
   };
   if (!isManager) {
     const need = PERM_MAP[path];
@@ -4514,6 +4555,26 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         out.push(res);
       }
       return json({ ok: true, results: out, created: out.filter((x) => x.ok).length }, 200, rid);
+    }
+
+    case '/api/admin/player/login-link': {
+      // One-tap login link for a player, valid 24h. Making a new link cancels
+      // the old ones; resetting the password / sessions also cancels them.
+      if (!(await rateLimit(env, `golink:${admin}`, 60, 300))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      const p = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<PlayerRow>();
+      if (!p) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
+      if ((p as any).status !== 'active') return fail('ACCOUNT_INACTIVE', 'That account is not active.', 400, rid);
+      await ensureLoginLinks(env);
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare('DELETE FROM login_links WHERE player_id = ? OR expires_at < ?').bind(id, now).run();
+      const token = b64urlEncode(crypto.getRandomValues(new Uint8Array(24)));
+      const expires = now + LOGIN_LINK_SECONDS;
+      await env.DB.prepare('INSERT INTO login_links (token_hash, player_id, session_version, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(await sha256HexStr(token), id, (p as any).session_version || 1, admin, expires).run();
+      const origin = new URL(request.url).origin;
+      return json({ ok: true, url: origin + '/go/' + token, expires_at: new Date(expires * 1000).toISOString(), username: (p as any).username, whatsapp: (p as any).whatsapp || '' }, 200, rid);
     }
 
     case '/api/admin/player/impersonate': {
