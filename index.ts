@@ -935,10 +935,11 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     // Only checked (valid, new-phone) sign-ups count here: max 10 new accounts / hour / network.
     if (!(await rateLimit(env, 'signup-ok:ip:' + ip, 10, 3600))) return j({ error: 'Too many new accounts from this network. Please try again later or contact customer service.' }, 429);
     const hash = await hashPassword(password);
+    await ensureVerifyCols(env);
     let created: { id: number; username: string };
     try {
       created = await insertPlayerWithNextId(env, async (username) => {
-        const ins = await env.DB.prepare("INSERT INTO players (username, password, display_name, whatsapp, tag, bank_name, bank_account, bank_holder, paynow_number, bank_locked) VALUES (?, ?, ?, ?, 'SELF SIGNUP', ?, ?, ?, ?, 1)")
+        const ins = await env.DB.prepare("INSERT INTO players (username, password, display_name, whatsapp, tag, bank_name, bank_account, bank_holder, paynow_number, bank_locked, bank_verified) VALUES (?, ?, ?, ?, 'SELF SIGNUP', ?, ?, ?, ?, 1, 0)")
           .bind(username, hash, name, phone, bankType, account, holder, paynow).run();
         return Number(ins.meta.last_row_id);
       });
@@ -1032,6 +1033,13 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
         points: Number(player.points) || 0,
         avatar: Math.max(0, Math.min(9, Number((player as any).avatar) || 0)),
         reward: centsToStr(Number(player.reward_cents) || 0),
+        // Self sign-ups wait for CS to check their bank statement before free credit.
+        verify_required: (player as any).bank_verified === 0,
+        verify_bank: (player as any).bank_verified === 0 ? {
+          bank: String((player as any).bank_name || ''),
+          holder: String((player as any).bank_holder || ''),
+          account_end: String((player as any).bank_account || '').replace(/\s+/g, '').slice(-4),
+        } : null,
       },
       ledger,
       games,
@@ -3097,6 +3105,17 @@ function validPhone(d: string): boolean {
   if (/^65/.test(d)) return /^65[3689]\d{7}$/.test(d);
   return /^\d{8,15}$/.test(d);
 }
+// Bank verification for self sign-ups. bank_verified: NULL = not needed
+// (staff-created / imported), 0 = waiting for CS to check the bank statement,
+// 1 = verified. Unverified players can't submit rewards to free credit.
+let verifyColsReady = false;
+async function ensureVerifyCols(env: Env): Promise<void> {
+  if (verifyColsReady) return;
+  for (const c of ['bank_verified INTEGER', 'verified_by TEXT', 'verified_at TEXT']) {
+    try { await env.DB.prepare('ALTER TABLE players ADD COLUMN ' + c).run(); } catch { /* already there */ }
+  }
+  verifyColsReady = true;
+}
 const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
 
 // ---------------------------------------------------------------------------
@@ -3954,6 +3973,11 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     // ---- Reward submit: atomic claim-and-reset (no duplicate payouts) ----
     case '/api/reward/submit': {
       if (!(await rateLimit(env, `submit:${player.id}`, 12, 60))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
+      // Self sign-ups must be verified by CS (bank statement) before rewards go to free credit.
+      try {
+        const vr = await env.DB.prepare('SELECT bank_verified FROM players WHERE id = ?').bind(player.id).first<{ bank_verified: number | null }>();
+        if (vr && vr.bank_verified === 0) return fail('NOT_VERIFIED', 'Your account is waiting for verification. Please send your bank statement to customer service in Live Chat. You can submit rewards once our team has verified it.', 403, rid);
+      } catch { /* column not added yet = nobody needs verifying */ }
 
       // One submission at a time: blocked while one is pending. After staff
       // APPROVE it, the player waits 10 minutes (counted from the approval).
@@ -4637,6 +4661,30 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true, role: auth.role, perms: isManager ? GRANTABLE_PERMS.slice() : auth.perms, players: players?.c ?? 0, active_today: activeToday?.c ?? 0, points_total: pointsTotal?.s ?? 0, tasks: tasks?.c ?? 0, pending_deposit_requests: pendingDepReq?.c ?? 0, pending_payouts: pendingPayouts?.c ?? 0, pending_withdrawals: pendingWithdrawals?.c ?? 0, chat_unread: chatUnread?.s ?? 0 }, 200, rid);
     }
 
+    case '/api/admin/player/verify': {
+      // CS checked the player's bank statement -> Verified (or undo).
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      await ensureVerifyCols(env);
+      const p = await env.DB.prepare('SELECT id, username, bank_verified FROM players WHERE id = ?').bind(id).first<{ id: number; username: string; bank_verified: number | null }>();
+      if (!p) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
+      if (body.verified === false) {
+        await env.DB.prepare("UPDATE players SET bank_verified = 0, verified_by = ?, verified_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").bind(admin + ' (undo)', id).run();
+      } else {
+        await env.DB.prepare("UPDATE players SET bank_verified = 1, verified_by = ?, verified_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").bind(admin, id).run();
+      }
+      const r = await env.DB.prepare('SELECT bank_verified, verified_by, verified_at FROM players WHERE id = ?').bind(id).first();
+      return json({ ok: true, ...(r || {}) }, 200, rid);
+    }
+
+    case '/api/admin/tags': {
+      // Every tag in use, in the order it was first used (colours + "All tags" filter).
+      try {
+        const { results } = await env.DB.prepare("SELECT MIN(tag) AS tag, COUNT(*) AS count, MIN(id) AS first_id FROM players WHERE tag IS NOT NULL AND trim(tag) != '' GROUP BY lower(trim(tag)) ORDER BY first_id").all();
+        return json({ ok: true, tags: results || [] }, 200, rid);
+      } catch { return json({ ok: true, tags: [] }, 200, rid); }
+    }
+
     case '/api/admin/players/next-id': {
       // Next free Player ID (system + Google Sheet) for the "+ New player" form.
       const info = await nextPlayerIdInfo(env, 15000);
@@ -4828,11 +4876,13 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const limit = Math.min(100, Math.max(1, Number(body.limit) || 50));
       const like = `%${q.toLowerCase()}%`;
       try {
+        await ensureVerifyCols(env);
         // Tag-aware: search matches the tag too, and an exact tag filter is supported.
-        let sql = 'SELECT id, username, display_name, points, reward_cents, status, note, telegram, whatsapp, tag, created_at, updated_at FROM players';
+        let sql = 'SELECT id, username, display_name, points, reward_cents, status, note, telegram, whatsapp, tag, bank_verified, verified_by, verified_at, created_at, updated_at FROM players';
         const conds: string[] = []; const binds: unknown[] = [];
         if (q) { conds.push("(lower(username) LIKE ? OR lower(display_name) LIKE ? OR CAST(id AS TEXT) LIKE ? OR lower(COALESCE(tag,'')) LIKE ?)"); binds.push(like, like, like, like); }
-        if (tagFilter) { conds.push("lower(COALESCE(tag,'')) = ?"); binds.push(tagFilter.toLowerCase()); }
+        if (tagFilter === '__unverified') conds.push('bank_verified = 0');
+        else if (tagFilter) { conds.push("lower(COALESCE(tag,'')) = ?"); binds.push(tagFilter.toLowerCase()); }
         if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
         const total = await countRows(env, sql, binds);
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
@@ -4916,6 +4966,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           status: p.status, note: p.note ?? null, tag: p.tag ?? null,
           telegram: p.telegram ?? null, whatsapp: p.whatsapp ?? null,
           points: p.points, reward_cents: p.reward_cents,
+          bank_verified: p.bank_verified ?? null, verified_by: p.verified_by ?? null, verified_at: p.verified_at ?? null,
         },
         // Deposit accounts: all 7 games. Free credit accounts: 2 games.
         platforms: GAME_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
