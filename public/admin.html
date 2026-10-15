@@ -59,6 +59,15 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text-2); font-weight: 500; }
 .btn.ghost:hover { border-color: #3a3d46; color: var(--text); filter: none; background: rgba(255,255,255,.02); }
 .btn.small { padding: 5px 11px; font-size: 12.5px; }
+.pager-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pager { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pg-btn { min-width: 32px; height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.pg-btn:hover { border-color: #3a3d46; color: var(--text); }
+.pg-btn.on { background: var(--gold); border-color: var(--gold); color: #141414; font-weight: 700; cursor: default; }
+.pg-gap { color: var(--text-2); padding: 0 2px; }
+.pg-info { color: var(--text-2); font-size: 12.5px; margin-left: 6px; }
+.pg-jump { width: 64px !important; height: 30px; padding: 0 8px !important; font-size: 12.5px !important; margin: 0 !important; }
+
 .btn.btn-done, .btn-done { background: var(--line) !important; color: #43d98b !important; filter: none !important;
   border: 1px solid var(--line) !important; opacity: .95; pointer-events: none; }
 .hidden { display: none !important; }
@@ -508,9 +517,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           <thead><tr><th>Player</th><th>Player ID</th><th>Tag</th><th>Points</th><th>Credits</th><th>Status</th><th></th></tr></thead>
           <tbody></tbody>
         </table></div>
-        <div class="row" style="margin-top:10px">
+        <div class="row pager-row" style="margin-top:10px">
           <button class="btn ghost small" id="playerPrev">&larr; Prev</button>
-          <span class="muted" id="playerPage">Page 1</span>
+          <span class="pager" id="playerPage"></span>
           <button class="btn ghost small" id="playerNext">Next &rarr;</button>
         </div>
       </div>
@@ -530,9 +539,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           <thead><tr><th>Time (SGT)</th><th>Player</th><th>Type</th><th>Amount</th><th>After</th><th>Note</th><th>Staff</th></tr></thead>
           <tbody></tbody>
         </table></div>
-        <div class="row" style="margin-top:10px">
+        <div class="row pager-row" style="margin-top:10px">
           <button class="btn ghost small" id="actPrev">&larr; Prev</button>
-          <span class="muted" id="actPage">Page 1</span>
+          <span class="pager" id="actPage"></span>
           <button class="btn ghost small" id="actNext">Next &rarr;</button>
         </div>
       </div>
@@ -552,9 +561,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           <thead><tr><th>Time (SGT)</th><th>Player</th><th>Type</th><th>Amount</th><th>Note</th><th>Staff</th></tr></thead>
           <tbody></tbody>
         </table></div>
-        <div class="row" style="margin-top:10px">
+        <div class="row pager-row" style="margin-top:10px">
           <button class="btn ghost small" id="credPrev">&larr; Prev</button>
-          <span class="muted" id="credPage">Page 1</span>
+          <span class="pager" id="credPage"></span>
           <button class="btn ghost small" id="credNext">Next &rarr;</button>
         </div>
       </div>
@@ -595,9 +604,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           <thead><tr><th>Logged (SGT)</th><th>Player</th><th>Month</th><th>Deposit</th><th>Note</th><th>Staff</th></tr></thead>
           <tbody></tbody>
         </table></div>
-        <div class="row" style="margin-top:10px">
+        <div class="row pager-row" style="margin-top:10px">
           <button class="btn ghost small" id="depPrev">&larr; Prev</button>
-          <span class="muted" id="depPage">Page 1</span>
+          <span class="pager" id="depPage"></span>
           <button class="btn ghost small" id="depNext">Next &rarr;</button>
         </div>
       </div>
@@ -621,9 +630,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           <thead><tr><th>Requested (SGT)</th><th>Player</th><th>Amount</th><th>Status</th><th>Decided by</th><th>Action</th></tr></thead>
           <tbody></tbody>
         </table></div>
-        <div class="row" style="margin-top:10px">
+        <div class="row pager-row" style="margin-top:10px">
           <button class="btn ghost small" id="payoutPrev">&larr; Prev</button>
-          <span class="muted" id="payoutPage">Page 1</span>
+          <span class="pager" id="payoutPage"></span>
           <button class="btn ghost small" id="payoutNext">Next &rarr;</button>
         </div>
       </div>
@@ -1420,7 +1429,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   if ($('playerTag')) $('playerTag').onchange = function () { state.playerOffset = 0; loadPlayers(); };
   $('playerQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.playerOffset = 0; loadPlayers(); } });
   $('playerPrev').onclick = function () { state.playerOffset = Math.max(0, state.playerOffset - 50); loadPlayers(); };
-  $('playerNext').onclick = function () { state.playerOffset += 50; loadPlayers(); };
+  $('playerNext').onclick = function () { if (this.disabled) return; state.playerOffset += 50; loadPlayers(); };
   $('playerNewBtn').onclick = newPlayerModal;
   // ---- Bulk import players (managers) --------------------------------------
   // Paste rows copied from Excel, or upload .xlsx / .csv. Columns are matched by
@@ -1697,11 +1706,35 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     }).catch(function () { toast('Network error.', true); });
   }
 
+  // ---- Numbered pager:  ← Prev  1 2 … 7 [8] 9 … 3960  Next →  ------------
+  function pager(key, total, reload) {
+    var size = 50, el = $(key + 'Page'), off = state[key + 'Offset'] || 0, cur = Math.floor(off / size) + 1;
+    var prev = $(key + 'Prev'), next = $(key + 'Next');
+    if (total == null) { el.innerHTML = '<span class="muted">Page ' + cur + '</span>'; prev.disabled = cur <= 1; next.disabled = false; return; }
+    var last = Math.max(1, Math.ceil(total / size));
+    if (cur > last) { state[key + 'Offset'] = (last - 1) * size; reload(); return; }
+    var want = [1, 2, cur - 1, cur, cur + 1, last - 1, last].filter(function (n, i, a) { return n >= 1 && n <= last && a.indexOf(n) === i; }).sort(function (a, b) { return a - b; });
+    var html = '', prevN = 0;
+    want.forEach(function (n) {
+      if (n - prevN > 1) html += '<span class="pg-gap">…</span>';
+      html += '<button type="button" class="pg-btn' + (n === cur ? ' on' : '') + '" data-pg="' + n + '">' + n.toLocaleString('en-US') + '</button>';
+      prevN = n;
+    });
+    var a = total ? off + 1 : 0, b = Math.min(off + size, total);
+    html += '<span class="pg-info">' + a.toLocaleString('en-US') + '–' + b.toLocaleString('en-US') + ' of ' + total.toLocaleString('en-US') + '</span>';
+    if (last > 7) html += '<input type="number" class="pg-jump" min="1" max="' + last + '" placeholder="Page" title="Type a page number and press Enter">';
+    el.innerHTML = html;
+    prev.disabled = cur <= 1; next.disabled = cur >= last;
+    function go(n) { n = Math.min(last, Math.max(1, Math.floor(Number(n) || 1))); if (n === cur) return; state[key + 'Offset'] = (n - 1) * size; reload(); }
+    Array.prototype.forEach.call(el.querySelectorAll('[data-pg]'), function (btn) { btn.onclick = function () { go(btn.getAttribute('data-pg')); }; });
+    var jump = el.querySelector('.pg-jump'); if (jump) jump.onkeydown = function (e) { if (e.key === 'Enter') go(jump.value); };
+  }
+
   function loadPlayers() {
     if ($('playerBulkBtn')) $('playerBulkBtn').style.display = isMgr() ? '' : 'none';
     api('/api/admin/players', { q: $('playerQ').value.trim(), tag: $('playerTag') ? $('playerTag').value : '', offset: state.playerOffset, limit: 50 }).then(function (res) {
       if (!res.ok) return;
-      $('playerPage').textContent = 'Page ' + (state.playerOffset / 50 + 1);
+      pager('player', res.total, loadPlayers);
       var tb = $('playerTbl').querySelector('tbody');
       tb.innerHTML = res.players.map(function (p) {
         return '<tr><td>' + playerCell(p.username, p.display_name) + '</td>' +
@@ -2306,14 +2339,14 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // ------------------------------------------------------------------
   $('actSearchBtn').onclick = function () { state.actOffset = 0; loadActivity(); };
   $('actPrev').onclick = function () { state.actOffset = Math.max(0, state.actOffset - 50); loadActivity(); };
-  $('actNext').onclick = function () { state.actOffset += 50; loadActivity(); };
+  $('actNext').onclick = function () { if (this.disabled) return; state.actOffset += 50; loadActivity(); };
   function loadActivity() {
     api('/api/admin/point-activity', {
       q: $('actQ').value.trim(), from: $('actFrom').value, to: $('actTo').value,
       offset: state.actOffset, limit: 50
     }).then(function (res) {
       if (!res.ok) return;
-      $('actPage').textContent = 'Page ' + (state.actOffset / 50 + 1);
+      pager('act', res.total, loadActivity);
       $('actTbl').querySelector('tbody').innerHTML = res.activity.map(function (a) {
         return '<tr><td class="muted">' + sgt(a.created_at) + '</td>' +
           '<td>' + (a.username ? '@' + esc(U(a.username)) : a.player_id) + '</td>' +
@@ -2331,14 +2364,14 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // ------------------------------------------------------------------
   $('credSearchBtn').onclick = function () { state.credOffset = 0; loadCredits(); };
   $('credPrev').onclick = function () { state.credOffset = Math.max(0, state.credOffset - 50); loadCredits(); };
-  $('credNext').onclick = function () { state.credOffset += 50; loadCredits(); };
+  $('credNext').onclick = function () { if (this.disabled) return; state.credOffset += 50; loadCredits(); };
   function loadCredits() {
     api('/api/admin/credit-activity', {
       q: $('credQ').value.trim(), from: $('credFrom').value, to: $('credTo').value,
       offset: state.credOffset, limit: 50
     }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load credit activity.', true); return; }
-      $('credPage').textContent = 'Page ' + (state.credOffset / 50 + 1);
+      pager('cred', res.total, loadCredits);
       $('credTbl').querySelector('tbody').innerHTML = res.activity.map(function (a) {
         return '<tr><td class="muted">' + sgt(a.created_at) + '</td>' +
           '<td>' + (a.username ? '@' + esc(U(a.username)) : a.player_id) + '</td>' +
@@ -2356,7 +2389,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   $('depSearchBtn').onclick = function () { state.depOffset = 0; loadDeposits(); };
   $('depQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.depOffset = 0; loadDeposits(); } });
   $('depPrev').onclick = function () { state.depOffset = Math.max(0, state.depOffset - 50); loadDeposits(); };
-  $('depNext').onclick = function () { state.depOffset += 50; loadDeposits(); };
+  $('depNext').onclick = function () { if (this.disabled) return; state.depOffset += 50; loadDeposits(); };
   function setDepReqBadge(n) {
     var b = $('depReqBadge'); if (!b) return;
     b.textContent = n > 99 ? '99+' : n;
@@ -2419,7 +2452,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       offset: state.depOffset, limit: 50
     }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load deposits.', true); return; }
-      $('depPage').textContent = 'Page ' + (state.depOffset / 50 + 1);
+      pager('dep', res.total, loadDeposits);
       $('depTbl').querySelector('tbody').innerHTML = res.deposits.map(function (d) {
         return '<tr><td class="muted">' + sgt(d.created_at) + '</td>' +
           '<td>' + (d.username ? playerCell(d.username, d.display_name) : d.player_id) + '</td>' +
@@ -2894,13 +2927,13 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   $('payoutStatus').onchange = function () { state.payoutOffset = 0; loadPayouts(); };
   $('payoutQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { state.payoutOffset = 0; loadPayouts(); } });
   $('payoutPrev').onclick = function () { state.payoutOffset = Math.max(0, state.payoutOffset - 50); loadPayouts(); };
-  $('payoutNext').onclick = function () { state.payoutOffset += 50; loadPayouts(); };
+  $('payoutNext').onclick = function () { if (this.disabled) return; state.payoutOffset += 50; loadPayouts(); };
 
   function loadPayouts() {
     api('/api/admin/payouts', { status: $('payoutStatus').value, q: $('payoutQ').value.trim(), offset: state.payoutOffset, limit: 50 }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load payouts.', true); return; }
       setPayoutBadge(res.pending_count || 0);
-      $('payoutPage').textContent = 'Page ' + (state.payoutOffset / 50 + 1);
+      pager('payout', res.total, loadPayouts);
       $('payoutSummary').textContent = res.pending_count + ' pending • ' + (res.pending_cents / 100).toFixed(2) + ' awaiting approval • times in SGT';
       var tb = $('payoutTbl').querySelector('tbody');
       tb.innerHTML = res.payouts.map(function (p) {
