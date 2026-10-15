@@ -17,3 +17,35 @@ window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
  if(!btns.length)return;
  box.innerHTML='<span class="lc-label">Contact us</span><div class="lc-row'+(btns.length===1?' one':'')+'">'+btns.map(([k,n,u])=>`<a class="lc-btn ${k?'lc-'+k:''}" href="${esc(u)}" target="_blank" rel="noopener">${k?`<span class="lc-ic">${IC[k]}</span>`:''}<b>${n}</b></a>`).join('')+'</div>';
  box.hidden=false;}catch(e){}})();
+
+/* ---- Self sign-up ---------------------------------------------------- */
+(()=>{const $=s=>document.querySelector(s);const loginP=$('#login-panel'),suP=$('#signup-panel'),doneP=$('#signup-done'),f=$('#signup-form'),err=$('#signup-error');if(!suP||!f)return;
+ const note=$('.access-note'),rec=$('#recovery-note');
+ const show=w=>{loginP.hidden=w!=='login';suP.hidden=w!=='signup';doneP.hidden=w!=='done';if(note)note.hidden=w!=='login';if(rec&&w!=='login')rec.hidden=true;window.scrollTo({top:0,behavior:'smooth'});};
+ $('#open-signup').onclick=()=>{show('signup');history.replaceState(null,'','#signup');setTimeout(()=>$('#su-name').focus(),250);};
+ $('#back-to-login').onclick=()=>{show('login');history.replaceState(null,'',location.pathname+location.search);};
+ if(location.hash==='#signup')show('signup');
+ // PayNow follows the phone number until the player edits it.
+ const ph=$('#su-phone'),pn=$('#su-paynow');let pnTouched=false;pn.addEventListener('input',()=>{pnTouched=pn.value.trim()!=='';});ph.addEventListener('input',()=>{if(!pnTouched)pn.value=ph.value;});
+ document.querySelectorAll('.su-show').forEach(b=>b.onclick=()=>{const i=document.getElementById(b.dataset.for);const s=i.type==='password';i.type=s?'text':'password';$('#su-pass2').type=i.type;b.textContent=s?'Hide':'Show';});
+ // Hide the button if sign-up is switched off in Admin -> Settings.
+ fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'}).then(r=>r.json()).then(c=>{if(c&&c.signup_enabled===false){$('#open-signup').hidden=true;const n=$('#signup-closed-note');if(n)n.hidden=false;if(!suP.hidden)show('login');}}).catch(()=>{});
+ const fail=(msg,el)=>{err.textContent=msg;f.querySelectorAll('.bad').forEach(x=>x.classList.remove('bad'));if(el){el.classList.add('bad');el.focus();}};
+ f.onsubmit=async e=>{e.preventDefault();const v=id=>$(id).value.trim();
+  const digits=v('#su-phone').replace(/\D/g,'');
+  if(v('#su-name').length<2)return fail('Please enter your full name.',$('#su-name'));
+  if(digits.length<8)return fail('Please enter a valid phone number.',$('#su-phone'));
+  if(!v('#su-paynow'))return fail('Please enter your PayNow number.',$('#su-paynow'));
+  if(!v('#su-bank'))return fail('Please choose your bank.',$('#su-bank'));
+  if(!v('#su-holder'))return fail('Please enter the name on your bank account.',$('#su-holder'));
+  if(v('#su-acc').replace(/[^0-9A-Za-z]/g,'').length<5)return fail('Please enter your bank account number.',$('#su-acc'));
+  if($('#su-pass').value.length<8)return fail('Password must be at least 8 characters.',$('#su-pass'));
+  if($('#su-pass').value!==$('#su-pass2').value)return fail('The two passwords do not match.',$('#su-pass2'));
+  fail('');const btn=f.querySelector('[type="submit"]');btn.disabled=true;btn.textContent='Creating your account…';
+  try{const r=await fetch('/api/member/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v('#su-name'),phone:v('#su-phone'),paynow:v('#su-paynow'),bank_type:v('#su-bank'),bank_holder:v('#su-holder'),bank_account:v('#su-acc'),password:$('#su-pass').value})});
+   const d=await r.json().catch(()=>({}));if(!r.ok||!d.ok)throw new Error(d.error||'Could not create your account. Please try again.');
+   $('#su-new-id').textContent=d.username;show('done');history.replaceState(null,'',location.pathname);
+  }catch(x){fail(x.message==='Failed to fetch'?'Connection unavailable. Please try again.':x.message);btn.disabled=false;btn.innerHTML='Create account <span aria-hidden="true">→</span>';}};
+ $('#su-copy').onclick=()=>{const t=$('#su-new-id').textContent;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{$('#su-copy').textContent='Copied';},()=>{});};
+ $('#su-enter').onclick=()=>location.replace('/#home');
+})();

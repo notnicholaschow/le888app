@@ -508,7 +508,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       <div class="card">
         <div class="row" style="margin-bottom:12px">
           <input id="playerQ" placeholder="Search username, name or tag">
-          <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option></select>
+          <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option><option value="SELF SIGNUP">SELF SIGNUP</option></select>
           <button class="btn ghost small" id="playerSearchBtn">Search</button>
           <button class="btn ghost small" id="playerBulkBtn" style="display:none">Bulk import</button>
           <button class="btn small" id="playerNewBtn">+ New player</button>
@@ -938,6 +938,13 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         </div>
       </div>
 
+      <div class="card" id="signupCard">
+        <h2 style="margin-top:0">Player sign-up &amp; Google Sheet</h2>
+        <label for="sSignupOn">Players can create their own account (login page &rarr; "Create an account")</label>
+        <select id="sSignupOn"><option value="1">On &mdash; show "Create an account"</option><option value="0">Off &mdash; hide it (staff create accounts)</option></select>
+        <p class="muted" style="margin:8px 0 0">Saved with the <b>Save settings</b> button below. New sign-ups get the next free LE number and the <b>SELF SIGNUP</b> tag.</p>
+        <div class="row" style="margin-top:14px;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn ghost small" id="sheetCheckBtn">Check Google Sheet link</button><span id="sheetStatus" class="muted">Not checked yet.</span></div>
+      </div>
       <div class="card">
         <label for="sAnnounce">Announcement shown in the player app</label>
         <textarea id="sAnnounce" rows="2"></textarea>
@@ -1676,7 +1683,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 
 
   // ---- Reusable user-tag helpers (players list + chat) --------------------
-  var TAG_PRESETS = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD'];
+  var TAG_PRESETS = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD', 'SELF SIGNUP'];
   // Map any tag to a colour class. Unknown (typed) tags use the "custom" colour.
   function tagKey(t) {
     var m = { 'free credit': 'freecredit', 'deposit': 'deposit', 'vip': 'vip', 'blacklist': 'blacklist' };
@@ -1810,26 +1817,42 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   }
 
   function newPlayerModal() {
+    var nextId = '';
     openModal(
       '<h2>New Player</h2>' +
-      '<p class="muted">The username you choose here IS the Player ID &mdash; it shows in the player’s app and on every transaction. Give the username and password to the player.</p>' +
-      '<label>Username / Player ID (3-32 chars: letters, numbers, dot, underscore)</label><input id="npUser" autocapitalize="none" placeholder="e.g. GC2805">' +
+      '<p class="muted">The Player ID is filled in automatically with the <b>next free LE number</b> (checked against the system <i>and</i> the Google Sheet), so it never clashes. The new player is also added to the Google Sheet.</p>' +
+      '<label>Player ID</label><input id="npUser" autocapitalize="characters" placeholder="Loading next ID…">' +
+      '<p class="muted" id="npIdHint" style="margin:6px 0 0;font-size:12px"></p>' +
       '<label>Password (min 8 chars)</label><input id="npPass">' +
       '<label>Display name (optional)</label><input id="npName">' +
+      '<label>Phone number (optional)</label><input id="npPhone" inputmode="tel" placeholder="e.g. 6591234567">' +
       '<label>Referred by (optional) &mdash; the Player ID of the friend who invited them</label><input id="npRef" autocapitalize="none" placeholder="e.g. LE2805">' +
       '<button class="btn" id="npBtn" style="margin-top:12px;width:100%">Create player</button>'
     );
+    api('/api/admin/players/next-id', {}).then(function (r) {
+      if (!r || !r.ok) { $('npIdHint').textContent = 'Could not get the next ID — type one in.'; $('npUser').placeholder = 'e.g. LE10695'; return; }
+      nextId = r.next; if (!$('npUser').value) $('npUser').value = nextId;
+      $('npIdHint').innerHTML = r.sheet_max !== null
+        ? '✅ Next free ID. Highest in system: LE' + r.db_max + ' · in Google Sheet: LE' + r.sheet_max
+        : '⚠️ Google Sheet not connected (' + esc(r.sheet_error || 'not set up') + ') — based on the system only.';
+    }).catch(function () { $('npIdHint').textContent = 'Could not get the next ID — type one in.'; });
     $('npBtn').onclick = function () {
+      var u = $('npUser').value.trim();
+      var auto = !u || (nextId && u.toUpperCase() === nextId.toUpperCase());
+      var btn = this; busy(btn, true);
       api('/api/admin/player/create', {
-        username: $('npUser').value.trim(),
+        username: auto ? '' : u,
+        auto_id: auto,
         password: $('npPass').value,
         display_name: $('npName').value.trim(),
+        phone: $('npPhone').value.trim(),
         referred_by: $('npRef').value.trim()
       }).then(function (res) {
+        busy(btn, false);
         if (!res.ok) { toast(res.error || 'Create failed.', true); return; }
-        toast('Player created: @' + U(res.username) + ($('npRef') && $('npRef').value.trim() ? ' · referral linked' : ''));
+        toast('Player created: ' + U(res.username) + ($('npRef') && $('npRef').value.trim() ? ' · referral linked' : ''));
         closeModal(); loadPlayers();
-      });
+      }).catch(function () { busy(btn, false); toast('Network error.', true); });
     };
   }
 
@@ -1995,7 +2018,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       '<label>WhatsApp (optional)</label><input id="mWhatsapp" placeholder="+60 12-345 6789" value="' + esc(p.whatsapp || '') + '">' +
       '<label>Status</label><select id="mStatus"><option value="active">active</option><option value="blocked">blocked</option></select>' +
       '<label>User tag (admin only — not shown to the player)</label>' +
-      '<select id="mTag"><option value="">None</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option><option value="__other">Custom…</option></select>' +
+      '<select id="mTag"><option value="">None</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option><option value="SELF SIGNUP">SELF SIGNUP</option><option value="__other">Custom…</option></select>' +
       '<input id="mTagOther" placeholder="Custom tag" maxlength="40" style="margin-top:6px;display:none">' +
       '<label>Note</label><input id="mNote" value="' + esc(p.note || '') + '">' +
       '<button class="btn" id="mSaveBtn" style="margin-top:12px;width:100%">Save player</button>' +
@@ -2017,7 +2040,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     );
     $('mStatus').value = p.status;
     (function () {
-      var presets = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD'], t = p.tag || '';
+      var presets = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD', 'SELF SIGNUP'], t = p.tag || '';
       if (!t) $('mTag').value = '';
       else if (presets.indexOf(t) >= 0) $('mTag').value = t;
       else { $('mTag').value = '__other'; $('mTagOther').value = t; $('mTagOther').style.display = ''; }
@@ -3858,6 +3881,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       if (!res.ok) return;
       var s = res.settings;
       $('sAnnounce').value = s.announcement_text || '';
+      if ($('sSignupOn')) $('sSignupOn').value = String(s.signup_enabled == null ? '1' : s.signup_enabled) === '0' ? '0' : '1';
       $('sContact').value = s.contact_url || '';
       $('sWhatsapp').value = s.contact_whatsapp || '';
       $('sTelegram').value = s.contact_telegram || '';
@@ -3965,6 +3989,17 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       toast('Referral settings saved.'); flashDone(btn, 'Saved ✓');
     }).catch(function () { busy(btn, false); toast('Network error.', true); });
   };
+  if ($('sheetCheckBtn')) $('sheetCheckBtn').onclick = function () {
+    var btn = this, st = $('sheetStatus'); busy(btn, true); st.textContent = 'Checking…';
+    api('/api/admin/sheet/status', {}).then(function (r) {
+      busy(btn, false);
+      if (!r.ok) { st.textContent = r.error || 'Check failed.'; return; }
+      if (!r.configured) { st.innerHTML = '<span style="color:var(--red)">⚠️ Not set up yet</span> — add SHEET_URL and SHEET_SECRET in Cloudflare. Next ID (system only): <b>' + esc(r.next) + '</b>'; return; }
+      if (!r.connected) { st.innerHTML = '<span style="color:var(--red)">❌ Can\u2019t reach the sheet</span> (' + esc(r.sheet_error || 'error') + '). Check the script link + secret.'; return; }
+      st.innerHTML = '<span style="color:var(--green)">✅ Connected</span> · highest in sheet <b>LE' + r.sheet_max + '</b> · in system <b>LE' + r.db_max + '</b> · next ID <b>' + esc(r.next) + '</b>' +
+        (r.queued ? ' · <span style="color:var(--red)">' + r.queued + ' row(s) waiting to be sent</span>' : '') + (r.sent ? ' · sent ' + r.sent + ' waiting row(s) now' : '');
+    }).catch(function () { busy(btn, false); st.textContent = 'Network error.'; });
+  };
   $('settingsSaveBtn').onclick = function () {
     api('/api/admin/settings/save', {
       settings: {
@@ -3977,7 +4012,8 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         checkin_rewards: [1, 2, 3, 4, 5, 6, 7].map(function (d) { return String(Math.max(0, Math.floor(Number($('sCi' + d).value) || 0))); }).join(','),
         chat_keep_messages: $('sChatKeep') ? $('sChatKeep').value : '100',
         deposit_point_rate: $('sDepositRate').value,
-        tasks_enabled: $('sTasksOn').value
+        tasks_enabled: $('sTasksOn').value,
+        signup_enabled: $('sSignupOn') ? $('sSignupOn').value : '1'
       }
     }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Save failed.', true); return; }

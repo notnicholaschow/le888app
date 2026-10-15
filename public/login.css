@@ -39,3 +39,24 @@ footer{margin-top:20px}
 .lc-ic svg{width:17px;height:17px}
 .lc-wa .lc-ic{background:linear-gradient(160deg,#5be37f,#1faa52)}
 .lc-tg .lc-ic{background:linear-gradient(160deg,#3fb8f0,#1a86c8)}
+
+/* Self sign-up */
+.signup-open{display:block;width:100%;height:46px;margin-top:12px;border-radius:12px;border:1px solid #efc77e88;background:linear-gradient(180deg,#2a2114,#14110b);color:#f6dca2;font-weight:700;font-size:14px;letter-spacing:.3px}
+.signup-open:active{transform:scale(.98)}
+.signup-back{display:block;width:100%;margin-top:16px;border:0;background:none;color:#a29a88;font-size:12px}
+.signup-back b{color:#e9c983}
+select{width:100%;height:49px;border:1px solid #c4a56a30;border-radius:10px;background:linear-gradient(180deg,#050504bf,#14120eaa);padding:0 13px;color:#fff3db;font:inherit;font-size:16px;outline:none;-webkit-appearance:none;appearance:none;background-image:linear-gradient(45deg,transparent 50%,#c4ae85 50%),linear-gradient(135deg,#c4ae85 50%,transparent 50%);background-position:calc(100% - 20px) 21px,calc(100% - 14px) 21px;background-size:6px 6px;background-repeat:no-repeat}
+select:focus{border-color:#efc77e;box-shadow:0 0 0 3px #e3b05213}
+select option{background:#14120e;color:#fff3db}
+.su-sep{margin:22px 0 2px;padding-top:14px;border-top:1px solid #ae8c4d26;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#c3a774}
+.su-sep span{letter-spacing:0;text-transform:none;color:#877e6a}
+#signup-error{font-size:12px;line-height:1.6;color:#ffb79c;margin:12px 0;min-height:0}
+#signup-error:empty{margin:16px 0 0}
+input.bad,select.bad{border-color:#ff9f86}
+.su-id-box{display:flex;align-items:center;gap:10px;margin:18px 0 20px;padding:16px;border:1px solid #efc77e70;border-radius:14px;background:linear-gradient(180deg,#2a2114aa,#0e0c08)}
+.su-id-box span{font-size:11px;color:#c3a774;white-space:nowrap}
+.su-id-box b{flex:1;font-size:26px;letter-spacing:1px;color:#ffe3a3;text-align:center}
+.su-id-box button{border:1px solid #c4a56a55;background:none;color:#e9c983;border-radius:8px;height:32px;padding:0 12px;font-size:12px}
+.su-id-box{flex-wrap:wrap;justify-content:center;gap:8px 12px;padding:14px 16px}
+.su-id-box span{width:100%;text-align:center}
+.su-id-box b{flex:0 1 auto;font-size:28px;min-width:0}
