@@ -1933,3 +1933,16 @@ body.luxury-os .my-rank-panel.vip-card .vc-next .rank-emblem{width:56px;height:5
 body.luxury-os .my-rank-panel.vip-card .vc-next .rank-emblem img{filter:drop-shadow(0 4px 9px #000b)}
 body.luxury-os dialog.vip-detail-modal .vd-tier,body.luxury-os dialog.vip-detail-modal .vd-req{text-align:center}
 body.luxury-os dialog.vip-detail-modal .vip-perks small{text-transform:none;letter-spacing:0;font-size:12px}
+
+/* Verify-your-account pop-up (self sign-ups, before free credit) */
+.vfy-pop{text-align:left}
+.vfy-ic{width:58px;height:58px;margin:2px auto 12px;display:grid;place-items:center;font-size:30px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#3a2d14,#14100a);border:1px solid #d9b45166;box-shadow:0 0 24px #d9b45126}
+.vfy-lead{margin:0 0 12px;line-height:1.55;font-size:14px;color:#e9dfc9;text-align:center}
+.vfy-steps{margin:0 0 14px;padding-left:22px;line-height:1.75;font-size:13.5px;color:#d8ccb2}
+.vfy-steps b{color:#f3d58a}
+.vfy-box{border:1px solid #d9b45155;border-radius:12px;padding:12px 14px;background:linear-gradient(180deg,#1c160c,#0f0c07);margin-bottom:14px}
+.vfy-must{font-size:12.5px;line-height:1.5;color:#f0c987;margin-bottom:8px}
+.vfy-row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid #ffffff10;font-size:13px}
+.vfy-row span{color:#a99c80}
+.vfy-row b{color:#fff3d6;text-align:right;word-break:break-word}
+.vfy-chat{width:100%;margin-bottom:8px}

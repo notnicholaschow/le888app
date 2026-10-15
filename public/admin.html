@@ -214,7 +214,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 .tag-inline { height: 28px; padding: 2px 8px; border-radius: 7px; font-size: 12px; cursor: pointer;
   background: var(--field); border: 1px solid var(--line); color: var(--text); max-width: 150px; min-width: 104px; }
 /* Players table: never let the many action buttons squash the Tag dropdown to just its arrow */
-td > select.tag-inline { width: 110px; min-width: 104px; }
+td > select.tag-inline { width: 132px; min-width: 124px; }
 .gid-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px; font-size: 11.5px;
   background: var(--panel, rgba(255,255,255,.04)); border: 1px solid var(--line-soft); white-space: nowrap; }
 .gid-pill b { color: var(--gold); font-weight: 700; }
@@ -242,6 +242,25 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 .tagc-vip { background: rgba(233,196,106,.2); color: #e9c46a; border-color: rgba(233,196,106,.4); }
 .tagc-blacklist { background: rgba(242,85,90,.2); color: #f2555a; border-color: rgba(242,85,90,.4); }
 .tagc-custom { background: rgba(167,139,250,.2); color: #a78bfa; border-color: rgba(167,139,250,.4); }
+.tagc-nicupload { background: rgba(255,146,60,.18); color: #ff9a4d; border-color: rgba(255,146,60,.4); }
+.tagc-selfsignup { background: rgba(45,212,191,.16); color: #2dd4bf; border-color: rgba(45,212,191,.4); }
+/* Any other tag gets one of these, picked from its name (same tag = same colour everywhere). */
+.vf-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  border: 1px solid rgba(255,146,60,.55); background: rgba(255,146,60,.14); color: #ffa75c; }
+.vf-btn:hover { background: rgba(255,146,60,.24); }
+.vf-ok { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  border: 1px solid rgba(70,167,88,.45); background: rgba(70,167,88,.13); color: #5cc46e; }
+.vf-grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
+.vf-grid span { color: var(--text-2); font-size: 12.5px; }
+.vf-grid b { color: var(--text); font-weight: 600; word-break: break-all; }
+.tagc-c0 { background: rgba(167,139,250,.2); color: #a78bfa; border-color: rgba(167,139,250,.4); }
+.tagc-c1 { background: rgba(244,114,182,.18); color: #f472b6; border-color: rgba(244,114,182,.4); }
+.tagc-c2 { background: rgba(56,189,248,.16); color: #38bdf8; border-color: rgba(56,189,248,.4); }
+.tagc-c3 { background: rgba(163,230,53,.15); color: #a3e635; border-color: rgba(163,230,53,.38); }
+.tagc-c4 { background: rgba(214,167,122,.17); color: #d6a77a; border-color: rgba(214,167,122,.4); }
+.tagc-c5 { background: rgba(99,102,241,.2); color: #8b8ff8; border-color: rgba(99,102,241,.45); }
+.tagc-c6 { background: rgba(232,121,249,.16); color: #e879f9; border-color: rgba(232,121,249,.4); }
+.tagc-c7 { background: rgba(148,163,184,.18); color: #cbd5e1; border-color: rgba(148,163,184,.4); }
 .amt-pos { color: var(--green); font-weight: 500; }
 .amt-neg { color: var(--red); font-weight: 500; }
 .p-name { font-weight: 600; color: var(--text); }
@@ -508,7 +527,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       <div class="card">
         <div class="row" style="margin-bottom:12px">
           <input id="playerQ" placeholder="Search username, name or tag">
-          <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option><option value="SELF SIGNUP">SELF SIGNUP</option></select>
+          <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="__unverified">⚠ Not verified</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option><option value="NIC UPLOAD">NIC UPLOAD</option><option value="SELF SIGNUP">SELF SIGNUP</option></select>
           <button class="btn ghost small" id="playerSearchBtn">Search</button>
           <button class="btn ghost small" id="playerBulkBtn" style="display:none">Bulk import</button>
           <button class="btn small" id="playerNewBtn">+ New player</button>
@@ -687,6 +706,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
             <button class="btn ghost small" id="caGid">Game ID</button>
             <button class="btn ghost small" id="caManage">Manage</button>
             <button class="btn ghost small" id="caView" style="display:none">View app</button>
+            <button type="button" class="vf-btn" id="caVerify" style="display:none;margin-top:0">⚠ Verify bank</button>
             <select class="tag-inline" id="caTag" title="User tag" aria-label="User tag"></select>
           </div>
           <div class="chat-conv-body" id="convBody"><div class="chat-conv-empty">Choose a chat on the left, or start a new one.</div></div>
@@ -1686,11 +1706,43 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   var TAG_PRESETS = ['Free credit', 'Deposit', 'VIP', 'Blacklist', 'NIC UPLOAD', 'SELF SIGNUP'];
   // Map any tag to a colour class. Unknown (typed) tags use the "custom" colour.
   function tagKey(t) {
-    var m = { 'free credit': 'freecredit', 'deposit': 'deposit', 'vip': 'vip', 'blacklist': 'blacklist' };
-    var k = m[String(t || '').toLowerCase()];
-    return k ? k : (t ? 'custom' : '');
+    var m = { 'free credit': 'freecredit', 'deposit': 'deposit', 'vip': 'vip', 'blacklist': 'blacklist', 'nic upload': 'nicupload', 'self signup': 'selfsignup' };
+    var low = String(t || '').trim().toLowerCase();
+    if (!low) return '';
+    if (m[low]) return m[low];
+    if (TAG_ORDER && TAG_ORDER[low] !== undefined) return 'c' + (TAG_ORDER[low] % 8);
+    var h = 2166136261; for (var i = 0; i < low.length; i++) { h ^= low.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return 'c' + (((h ^ (h >>> 15)) >>> 0) % 8);
   }
   function tagClass(t) { var k = tagKey(t); return k ? 'tagc tagc-' + k : ''; }
+  // Custom tags get colours in the order they were first used, so the first 8
+  // custom tags are all different and a tag keeps its colour.
+  var TAG_ORDER = {}, TAG_LIST = [], tagListBusy = false;
+  function loadTagList() {
+    if (tagListBusy) return; tagListBusy = true;
+    api('/api/admin/tags', {}).then(function (r) {
+      tagListBusy = false;
+      if (!r || !r.ok) return;
+      var presetLow = TAG_PRESETS.map(function (x) { return x.toLowerCase(); });
+      var order = {}, n = 0;
+      TAG_LIST = r.tags || [];
+      TAG_LIST.forEach(function (t) { var low = String(t.tag).trim().toLowerCase(); if (presetLow.indexOf(low) === -1 && order[low] === undefined) order[low] = n++; });
+      TAG_ORDER = order;
+      // "All tags" filter: presets + every other tag in use (with counts).
+      var sel = $('playerTag');
+      if (sel) {
+        var cur = sel.value, counts = {};
+        TAG_LIST.forEach(function (t) { counts[String(t.tag).trim().toLowerCase()] = t.count; });
+        var html = '<option value="">All tags</option><option value="__unverified">⚠ Not verified</option>';
+        TAG_PRESETS.forEach(function (x) { var c = counts[x.toLowerCase()]; html += '<option value="' + esc(x) + '">' + esc(x) + (c ? ' (' + c + ')' : '') + '</option>'; });
+        TAG_LIST.forEach(function (t) { var x = String(t.tag).trim(); if (presetLow.indexOf(x.toLowerCase()) === -1) html += '<option value="' + esc(x) + '">' + esc(x) + ' (' + t.count + ')</option>'; });
+        sel.innerHTML = html; sel.value = cur;
+      }
+      // Re-colour what is already on screen.
+      Array.prototype.forEach.call(document.querySelectorAll('select.tag-inline'), function (s2) { colorTagSelect(s2, s2.value); });
+      Array.prototype.forEach.call(document.querySelectorAll('.tag-pill'), function (p2) { var v = p2.textContent.trim(); if (v) p2.className = 'tag-pill ' + tagClass(v); });
+    }).catch(function () { tagListBusy = false; });
+  }
   // Colour a <select> to match its currently-selected tag.
   function colorTagSelect(sel, val) {
     sel.className = sel.className.replace(/\btagc(-\w+)?\b/g, '').replace(/\s+/g, ' ').trim();
@@ -1708,6 +1760,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   function saveTag(pid, value, cb) {
     api('/api/admin/player/update', { id: pid, tag: value }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Tag save failed.', true); return; }
+      loadTagList();
       toast(value ? ('Tag set: ' + value) : 'Tag cleared.');
       if (cb) cb(value);
     }).catch(function () { toast('Network error.', true); });
@@ -1739,12 +1792,13 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 
   function loadPlayers() {
     if ($('playerBulkBtn')) $('playerBulkBtn').style.display = isMgr() ? '' : 'none';
+    loadTagList();
     api('/api/admin/players', { q: $('playerQ').value.trim(), tag: $('playerTag') ? $('playerTag').value : '', offset: state.playerOffset, limit: 50 }).then(function (res) {
       if (!res.ok) return;
       pager('player', res.total, loadPlayers);
       var tb = $('playerTbl').querySelector('tbody');
       tb.innerHTML = res.players.map(function (p) {
-        return '<tr><td>' + playerCell(p.username, p.display_name) + '</td>' +
+        return '<tr><td>' + playerCell(p.username, p.display_name) + verifyBadge(p) + '</td>' +
           '<td class="pid">' + esc(U(p.username)) + '</td>' +
           '<td><select class="tag-inline ' + tagClass(p.tag) + '" data-tag-player="' + p.id + '">' + tagSelectHtml(p.tag) + '</select></td>' +
           '<td>' + Number(p.points).toLocaleString('en-US') + '</td>' +
@@ -1762,6 +1816,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
             '<button class="btn ghost small" data-edit-player="' + p.id + '">Manage</button></td></tr>';
       }).join('') || '<tr><td colspan="7" class="muted">No players yet. Tap "+ New player" to create the first account.</td></tr>';
       function findP(attr, b) { return res.players.find(function (x) { return String(x.id) === b.getAttribute(attr); }); }
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-verify-player]'), function (b) {
+        b.onclick = function () { verifyModal(findP('data-verify-player', b), function () { loadPlayers(); }); };
+      });
       Array.prototype.forEach.call(tb.querySelectorAll('[data-edit-player]'), function (b) {
         b.onclick = function () { playerModal(findP('data-edit-player', b)); };
       });
@@ -1814,6 +1871,50 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         };
       });
     });
+  }
+
+  // ---- Bank verification (self sign-ups) ------------------------------------
+  function verifyBadge(p) {
+    if (!p || p.bank_verified === null || p.bank_verified === undefined) return '';
+    if (Number(p.bank_verified) === 1) return '<div><button type="button" class="vf-ok" data-verify-player="' + p.id + '" title="Verified by ' + esc(p.verified_by || '?') + (p.verified_at ? ' · ' + esc(sgt(p.verified_at)) : '') + '">✓ Verified</button></div>';
+    return '<div><button type="button" class="vf-btn" data-verify-player="' + p.id + '" title="Check the bank statement, then verify">⚠ Verify bank</button></div>';
+  }
+  function verifyModal(p, onDone) {
+    if (!p) return;
+    openModal('<h2>Verify ' + esc(U(p.username)) + '</h2><p class="muted">Loading&hellip;</p>');
+    api('/api/admin/player/profile', { id: p.id }).then(function (r) {
+      if (!r || !r.ok) { $('modalBody').innerHTML = '<h2>Verify</h2><p class="muted">' + esc((r && r.error) || 'Could not load.') + '</p>'; return; }
+      var pl = r.player || {}, d = r.details || {}, done = Number(pl.bank_verified) === 1;
+      var row = function (k, v) { return '<span>' + k + '</span><b>' + (v ? esc(v) : '<i class="muted">—</i>') + '</b>'; };
+      openModal(
+        '<h2>' + (done ? '✓ Verified &mdash; ' : 'Verify bank &mdash; ') + esc(U(pl.username)) + '</h2>' +
+        (done
+          ? '<p class="muted">Verified by <b style="color:var(--text)">' + esc(pl.verified_by || '?') + '</b>' + (pl.verified_at ? ' on ' + esc(sgt(pl.verified_at)) : '') + '. This player can submit rewards to free credit.</p>'
+          : '<p class="muted">Ask the player to send their <b>bank statement</b> in Live Chat. The <b>name on the statement must be the same</b> as <i>Name on account</i>, and the <b>bank + account number</b> must match below. Until verified, the player <b>cannot submit rewards to free credit</b>.</p>') +
+        '<div class="vf-grid">' +
+          row('Player name', pl.display_name) + row('Phone', pl.whatsapp) + row('Bank', d.bank_name) +
+          row('Name on account', d.bank_holder) + row('Account number', d.bank_account) + row('PayNow', d.paynow_number) +
+        '</div>' +
+        (done
+          ? '<div class="row" style="gap:8px"><button class="btn ghost" id="vfUndo">Undo verification</button><button class="btn" id="vfClose">Close</button></div>'
+          : '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:4px"><input type="checkbox" id="vfTick" style="width:auto;margin-top:3px"> <span>I have checked the bank statement and the name + account number match.</span></label>' +
+            '<div class="row" style="gap:8px;margin-top:12px"><button class="btn" id="vfGo" disabled>✓ Verify player</button><button class="btn ghost" id="vfClose">Cancel</button></div>' +
+            '<p class="muted" style="font-size:12px;margin-top:10px">Details wrong? Fix them first in <b>Manage &rarr; Bank details</b>, then verify.</p>')
+      );
+      $('vfClose').onclick = closeModal;
+      var send = function (verified, btn) {
+        busy(btn, true);
+        api('/api/admin/player/verify', { id: pl.id, verified: verified }).then(function (x) {
+          busy(btn, false);
+          if (!x.ok) { toast(x.error || 'Could not save.', true); return; }
+          toast(verified ? U(pl.username) + ' verified ✓' : 'Verification removed.');
+          closeModal(); if (onDone) onDone(x);
+        }).catch(function () { busy(btn, false); toast('Network error.', true); });
+      };
+      if ($('vfTick')) $('vfTick').onchange = function () { $('vfGo').disabled = !this.checked; };
+      if ($('vfGo')) $('vfGo').onclick = function () { send(true, this); };
+      if ($('vfUndo')) $('vfUndo').onclick = function () { if (confirm('Remove verification? The player will not be able to submit rewards until verified again.')) send(false, this); };
+    }).catch(function () { toast('Network error.', true); });
   }
 
   function newPlayerModal() {
@@ -2733,7 +2834,21 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     if (inf) { inf.textContent = q ? (n + ' of ' + t + ' match') : ''; inf.style.display = q ? '' : 'none'; }
   }
   if ($('convSearch')) $('convSearch').addEventListener('input', acFilterConv);
+  function setConvVerify(pl) {
+    var b = $('caVerify'); if (!b) return;
+    var v = pl ? pl.bank_verified : null;
+    if (v === null || v === undefined) { b.style.display = 'none'; return; }
+    b.style.display = '';
+    if (Number(v) === 1) { b.className = 'vf-ok'; b.textContent = '✓ Verified'; }
+    else { b.className = 'vf-btn'; b.textContent = '⚠ Verify bank'; }
+    b.style.marginTop = '0';
+  }
+  if ($('caVerify')) $('caVerify').onclick = function () {
+    if (!acPlayer) return;
+    verifyModal(acPlayer, function (x) { acPlayer.bank_verified = x.bank_verified; acPlayer.verified_by = x.verified_by; acPlayer.verified_at = x.verified_at; setConvVerify(acPlayer); });
+  };
   function openConv(pid, username, tag) {
+    setConvVerify(null);
     clearInterval(acTimer); acLastId = 0; acPid = pid;
     if ($('convSearch')) { $('convSearch').value = ''; $('convSearch').style.display = ''; }
     if ($('convSearchInfo')) $('convSearchInfo').style.display = 'none';
@@ -2754,6 +2869,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
         // Full identity for the action buttons + the up-to-date tag.
         if (pr.player) {
           acPlayer = pr.player;
+          setConvVerify(pr.player);
           if ($('caTag')) { $('caTag').innerHTML = tagSelectHtml(pr.player.tag || ''); colorTagSelect($('caTag'), pr.player.tag || ''); }
           setConvTagPill(pr.player.tag || '');
         }
