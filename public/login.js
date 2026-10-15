@@ -25,8 +25,6 @@ window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
  $('#open-signup').onclick=()=>{show('signup');history.replaceState(null,'','#signup');setTimeout(()=>$('#su-name').focus(),250);};
  $('#back-to-login').onclick=()=>{show('login');history.replaceState(null,'',location.pathname+location.search);};
  if(location.hash==='#signup')show('signup');
- // PayNow follows the phone number until the player edits it.
- const ph=$('#su-phone'),pn=$('#su-paynow');let pnTouched=false;pn.addEventListener('input',()=>{pnTouched=pn.value.trim()!=='';});ph.addEventListener('input',()=>{if(!pnTouched)pn.value=ph.value;});
  document.querySelectorAll('.su-show').forEach(b=>b.onclick=()=>{const i=document.getElementById(b.dataset.for);const s=i.type==='password';i.type=s?'text':'password';$('#su-pass2').type=i.type;b.textContent=s?'Hide':'Show';});
  // Hide the button if sign-up is switched off in Admin -> Settings.
  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'}).then(r=>r.json()).then(c=>{if(c&&c.signup_enabled===false){$('#open-signup').hidden=true;const n=$('#signup-closed-note');if(n)n.hidden=false;if(!suP.hidden)show('login');}}).catch(()=>{});
@@ -34,8 +32,8 @@ window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
  f.onsubmit=async e=>{e.preventDefault();const v=id=>$(id).value.trim();
   const digits=v('#su-phone').replace(/\D/g,'');
   if(v('#su-name').length<2)return fail('Please enter your full name.',$('#su-name'));
-  if(digits.length<8)return fail('Please enter a valid phone number.',$('#su-phone'));
-  if(!v('#su-paynow'))return fail('Please enter your PayNow number.',$('#su-paynow'));
+  if(digits.length<8||(/^65/.test(digits)&&digits.length!==10))return fail('Please enter a valid phone number, e.g. 91234567.',$('#su-phone'));
+  if(v('#su-paynow').replace(/[^0-9A-Za-z]/g,'').length<8)return fail('Please enter your PayNow number.',$('#su-paynow'));
   if(!v('#su-bank'))return fail('Please choose your bank.',$('#su-bank'));
   if(!v('#su-holder'))return fail('Please enter the name on your bank account.',$('#su-holder'));
   if(v('#su-acc').replace(/[^0-9A-Za-z]/g,'').length<5)return fail('Please enter your bank account number.',$('#su-acc'));
