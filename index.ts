@@ -978,6 +978,9 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
   if (p === '/api/member/me' && method === 'GET') {
     const player = await currentPlayer();
     if (!player) return j({ error: 'Please sign in.' }, 401);
+    if ((player as any).bank_verified === undefined || (player as any).bank_verified === null) {
+      try { await ensureVerifyCols(env); const v = await env.DB.prepare('SELECT bank_verified FROM players WHERE id = ?').bind(player.id).first<{ bank_verified: number | null }>(); (player as any).bank_verified = v ? v.bank_verified : null; } catch { /* ignore */ }
+    }
     const { results } = await env.DB
       .prepare('SELECT type, amount, note, created_at FROM point_activity WHERE player_id = ? ORDER BY id DESC LIMIT 100')
       .bind(player.id)
@@ -3114,6 +3117,8 @@ async function ensureVerifyCols(env: Env): Promise<void> {
   for (const c of ['bank_verified INTEGER', 'verified_by TEXT', 'verified_at TEXT']) {
     try { await env.DB.prepare('ALTER TABLE players ADD COLUMN ' + c).run(); } catch { /* already there */ }
   }
+  // Self sign-ups made before this feature existed also need verifying.
+  try { await env.DB.prepare("UPDATE players SET bank_verified = 0 WHERE bank_verified IS NULL AND verified_at IS NULL AND upper(trim(COALESCE(tag,''))) = 'SELF SIGNUP'").run(); } catch { /* ignore */ }
   verifyColsReady = true;
 }
 const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
@@ -3975,6 +3980,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       if (!(await rateLimit(env, `submit:${player.id}`, 12, 60))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
       // Self sign-ups must be verified by CS (bank statement) before rewards go to free credit.
       try {
+        await ensureVerifyCols(env);
         const vr = await env.DB.prepare('SELECT bank_verified FROM players WHERE id = ?').bind(player.id).first<{ bank_verified: number | null }>();
         if (vr && vr.bank_verified === 0) return fail('NOT_VERIFIED', 'Your account is waiting for verification. Please send your bank statement to customer service in Live Chat. You can submit rewards once our team has verified it.', 403, rid);
       } catch { /* column not added yet = nobody needs verifying */ }
