@@ -2973,7 +2973,7 @@ async function ensureAutoTemplates(env: Env): Promise<void> {
 // they wait in sheet_queue and are retried (next sign-up / daily job).
 // ---------------------------------------------------------------------------
 const PLAYER_ID_PREFIX = 'le';
-async function sheetCall(env: Env, payload: Record<string, unknown>, timeoutMs = 8000): Promise<any | null> {
+async function sheetCall(env: Env, payload: Record<string, unknown>, timeoutMs = 25000): Promise<any | null> {
   const url = String(env.SHEET_URL || '').trim(), secret = String(env.SHEET_SECRET || '').trim();
   if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url) || !secret) return null;
   const ctrl = new AbortController();
@@ -2995,11 +2995,26 @@ async function dbMaxPlayerNumber(env: Env): Promise<number> {
   }
   return max;
 }
-async function nextPlayerIdInfo(env: Env): Promise<{ next: string; db_max: number; sheet_max: number | null; sheet_error?: string }> {
-  const [dbMax, sh] = await Promise.all([dbMaxPlayerNumber(env), sheetCall(env, { action: 'max' }, 5000)]);
-  const sheetMax = sh && sh.ok ? Number(sh.max) || 0 : null;
+// Last highest LE number seen in the sheet. Used when Google is slow to wake
+// up (Apps Script can take several seconds after being idle).
+async function sheetMaxCache(env: Env, value?: number): Promise<number> {
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS sheet_meta (k TEXT PRIMARY KEY, v TEXT)').run();
+    if (value !== undefined && value > 0) {
+      await env.DB.prepare("INSERT INTO sheet_meta (k, v) VALUES ('sheet_max', ?) ON CONFLICT(k) DO UPDATE SET v = CASE WHEN CAST(v AS INTEGER) < CAST(excluded.v AS INTEGER) THEN excluded.v ELSE v END").bind(String(value)).run();
+    }
+    const r = await env.DB.prepare("SELECT v FROM sheet_meta WHERE k = 'sheet_max'").first<{ v: string }>();
+    return Number(r?.v) || 0;
+  } catch { return 0; }
+}
+async function nextPlayerIdInfo(env: Env, timeoutMs = 9000): Promise<{ next: string; db_max: number; sheet_max: number | null; sheet_live: boolean; sheet_error?: string }> {
+  const [dbMax, sh] = await Promise.all([dbMaxPlayerNumber(env), sheetCall(env, { action: 'max' }, timeoutMs)]);
+  const live = !!(sh && sh.ok);
+  let sheetMax: number | null = live ? Number(sh.max) || 0 : null;
+  if (live) await sheetMaxCache(env, sheetMax || 0);
+  else if (sh) { const c = await sheetMaxCache(env); if (c) sheetMax = c; } // sheet set up but slow -> last known number
   const n = Math.max(dbMax, sheetMax || 0) + 1;
-  return { next: PLAYER_ID_PREFIX + n, db_max: dbMax, sheet_max: sheetMax, sheet_error: sh && !sh.ok ? String(sh.error || '') : (sh ? undefined : 'not set up') };
+  return { next: PLAYER_ID_PREFIX + n, db_max: dbMax, sheet_max: sheetMax, sheet_live: live, sheet_error: sh && !sh.ok ? String(sh.error || '') : (sh ? undefined : 'not set up') };
 }
 async function ensureSheetQueue(env: Env): Promise<void> {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS sheet_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER, payload TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
@@ -3015,6 +3030,8 @@ async function sheetSend(env: Env, playerId: number, msg: SheetMsg): Promise<boo
     const f = await flushSheetQueue(env, 20);
     if (f.left === 0) res = await sheetCall(env, { ...msg });
     else res = { ok: false, error: 'waiting behind earlier rows' };
+    const m = /^LE0*(\d{1,9})$/i.exec(String(msg.row?.code || ''));
+    if (res && res.ok && m) await sheetMaxCache(env, Number(m[1]));
   } catch (e) { res = { ok: false, error: 'queue error' }; }
   if (res && res.ok) return true;
   try {
@@ -3058,8 +3075,8 @@ async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; le
 }
 // Insert a player under the next free LE number. Retries if two sign-ups
 // race for the same number (the UNIQUE username blocks the second one).
-async function insertPlayerWithNextId(env: Env, insert: (username: string) => Promise<number>): Promise<{ id: number; username: string }> {
-  const info = await nextPlayerIdInfo(env);
+async function insertPlayerWithNextId(env: Env, insert: (username: string) => Promise<number>, timeoutMs = 6000): Promise<{ id: number; username: string }> {
+  const info = await nextPlayerIdInfo(env, timeoutMs);
   let n = Number(info.next.slice(PLAYER_ID_PREFIX.length));
   for (let attempt = 0; attempt < 8; attempt++, n++) {
     const username = PLAYER_ID_PREFIX + n;
@@ -4616,17 +4633,17 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/players/next-id': {
       // Next free Player ID (system + Google Sheet) for the "+ New player" form.
-      const info = await nextPlayerIdInfo(env);
-      return json({ ok: true, next: info.next.toUpperCase(), db_max: info.db_max, sheet_max: info.sheet_max, sheet_error: info.sheet_error || null }, 200, rid);
+      const info = await nextPlayerIdInfo(env, 15000);
+      return json({ ok: true, next: info.next.toUpperCase(), db_max: info.db_max, sheet_max: info.sheet_max, sheet_live: info.sheet_live, sheet_error: info.sheet_error || null }, 200, rid);
     }
 
     case '/api/admin/sheet/status': {
       // Settings -> Google Sheet card: is the link working? Also retries waiting rows.
       const configured = !!(env.SHEET_URL && env.SHEET_SECRET);
-      const info = await nextPlayerIdInfo(env);
+      const info = await nextPlayerIdInfo(env, 20000);
       let queued = 0, sent = 0;
       if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; } catch { /* ignore */ } }
-      return json({ ok: true, configured, connected: info.sheet_max !== null, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent }, 200, rid);
+      return json({ ok: true, configured, connected: info.sheet_live, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent }, 200, rid);
     }
 
     case '/api/admin/player/create': {
