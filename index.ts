@@ -3005,16 +3005,41 @@ async function ensureSheetQueue(env: Env): Promise<void> {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS sheet_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER, payload TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
 }
 type SheetRow = { code: string; contact?: string; paynow?: string; holder?: string; account?: string; bankType?: string };
-// Push one player row to the sheet; on failure it is queued for a retry.
-async function sheetPushRow(env: Env, playerId: number, row: SheetRow): Promise<boolean> {
+type SheetMsg = { action: 'append' | 'update'; row: SheetRow; old_code?: string };
+// Send one change to the sheet, in order: anything still waiting goes first.
+// On failure it is queued and retried later (next change / Settings check / daily job).
+async function sheetSend(env: Env, playerId: number, msg: SheetMsg): Promise<boolean> {
   if (!env.SHEET_URL || !env.SHEET_SECRET) return false;
-  const res = await sheetCall(env, { action: 'append', row });
+  let res: any = null;
+  try {
+    const f = await flushSheetQueue(env, 20);
+    if (f.left === 0) res = await sheetCall(env, { ...msg });
+    else res = { ok: false, error: 'waiting behind earlier rows' };
+  } catch (e) { res = { ok: false, error: 'queue error' }; }
   if (res && res.ok) return true;
   try {
     await ensureSheetQueue(env);
-    await env.DB.prepare('INSERT INTO sheet_queue (player_id, payload, last_error) VALUES (?, ?, ?)').bind(playerId, JSON.stringify(row), String(res?.error || 'failed').slice(0, 200)).run();
+    await env.DB.prepare('INSERT INTO sheet_queue (player_id, payload, last_error) VALUES (?, ?, ?)').bind(playerId, JSON.stringify(msg), String(res?.error || 'failed').slice(0, 200)).run();
   } catch { /* best-effort */ }
   return false;
+}
+async function sheetPushRow(env: Env, playerId: number, row: SheetRow): Promise<boolean> {
+  return sheetSend(env, playerId, { action: 'append', row });
+}
+// Staff/player changed details in the system -> overwrite those cells in the sheet.
+// Only non-blank values are sent, so a blank field never erases sheet data
+// (e.g. bank details that exist only in the sheet for imported players).
+async function sheetUpdatePlayer(env: Env, playerId: number, fields: Partial<SheetRow>, oldCode?: string): Promise<boolean> {
+  const p = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(playerId).first<{ username: string }>();
+  if (!p) return false;
+  const row: SheetRow = { code: String(p.username).toUpperCase() };
+  for (const k of ['contact', 'paynow', 'holder', 'account', 'bankType'] as const) {
+    const v = String((fields as any)[k] ?? '').trim();
+    if (v) (row as any)[k] = v;
+  }
+  const old = oldCode ? String(oldCode).toUpperCase() : undefined;
+  if (Object.keys(row).length === 1 && !(old && old !== row.code)) return true; // nothing to send
+  return sheetSend(env, playerId, { action: 'update', row, old_code: old && old !== row.code ? old : undefined });
 }
 async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; left: number }> {
   if (!env.SHEET_URL || !env.SHEET_SECRET) return { sent: 0, left: 0 };
@@ -3022,9 +3047,9 @@ async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; le
   const { results } = await env.DB.prepare('SELECT id, payload FROM sheet_queue WHERE tries < 50 ORDER BY id LIMIT ?').bind(limit).all<{ id: number; payload: string }>();
   let sent = 0;
   for (const q of results || []) {
-    let row: SheetRow;
-    try { row = JSON.parse(q.payload); } catch { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); continue; }
-    const res = await sheetCall(env, { action: 'append', row });
+    let msg: SheetMsg;
+    try { const j = JSON.parse(q.payload); msg = j && j.action ? j : { action: 'append', row: j }; } catch { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); continue; }
+    const res = await sheetCall(env, { ...msg });
     if (res && res.ok) { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); sent++; }
     else { await env.DB.prepare('UPDATE sheet_queue SET tries = tries + 1, last_error = ? WHERE id = ?').bind(String(res?.error || 'failed').slice(0, 200), q.id).run(); break; }
   }
@@ -3226,14 +3251,15 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
   }
 
   if (path.startsWith('/api/admin/')) return handleAdminApi(path, request, env, rid, ctx);
-  return handlePlayerApi(path, request, env, rid);
+  return handlePlayerApi(path, request, env, rid, ctx);
 }
 
 // ---------------------------------------------------------------------------
 // Player API
 // ---------------------------------------------------------------------------
 
-async function handlePlayerApi(path: string, request: Request, env: Env, rid: string): Promise<Response> {
+async function handlePlayerApi(path: string, request: Request, env: Env, rid: string, ctx?: ExecutionContext): Promise<Response> {
+  const laterP = (pr: Promise<unknown>) => { if (ctx) ctx.waitUntil(pr); else return pr; };
   const body = await readJsonBody(request);
   if (body === null) return fail('BAD_REQUEST', 'Invalid request.', 400, rid);
   const ip = clientIp(request);
@@ -3462,7 +3488,8 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       } catch {
         return fail('NEEDS_MIGRATION', 'This feature is being set up. Please try again later.', 503, rid);
       }
-      const fresh = await env.DB.prepare('SELECT bank_name, bank_account, bank_holder, paynow_number, birthday, bank_locked, birthday_locked FROM players WHERE id = ?').bind(player.id).first();
+      const fresh = await env.DB.prepare('SELECT bank_name, bank_account, bank_holder, paynow_number, birthday, bank_locked, birthday_locked FROM players WHERE id = ?').bind(player.id).first<any>();
+      if (wantBank && fresh) await laterP(sheetUpdatePlayer(env, player.id, { bankType: String(fresh.bank_name || '').toUpperCase(), account: fresh.bank_account || '', holder: String(fresh.bank_holder || '').toUpperCase(), paynow: fresh.paynow_number || '' }).catch(() => false));
       return json({ ok: true, details: playerDetails(fresh) }, 200, rid);
     }
 
@@ -4820,6 +4847,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         newUsername = normalizeUsername(body.username);
         if (!newUsername) return fail('BAD_USERNAME', 'Username must be 3-32 characters: letters, numbers, dot or underscore.', 400, rid);
       }
+      const before = (whatsapp !== null || newUsername !== null) ? await env.DB.prepare('SELECT username, whatsapp FROM players WHERE id = ?').bind(id).first<{ username: string; whatsapp: string | null }>() : null;
       const sets: string[] = [];
       const binds: unknown[] = [];
       if (status !== null) { sets.push('status = ?'); binds.push(status); }
@@ -4839,6 +4867,14 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // Tag saved separately so a missing column (pre-migration) can't break the rest.
       if (tag !== null) {
         try { await env.DB.prepare("UPDATE players SET tag = ?, updated_at = datetime('now') WHERE id = ?").bind(tag || null, id).run(); } catch { /* tag column not migrated */ }
+      }
+      // Mirror a changed phone number / Player ID to the Google Sheet.
+      if (before) {
+        const phoneChanged = whatsapp !== null && whatsapp && whatsapp !== (before.whatsapp || '');
+        const idChanged = newUsername !== null && newUsername !== before.username;
+        if (phoneChanged || idChanged) {
+          await later(sheetUpdatePlayer(env, id, phoneChanged ? { contact: normalizePhone(whatsapp) || whatsapp } : {}, idChanged ? before.username : undefined).catch(() => false));
+        }
       }
       return json({ ok: true, username: newUsername || undefined }, 200, rid);
     }
@@ -4947,6 +4983,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           .bind(bn || null, ba || null, bh || null, pn || null, bd || null, bankLock, bdayLock, id).run();
       } catch { return fail('NEEDS_MIGRATION', 'Run the profile migration first.', 409, rid); }
       const p = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<any>();
+      // Mirror to the Google Sheet (Bank Type / Acc No. / Bank Name / PayNow).
+      await later(sheetUpdatePlayer(env, id, { bankType: bn.toUpperCase(), account: ba, holder: bh.toUpperCase(), paynow: pn }).catch(() => false));
       return json({ ok: true, details: playerDetails(p) }, 200, rid);
     }
 
