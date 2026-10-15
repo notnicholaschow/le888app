@@ -916,13 +916,14 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
     const phone = normalizePhone(b.phone);
     const paynowRaw = String(b.paynow || '').replace(/[\s-]+/g, '').trim().slice(0, 30);
-    const paynow = !paynowRaw ? phone : (/^\+?\d{8,15}$/.test(paynowRaw) ? normalizePhone(paynowRaw) : paynowRaw.toUpperCase());
+    const paynow = /^\+?\d{8,15}$/.test(paynowRaw) ? normalizePhone(paynowRaw) : paynowRaw.toUpperCase();
     const holder = String(b.bank_holder || '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 60);
     const account = String(b.bank_account || '').trim().slice(0, 40);
     const bankType = String(b.bank_type || '').trim().toUpperCase();
     const password = String(b.password || '');
     if (name.length < 2) return j({ error: 'Please enter your name.' }, 400);
-    if (!/^\d{8,15}$/.test(phone)) return j({ error: 'Please enter a valid phone number, e.g. 91234567.' }, 400);
+    if (!validPhone(phone)) return j({ error: 'Please enter a valid phone number, e.g. 91234567.' }, 400);
+    if (!paynow || paynow.replace(/[^0-9A-Za-z]/g, '').length < 8) return j({ error: 'Please enter your PayNow number (mobile number or UEN).' }, 400);
     if (!holder) return j({ error: 'Please enter the name on your bank account.' }, 400);
     if (!/^[0-9A-Za-z#\-\s.]{5,40}$/.test(account)) return j({ error: 'Please enter a valid bank account number.' }, 400);
     if (SIGNUP_BANKS.indexOf(bankType) === -1) return j({ error: 'Please choose your bank.' }, 400);
@@ -3091,6 +3092,11 @@ function normalizePhone(v: unknown): string {
   if (/^[89]\d{7}$/.test(d)) d = '65' + d;
   return d;
 }
+// Singapore numbers must be 65 + 8 digits (3/6/8/9...). Other countries: 8-15 digits.
+function validPhone(d: string): boolean {
+  if (/^65/.test(d)) return /^65[3689]\d{7}$/.test(d);
+  return /^\d{8,15}$/.test(d);
+}
 const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
 
 // ---------------------------------------------------------------------------
@@ -4664,7 +4670,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       }
       const hash = await hashPassword(password);
       const npPhone = normalizePhone(body.phone);
-      if (body.phone && !/^\d{8,15}$/.test(npPhone)) return fail('BAD_PHONE', 'Phone number looks wrong (e.g. 6591234567).', 400, rid);
+      if (body.phone && !validPhone(npPhone)) return fail('BAD_PHONE', 'Phone number looks wrong. Singapore numbers are 8 digits, e.g. 91234567 or 6591234567.', 400, rid);
       try {
         let newId: number, finalName: string = username;
         const doInsert = async (u: string) => Number((await env.DB.prepare('INSERT INTO players (username, password, display_name, whatsapp) VALUES (?, ?, ?, ?)').bind(u, hash, displayName || null, npPhone || null).run()).meta.last_row_id);
@@ -4672,7 +4678,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         else newId = await doInsert(username);
         const res = { meta: { last_row_id: newId } };
         // Every new player also gets a row in the Google Sheet.
-        await later(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone, paynow: npPhone }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
+        await later(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
         if (refById) { try { await linkReferral(env, refById, newId, admin); } catch { /* best-effort */ } }
         // Pass the just-set password so the Welcome template can show the player
         // their starting login. This is the ONLY point it's known in plain text
