@@ -4050,6 +4050,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     '/api/admin/player/delete',
     // Bulk import creates many accounts at once — managers only.
     '/api/admin/players/bulk',
+    '/api/admin/players/check',
   ];
   if (!isManager && MANAGER_ONLY.indexOf(path) !== -1) {
     return fail('FORBIDDEN', 'Managers only. Ask a manager to do this.', 403, rid);
@@ -4436,6 +4437,18 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     // Missing Player ID -> next number after the highest "<prefix><digits>".
     // Missing password -> the shared default, else a random one. Plain
     // passwords are returned ONCE so staff can hand them out; stored hashed.
+    case '/api/admin/players/check': {
+      // Bulk import pre-check: which of these Player IDs already exist? (up to 1000 per call)
+      const ids = Array.isArray(body.ids) ? (body.ids as any[]).slice(0, 1000).map((x) => normalizeUsername(x)).filter((x): x is string => !!x) : [];
+      const existing: string[] = [];
+      for (let i = 0; i < ids.length; i += 90) {
+        const part = ids.slice(i, i + 90);
+        const { results } = await env.DB.prepare(`SELECT username FROM players WHERE username IN (${part.map(() => '?').join(',')})`).bind(...part).all<{ username: string }>();
+        for (const r of results || []) existing.push(String(r.username));
+      }
+      return json({ ok: true, existing }, 200, rid);
+    }
+
     case '/api/admin/players/bulk': {
       const rows = Array.isArray(body.rows) ? (body.rows as any[]).slice(0, 50) : [];
       if (!rows.length) return fail('BAD_REQUEST', 'No rows to import.', 400, rid);
