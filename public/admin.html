@@ -1628,6 +1628,41 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       loadPlayers();
     };
   }
+  // ---- One-tap login link (24h) -------------------------------------------
+  function llCopy(text, okMsg) {
+    function fallback() { var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); toast(okMsg); } catch (e) { toast('Copy failed — select and copy it manually.', true); } t.remove(); }
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { toast(okMsg); }, fallback); else fallback();
+  }
+  function loginLinkModal(p, btn) {
+    if (!p) return;
+    if (!confirm('Create a 24-hour login link for ' + U(p.username) + '?\n\nAnyone with this link can open this player’s account until it expires. Only send it to the player.\nAny older link for this player stops working.')) return;
+    busy(btn, true);
+    api('/api/admin/player/login-link', { id: p.id }).then(function (r) {
+      busy(btn, false);
+      if (!r.ok) { toast(r.error || 'Could not create the link.', true); return; }
+      var exp = new Date(r.expires_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+      var msg = 'Hi ' + (p.display_name || U(p.username)) + '! Tap this link to log in to your LE888 account (Player ID: ' + U(p.username) + '):\n' + r.url + '\n\nThis link works for 24 hours. Please do not share it with anyone.';
+      var wa = String(r.whatsapp || p.whatsapp || '').replace(/\D/g, '');
+      if (wa.length === 8) wa = '65' + wa;
+      openModal(
+        '<h2>Login link for ' + esc(U(p.username)) + '</h2>' +
+        '<p class="muted">The player taps this link and is logged in straight away — no password needed. Works until <b style="color:var(--text)">' + esc(exp) + '</b> (SG time).</p>' +
+        '<label>Link</label><input id="llUrl" readonly value="' + esc(r.url) + '" onclick="this.select()">' +
+        '<label>Message to send</label><textarea id="llMsg" rows="5">' + esc(msg) + '</textarea>' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:12px">' +
+          '<button class="btn" id="llCopyMsg">Copy message</button>' +
+          '<button class="btn ghost" id="llCopyUrl">Copy link only</button>' +
+          (wa.length >= 9 ? '<a class="btn ghost" id="llWa" target="_blank" rel="noopener" style="text-decoration:none">Send on WhatsApp</a>' : '') +
+          '<button class="btn ghost" id="llClose">Close</button>' +
+        '</div>' +
+        '<p class="muted" style="margin-top:12px;font-size:12px">Making a new link cancels this one. Resetting the player’s password also cancels it.</p>'
+      );
+      $('llClose').onclick = closeModal;
+      $('llCopyUrl').onclick = function () { llCopy(r.url, 'Link copied'); };
+      $('llCopyMsg').onclick = function () { llCopy($('llMsg').value, 'Message copied'); };
+      if ($('llWa')) { var setWa = function () { $('llWa').href = 'https://wa.me/' + wa + '?text=' + encodeURIComponent($('llMsg').value); }; setWa(); $('llMsg').oninput = setWa; }
+    }).catch(function () { busy(btn, false); toast('Network error.', true); });
+  }
   $('playerBulkBtn').onclick = bulkImportModal;
 
 
@@ -1683,7 +1718,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
             '<button class="btn ghost small" data-cred-player="' + p.id + '">Credits</button>' +
             '<button class="btn ghost small" data-gid-player="' + p.id + '">Game ID</button>' +
             '<button class="btn ghost small" data-ref-player="' + p.id + '">Referral</button>' +
-            (hasPerm('view_app') ? '<button class="btn ghost small" data-view-player="' + p.id + '">View app</button>' : '') +
+            (hasPerm('view_app') ? '<button class="btn ghost small" data-view-player="' + p.id + '">View app</button><button class="btn ghost small" data-link-player="' + p.id + '">Login link</button>' : '') +
             '<button class="btn ghost small" data-edit-player="' + p.id + '">Manage</button></td></tr>';
       }).join('') || '<tr><td colspan="7" class="muted">No players yet. Tap "+ New player" to create the first account.</td></tr>';
       function findP(attr, b) { return res.players.find(function (x) { return String(x.id) === b.getAttribute(attr); }); }
@@ -1719,6 +1754,9 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
             toast('Opening @' + U(p.username) + '’s app in a new tab…');
           }).catch(function () { busy(b, false); toast('Network error.', true); });
         };
+      });
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-link-player]'), function (b) {
+        b.onclick = function () { loginLinkModal(findP('data-link-player', b), b); };
       });
       Array.prototype.forEach.call(tb.querySelectorAll('[data-earn-player]'), function (b) {
         b.onclick = function () { earnUnlockModal(findP('data-earn-player', b)); };
