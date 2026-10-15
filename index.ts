@@ -2950,6 +2950,11 @@ async function handleLoginLink(request: Request, env: Env, token: string): Promi
   return r;
 }
 
+// Total rows for a paged list (same filters, no LIMIT). Never breaks the list.
+async function countRows(env: Env, sql: string, binds: unknown[]): Promise<number | null> {
+  try { const r = await env.DB.prepare('SELECT COUNT(*) AS c FROM (' + sql + ')').bind(...binds).first<{ c: number }>(); return Number(r?.c ?? 0); } catch { return null; }
+}
+
 async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid: string): Promise<Response> {
   const path = new URL(request.url).pathname;
 
@@ -4616,19 +4621,21 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (q) { conds.push("(lower(username) LIKE ? OR lower(display_name) LIKE ? OR CAST(id AS TEXT) LIKE ? OR lower(COALESCE(tag,'')) LIKE ?)"); binds.push(like, like, like, like); }
         if (tagFilter) { conds.push("lower(COALESCE(tag,'')) = ?"); binds.push(tagFilter.toLowerCase()); }
         if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+        const total = await countRows(env, sql, binds);
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
         binds.push(limit, offset);
         const { results } = await env.DB.prepare(sql).bind(...binds).all();
-        return json({ ok: true, players: results || [], offset, limit }, 200, rid);
+        return json({ ok: true, players: results || [], offset, limit, total }, 200, rid);
       } catch {
         // tag column not migrated — fall back to name/username/id.
         let sql = 'SELECT id, username, display_name, points, reward_cents, status, note, telegram, whatsapp, created_at, updated_at FROM players';
         const binds: unknown[] = [];
         if (q) { sql += ' WHERE lower(username) LIKE ? OR lower(display_name) LIKE ? OR CAST(id AS TEXT) LIKE ?'; binds.push(like, like, like); }
+        const total = await countRows(env, sql, binds);
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
         binds.push(limit, offset);
         const { results } = await env.DB.prepare(sql).bind(...binds).all();
-        return json({ ok: true, players: results || [], offset, limit }, 200, rid);
+        return json({ ok: true, players: results || [], offset, limit, total }, 200, rid);
       }
     }
 
@@ -5023,10 +5030,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       if (q) { sql += ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ? OR lower(x.type) LIKE ?)'; const like = `%${q.toLowerCase()}%`; binds.push(like, like, like); }
       if (from) { sql += ' AND x.created_at >= ?'; binds.push(sgtDayStartUtc(from)); }
       if (to) { sql += ' AND x.created_at <= ?'; binds.push(sgtDayEndUtc(to)); }
+      const total = await countRows(env, sql, binds);
       sql += ' ORDER BY x.created_at DESC LIMIT ? OFFSET ?';
       binds.push(limit, offset);
       const { results } = await env.DB.prepare(sql).bind(...binds).all();
-      return json({ ok: true, activity: results || [], offset, limit }, 200, rid);
+      return json({ ok: true, activity: results || [], offset, limit, total }, 200, rid);
     }
 
     case '/api/admin/history/purge': {
@@ -5832,10 +5840,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       if (q) { sql += ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ? OR CAST(d.player_id AS TEXT) LIKE ?)'; const like = `%${q.toLowerCase()}%`; binds.push(like, like, like); }
       if (from) { sql += ' AND d.created_at >= ?'; binds.push(sgtDayStartUtc(from)); }
       if (to) { sql += ' AND d.created_at <= ?'; binds.push(sgtDayEndUtc(to)); }
+      const total = await countRows(env, sql, binds);
       sql += ' ORDER BY d.id DESC LIMIT ? OFFSET ?';
       binds.push(limit, offset);
       const { results } = await env.DB.prepare(sql).bind(...binds).all();
-      return json({ ok: true, deposits: results || [], offset, limit }, 200, rid);
+      return json({ ok: true, deposits: results || [], offset, limit, total }, 200, rid);
     }
 
     case '/api/admin/withdrawals': {
@@ -5934,6 +5943,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // player can still cancel it; only surface pending rows past that window.
       sql += " AND (pr.status != 'pending' OR pr.created_at <= datetime('now', '-10 seconds'))";
       if (q) { sql += ' AND (lower(p.username) LIKE ? OR CAST(pr.player_id AS TEXT) LIKE ?)'; const like = `%${q.toLowerCase()}%`; binds.push(like, like); }
+      const total = await countRows(env, sql, binds);
       sql += ' ORDER BY pr.id DESC LIMIT ? OFFSET ?';
       binds.push(limit, offset);
       const { results } = await env.DB.prepare(sql).bind(...binds).all();
@@ -5954,7 +5964,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       }
 
       const pending = await env.DB.prepare("SELECT COUNT(*) AS c, COALESCE(SUM(amount_cents),0) AS s FROM payout_requests WHERE status = 'pending' AND created_at <= datetime('now', '-10 seconds')").first<{ c: number; s: number }>();
-      return json({ ok: true, payouts: rows, pending_count: pending?.c ?? 0, pending_cents: pending?.s ?? 0, offset, limit }, 200, rid);
+      return json({ ok: true, payouts: rows, pending_count: pending?.c ?? 0, pending_cents: pending?.s ?? 0, offset, limit, total }, 200, rid);
     }
 
     case '/api/admin/payout/decide': {
@@ -6097,10 +6107,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       if (q) { sql += ' AND (lower(p.username) LIKE ? OR CAST(pa.player_id AS TEXT) LIKE ? OR lower(pa.type) LIKE ?)'; const like = `%${q.toLowerCase()}%`; binds.push(like, like, like); }
       if (from) { sql += ' AND pa.created_at >= ?'; binds.push(sgtDayStartUtc(from)); }
       if (to) { sql += ' AND pa.created_at <= ?'; binds.push(sgtDayEndUtc(to)); }
+      const total = await countRows(env, sql, binds);
       sql += ' ORDER BY pa.id DESC LIMIT ? OFFSET ?';
       binds.push(limit, offset);
       const { results } = await env.DB.prepare(sql).bind(...binds).all();
-      return json({ ok: true, activity: results || [], offset, limit }, 200, rid);
+      return json({ ok: true, activity: results || [], offset, limit, total }, 200, rid);
     }
 
     case '/api/admin/tasks/list': {
