@@ -251,6 +251,12 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
 /* Modal */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; display: none; align-items: center; justify-content: center; padding: 16px; }
 .modal-bg.show { display: flex; }
+.modal.wide { max-width: 820px; }
+.bi-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.bi-tbl th, .bi-tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); text-align: left; white-space: nowrap; }
+.bi-tbl th { color: var(--dim); font-weight: 500; }
+.bi-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; }
+.bi-ok { color: #3ecf8e; font-weight: 700; } .bi-bad { color: #ff7a7a; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; }
 .modal h2:first-child { font-size: 14px; color: var(--text); font-weight: 600; }
 .modal hr { border: 0; border-top: 1px solid var(--line-soft) !important; }
@@ -495,6 +501,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
           <input id="playerQ" placeholder="Search username, name or tag">
           <select id="playerTag" style="flex:0 0 auto"><option value="">All tags</option><option value="Free credit">Free credit</option><option value="Deposit">Deposit</option><option value="VIP">VIP</option><option value="Blacklist">Blacklist</option></select>
           <button class="btn ghost small" id="playerSearchBtn">Search</button>
+          <button class="btn ghost small" id="playerBulkBtn" style="display:none">Bulk import</button>
           <button class="btn small" id="playerNewBtn">+ New player</button>
         </div>
         <div class="tbl-wrap"><table class="tbl" id="playerTbl">
@@ -1301,7 +1308,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   // modal captures the value and drops its result if the modal has since been
   // replaced or closed — otherwise a slow upload can land in the next modal.
   var modalSeq = 0;
-  function openModal(html) { modalSeq++; $('modalBody').innerHTML = html; $('modalBg').classList.add('show'); }
+  function openModal(html) { modalSeq++; var mb = $('modalBody'); if (mb && mb.closest('.modal')) mb.closest('.modal').classList.remove('wide'); mb.innerHTML = html; $('modalBg').classList.add('show'); }
   function closeModal() { modalSeq++; $('modalBg').classList.remove('show'); }
   $('modalBg').addEventListener('click', function (e) { if (e.target === $('modalBg')) closeModal(); });
 
@@ -1415,6 +1422,175 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   $('playerPrev').onclick = function () { state.playerOffset = Math.max(0, state.playerOffset - 50); loadPlayers(); };
   $('playerNext').onclick = function () { state.playerOffset += 50; loadPlayers(); };
   $('playerNewBtn').onclick = newPlayerModal;
+  // ---- Bulk import players (managers) --------------------------------------
+  // Paste rows copied from Excel, or upload .xlsx / .csv. Columns are matched by
+  // their header names, so the order does not matter.
+  var BI_COLS = {
+    username: ['player id', 'playerid', 'player_id', 'id', 'username', 'user id', 'login'],
+    name: ['name', 'full name', 'display name', 'player name', 'customer name'],
+    password: ['password', 'pass', 'pw'],
+    tag: ['tag'],
+    telegram: ['telegram', 'tg'],
+    whatsapp: ['whatsapp', 'wa', 'phone', 'mobile', 'contact', 'hp'],
+    referred_by: ['referred by', 'referrer', 'referral', 'ref', 'invited by']
+  };
+  function biParseText(text) {
+    text = String(text || '').replace(/^﻿/, '');
+    var first = text.split(/\r?\n/)[0] || '';
+    var delim = first.indexOf('\t') !== -1 ? '\t' : (first.indexOf(';') !== -1 && first.indexOf(',') === -1 ? ';' : ',');
+    var rows = [], row = [], cell = '', q = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; continue; }
+      if (ch === '"' && cell === '') { q = true; continue; }
+      if (ch === delim) { row.push(cell); cell = ''; continue; }
+      if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+      cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+  }
+  // Minimal .xlsx reader (first sheet): unzip with the browser's built-in decompressor.
+  async function biReadXlsx(buf) {
+    var dv = new DataView(buf), u8 = new Uint8Array(buf), eocd = -1;
+    for (var i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) throw new Error('Not a valid Excel file.');
+    var n = dv.getUint16(eocd + 10, true), off = dv.getUint32(eocd + 16, true), files = {};
+    for (var k = 0; k < n; k++) {
+      if (dv.getUint32(off, true) !== 0x02014b50) break;
+      var method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true), nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), lho = dv.getUint32(off + 42, true);
+      var fname = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nlen));
+      files[fname] = { method: method, csize: csize, lho: lho };
+      off += 46 + nlen + elen + clen;
+    }
+    async function read(name) {
+      var f = files[name]; if (!f) return null;
+      var start = f.lho + 30 + dv.getUint16(f.lho + 26, true) + dv.getUint16(f.lho + 28, true);
+      var data = u8.subarray(start, start + f.csize);
+      if (f.method === 0) return new TextDecoder().decode(data);
+      var ds = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return await new Response(ds).text();
+    }
+    var parse = function (x) { return new DOMParser().parseFromString(x, 'application/xml'); };
+    var shared = [];
+    var ss = await read('xl/sharedStrings.xml');
+    if (ss) Array.prototype.forEach.call(parse(ss).getElementsByTagName('si'), function (si) {
+      shared.push(Array.prototype.map.call(si.getElementsByTagName('t'), function (t) { return t.textContent; }).join(''));
+    });
+    var sheetName = Object.keys(files).filter(function (f) { return /^xl\/worksheets\/sheet\d+\.xml$/.test(f); }).sort(function (a, b) { return parseInt(a.replace(/\D/g, ''), 10) - parseInt(b.replace(/\D/g, ''), 10); })[0];
+    if (!sheetName) throw new Error('No sheet found in this Excel file.');
+    var doc = parse(await read(sheetName)), out = [];
+    Array.prototype.forEach.call(doc.getElementsByTagName('row'), function (r) {
+      var arr = [];
+      Array.prototype.forEach.call(r.getElementsByTagName('c'), function (c) {
+        var ref = c.getAttribute('r') || '', letters = ref.replace(/\d+/g, ''), col = 0;
+        for (var j = 0; j < letters.length; j++) col = col * 26 + (letters.charCodeAt(j) - 64);
+        var t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0], val = '';
+        if (t === 's' && v) val = shared[Number(v.textContent)] || '';
+        else if (t === 'inlineStr') val = Array.prototype.map.call(c.getElementsByTagName('t'), function (x) { return x.textContent; }).join('');
+        else if (v) val = v.textContent;
+        arr[(col || arr.length + 1) - 1] = val;
+      });
+      for (var z = 0; z < arr.length; z++) if (arr[z] === undefined) arr[z] = '';
+      if (arr.some(function (x) { return String(x).trim() !== ''; })) out.push(arr);
+    });
+    return out;
+  }
+  function biToRecords(grid) {
+    if (!grid.length) return { rows: [], cols: [] };
+    var head = grid[0].map(function (h) { return String(h || '').trim().toLowerCase(); });
+    var map = {}, found = [];
+    Object.keys(BI_COLS).forEach(function (key) {
+      var idx = head.findIndex(function (h) { return BI_COLS[key].indexOf(h) !== -1; });
+      if (idx !== -1) { map[key] = idx; found.push(key); }
+    });
+    if (!found.length) throw new Error('Could not find a header row. The first row must have column names like "Name" and "Player ID".');
+    var rows = grid.slice(1).map(function (r, i) {
+      var o = { row: i + 2 };
+      Object.keys(map).forEach(function (k) { o[k] = String(r[map[k]] == null ? '' : r[map[k]]).trim(); });
+      return o;
+    }).filter(function (o) { return o.name || o.username; });
+    return { rows: rows, cols: found };
+  }
+  function biCsv(rows) {
+    var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    return '﻿' + rows.map(function (r) { return r.map(q).join(','); }).join('\r\n');
+  }
+  function biDownload(name, text) {
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function bulkImportModal() {
+    var parsed = null;
+    openModal(
+      '<h2>Bulk import players</h2>' +
+      '<p class="muted">Upload your Excel file (.xlsx or .csv), or copy the rows in Excel and paste them below. The <b>first row must be the column names</b>. Recognised columns: <b>Player ID</b>, <b>Name</b>, Password, Tag, Telegram, WhatsApp, Referred by. Blank Player ID = next number automatically. Blank password = random (or the shared one below).</p>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap"><input type="file" id="biFile" accept=".xlsx,.csv,.txt" style="flex:1;min-width:200px"><button class="btn ghost small" id="biTpl">Download template</button></div>' +
+      '<label>…or paste from Excel</label><textarea id="biPaste" rows="5" placeholder="Player ID&#9;Name&#9;Password&#10;&#9;Ahmad Bin Ali&#9;&#10;LE20001&#9;Tan Mei Ling&#9;"></textarea>' +
+      '<div class="row" style="gap:10px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:150px"><label for="biPrefix">Auto Player ID starts with</label><input id="biPrefix" value="le" maxlength="10"></div>' +
+        '<div style="flex:2;min-width:220px"><label for="biPw">Same password for everyone (optional, min 8)</label><input id="biPw" placeholder="Leave empty = random password each"></div>' +
+      '</div>' +
+      '<label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="biWelcome" style="width:auto"> Send the Welcome chat message (shows their login + password in Live Chat)</label>' +
+      '<div id="biPreview" class="muted" style="margin-top:12px"></div>' +
+      '<div class="row" style="margin-top:12px;gap:8px"><button class="btn" id="biGo" disabled>Create players</button><button class="btn ghost" id="biClose">Close</button></div>'
+    );
+    $('modalBody').closest('.modal').classList.add('wide');
+    $('biClose').onclick = closeModal;
+    $('biTpl').onclick = function () { biDownload('players-import-template.csv', biCsv([['Player ID', 'Name', 'Password', 'Tag', 'Telegram', 'WhatsApp', 'Referred by'], ['', 'Ahmad Bin Ali', '', 'Deposit', '', '6591234567', ''], ['LE20001', 'Tan Mei Ling', 'Welcome888', 'VIP', '@meiling', '', 'LE10650']])); };
+    function show(grid) {
+      try {
+        parsed = biToRecords(grid);
+        var auto = parsed.rows.filter(function (r) { return !r.username; }).length;
+        $('biPreview').innerHTML = '<b style="color:var(--text)">' + parsed.rows.length + ' player(s) found</b>' + (auto ? ' &middot; ' + auto + ' will get an automatic Player ID' : '') +
+          ' &middot; columns: ' + parsed.cols.join(', ') +
+          '<div class="bi-wrap"><table class="bi-tbl"><thead><tr><th>Row</th><th>Player ID</th><th>Name</th><th>Password</th><th>Tag</th><th>Referred by</th></tr></thead><tbody>' +
+          parsed.rows.slice(0, 300).map(function (r) { return '<tr><td>' + r.row + '</td><td>' + (r.username ? esc(U(r.username)) : '<i class="muted">auto</i>') + '</td><td>' + esc(r.name || '') + '</td><td>' + (r.password ? '••••••' : '<i class="muted">' + ($('biPw').value ? 'shared' : 'random') + '</i>') + '</td><td>' + esc(r.tag || '') + '</td><td>' + esc(U(r.referred_by || '')) + '</td></tr>'; }).join('') +
+          '</tbody></table></div>';
+        $('biGo').disabled = !parsed.rows.length;
+        $('biGo').textContent = 'Create ' + parsed.rows.length + ' player' + (parsed.rows.length === 1 ? '' : 's');
+      } catch (e) { parsed = null; $('biGo').disabled = true; $('biPreview').innerHTML = '<span class="bi-bad">' + esc(e.message || 'Could not read that file.') + '</span>'; }
+    }
+    $('biPaste').oninput = function () { if (this.value.trim()) show(biParseText(this.value)); };
+    $('biFile').onchange = async function () {
+      var f = this.files && this.files[0]; if (!f) return;
+      try {
+        if (/\.xlsx$/i.test(f.name)) show(await biReadXlsx(await f.arrayBuffer()));
+        else if (/\.xls$/i.test(f.name)) throw new Error('Old .xls files are not supported. In Excel: File → Save As → Excel Workbook (.xlsx) or CSV.');
+        else show(biParseText(await f.text()));
+      } catch (e) { $('biPreview').innerHTML = '<span class="bi-bad">' + esc(e.message || 'Could not read that file.') + '</span>'; }
+    };
+    $('biGo').onclick = async function () {
+      if (!parsed || !parsed.rows.length) return;
+      var pw = $('biPw').value;
+      if (pw && pw.length < 8) { toast('The shared password must be at least 8 characters.', true); return; }
+      if (!confirm('Create ' + parsed.rows.length + ' player account(s) now?')) return;
+      var btn = this; busy(btn, true); $('biClose').disabled = true;
+      var all = [], rows = parsed.rows, size = 25;
+      for (var i = 0; i < rows.length; i += size) {
+        btn.textContent = 'Creating… ' + Math.min(i + size, rows.length) + ' / ' + rows.length;
+        try {
+          var res = await api('/api/admin/players/bulk', { rows: rows.slice(i, i + size), prefix: $('biPrefix').value.trim() || 'le', default_password: pw, send_welcome: $('biWelcome').checked });
+          if (!res.ok) { rows.slice(i, i + size).forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: res.error || 'Failed' }); }); continue; }
+          all = all.concat(res.results || []);
+        } catch (e) { rows.slice(i, i + size).forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: 'Network error' }); }); }
+      }
+      busy(btn, false); $('biClose').disabled = false;
+      var okN = all.filter(function (r) { return r.ok; }).length, badN = all.length - okN;
+      var csvRows = [['Row', 'Name', 'Player ID', 'Password', 'Status']].concat(all.map(function (r) { return [r.row, r.name || '', U(r.username || ''), r.ok ? r.password : '', r.ok ? 'Created' : ('Skipped: ' + (r.error || ''))]; }));
+      $('biPreview').innerHTML = '<b style="color:var(--text)">✅ ' + okN + ' created' + (badN ? ' &middot; <span class="bi-bad">❌ ' + badN + ' skipped</span>' : '') + '</b>' +
+        '<p class="muted" style="margin:6px 0 0">Download the results now — the passwords are shown <b>only this once</b>. Keep the file private.</p>' +
+        '<div class="bi-wrap"><table class="bi-tbl"><thead><tr><th>Row</th><th>Name</th><th>Player ID</th><th>Password</th><th>Status</th></tr></thead><tbody>' +
+        all.map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.name || '') + '</td><td>' + esc(U(r.username || '')) + '</td><td>' + (r.ok ? '<code>' + esc(r.password) + '</code>' : '') + '</td><td>' + (r.ok ? '<span class="bi-ok">Created</span>' : '<span class="bi-bad">' + esc(r.error || 'Skipped') + '</span>') + '</td></tr>'; }).join('') +
+        '</tbody></table></div>';
+      btn.textContent = '⬇ Download results (Excel)'; btn.disabled = false;
+      btn.onclick = function () { biDownload('players-created-' + new Date().toISOString().slice(0, 10) + '.csv', biCsv(csvRows)); };
+      biDownload('players-created-' + new Date().toISOString().slice(0, 10) + '.csv', biCsv(csvRows));
+      loadPlayers();
+    };
+  }
+  $('playerBulkBtn').onclick = bulkImportModal;
+
 
   // ---- Reusable user-tag helpers (players list + chat) --------------------
   var TAG_PRESETS = ['Free credit', 'Deposit', 'VIP', 'Blacklist'];
@@ -1448,6 +1624,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   }
 
   function loadPlayers() {
+    if ($('playerBulkBtn')) $('playerBulkBtn').style.display = isMgr() ? '' : 'none';
     api('/api/admin/players', { q: $('playerQ').value.trim(), tag: $('playerTag') ? $('playerTag').value : '', offset: state.playerOffset, limit: 50 }).then(function (res) {
       if (!res.ok) return;
       $('playerPage').textContent = 'Page ' + (state.playerOffset / 50 + 1);
