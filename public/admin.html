@@ -1822,7 +1822,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       '<h2>New Player</h2>' +
       '<p class="muted">The Player ID is filled in automatically with the <b>next free LE number</b> (checked against the system <i>and</i> the Google Sheet), so it never clashes. The new player is also added to the Google Sheet.</p>' +
       '<label>Player ID</label><input id="npUser" autocapitalize="characters" placeholder="Loading next ID…">' +
-      '<p class="muted" id="npIdHint" style="margin:6px 0 0;font-size:12px"></p>' +
+      '<p class="muted" id="npIdHint" style="margin:6px 0 0;font-size:12px">Checking the system and Google Sheet for the next free ID… (can take a few seconds)</p>' +
       '<label>Password (min 8 chars)</label><input id="npPass">' +
       '<label>Display name (optional)</label><input id="npName">' +
       '<label>Phone number (optional)</label><input id="npPhone" inputmode="tel" placeholder="e.g. 6591234567">' +
@@ -1832,9 +1832,11 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     api('/api/admin/players/next-id', {}).then(function (r) {
       if (!r || !r.ok) { $('npIdHint').textContent = 'Could not get the next ID — type one in.'; $('npUser').placeholder = 'e.g. LE10695'; return; }
       nextId = r.next; if (!$('npUser').value) $('npUser').value = nextId;
-      $('npIdHint').innerHTML = r.sheet_max !== null
+      $('npIdHint').innerHTML = r.sheet_live
         ? '✅ Next free ID. Highest in system: LE' + r.db_max + ' · in Google Sheet: LE' + r.sheet_max
-        : '⚠️ Google Sheet not connected (' + esc(r.sheet_error || 'not set up') + ') — based on the system only.';
+        : (r.sheet_max !== null
+          ? '✅ Next free ID (Google Sheet was slow, used its last known number LE' + r.sheet_max + '). The new row is still added to the sheet.'
+          : '⚠️ Google Sheet not connected (' + esc(r.sheet_error || 'not set up') + ') — based on the system only.');
     }).catch(function () { $('npIdHint').textContent = 'Could not get the next ID — type one in.'; });
     $('npBtn').onclick = function () {
       var u = $('npUser').value.trim();
