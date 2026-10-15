@@ -1946,3 +1946,7 @@ body.luxury-os dialog.vip-detail-modal .vip-perks small{text-transform:none;lett
 .vfy-row span{color:#a99c80}
 .vfy-row b{color:#fff3d6;text-align:right;word-break:break-word}
 .vfy-chat{width:100%;margin-bottom:8px}
+
+/* Invite link (referral) */
+.ref-link b{font-size:15px!important;letter-spacing:0!important;word-break:break-all;text-align:left}
+.ref-link-note{margin:8px 0 12px!important;font-size:12.5px}

@@ -29,6 +29,8 @@ window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
  // Hide the button if sign-up is switched off in Admin -> Settings.
  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'}).then(r=>r.json()).then(c=>{if(c&&c.signup_enabled===false){$('#open-signup').hidden=true;const n=$('#signup-closed-note');if(n)n.hidden=false;if(!suP.hidden)show('login');}}).catch(()=>{});
  const fail=(msg,el)=>{err.textContent=msg;f.querySelectorAll('.bad').forEach(x=>x.classList.remove('bad'));if(el){el.classList.add('bad');el.focus();}};
+ const refCode=(()=>{const q=new URLSearchParams(location.search).get('ref');const c=(document.cookie.match(/(?:^|;\s*)le888ref=([^;]+)/)||[])[1];const r=String(q||(c?decodeURIComponent(c):'')||'').trim().toUpperCase();return /^[A-Z0-9_.]{3,32}$/.test(r)?r:'';})();
+ if(refCode){const box=$('#su-ref');if(box){box.innerHTML='<span class="su-ref-ic" aria-hidden="true">🎁</span><span>Invited by <b>'+refCode+'</b></span>';box.hidden=false;}if(location.hash!=='#signup'&&new URLSearchParams(location.search).get('ref'))show('signup');}
  f.onsubmit=async e=>{e.preventDefault();const v=id=>$(id).value.trim();
   const digits=v('#su-phone').replace(/\D/g,'');
   if(v('#su-name').length<2)return fail('Please enter your full name.',$('#su-name'));
@@ -40,7 +42,7 @@ window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
   if($('#su-pass').value.length<8)return fail('Password must be at least 8 characters.',$('#su-pass'));
   if($('#su-pass').value!==$('#su-pass2').value)return fail('The two passwords do not match.',$('#su-pass2'));
   fail('');const btn=f.querySelector('[type="submit"]');btn.disabled=true;btn.textContent='Creating your account…';
-  try{const r=await fetch('/api/member/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v('#su-name'),phone:v('#su-phone'),paynow:v('#su-paynow'),bank_type:v('#su-bank'),bank_holder:v('#su-holder'),bank_account:v('#su-acc'),password:$('#su-pass').value})});
+  try{const r=await fetch('/api/member/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v('#su-name'),phone:v('#su-phone'),paynow:v('#su-paynow'),bank_type:v('#su-bank'),bank_holder:v('#su-holder'),bank_account:v('#su-acc'),password:$('#su-pass').value,ref:refCode})});
    const d=await r.json().catch(()=>({}));if(!r.ok||!d.ok)throw new Error(d.error||'Could not create your account. Please try again.');
    $('#su-new-id').textContent=d.username;show('done');history.replaceState(null,'',location.pathname);
   }catch(x){fail(x.message==='Failed to fetch'?'Connection unavailable. Please try again.':x.message);btn.disabled=false;btn.innerHTML='Create account <span aria-hidden="true">→</span>';}};
