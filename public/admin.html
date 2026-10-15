@@ -1431,7 +1431,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     password: ['password', 'pass', 'pw'],
     tag: ['tag'],
     telegram: ['telegram', 'tg'],
-    whatsapp: ['whatsapp', 'wa', 'phone', 'mobile', 'contact', 'hp'],
+    whatsapp: ['whatsapp', 'wa', 'phone', 'mobile', 'contact', 'hp', 'phone number', 'phone no', 'mobile number', 'mobile no', 'contact number', 'contact no', 'hp no', 'hp number', 'whatsapp number', 'whatsapp no', 'number', 'tel'],
     referred_by: ['referred by', 'referrer', 'referral', 'ref', 'invited by']
   };
   function biParseText(text) {
@@ -1498,7 +1498,7 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
   }
   function biToRecords(grid) {
     if (!grid.length) return { rows: [], cols: [] };
-    var head = grid[0].map(function (h) { return String(h || '').trim().toLowerCase(); });
+    var head = grid[0].map(function (h) { return String(h || '').toLowerCase().replace(/[^a-z0-9_ ]+/g, ' ').replace(/\s+/g, ' ').trim(); });
     var map = {}, found = [];
     Object.keys(BI_COLS).forEach(function (key) {
       var idx = head.findIndex(function (h) { return BI_COLS[key].indexOf(h) !== -1; });
@@ -1538,18 +1538,51 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
     $('modalBody').closest('.modal').classList.add('wide');
     $('biClose').onclick = closeModal;
     $('biTpl').onclick = function () { biDownload('players-import-template.csv', biCsv([['Player ID', 'Name', 'Password', 'Tag', 'Telegram', 'WhatsApp', 'Referred by'], ['', 'Ahmad Bin Ali', '', 'Deposit', '', '6591234567', ''], ['LE20001', 'Tan Mei Ling', 'Welcome888', 'VIP', '@meiling', '', 'LE10650']])); };
-    function show(grid) {
+    var checkSeq = 0;
+    async function show(grid) {
+      var seq = ++checkSeq;
       try {
         parsed = biToRecords(grid);
-        var auto = parsed.rows.filter(function (r) { return !r.username; }).length;
-        $('biPreview').innerHTML = '<b style="color:var(--text)">' + parsed.rows.length + ' player(s) found</b>' + (auto ? ' &middot; ' + auto + ' will get an automatic Player ID' : '') +
-          ' &middot; columns: ' + parsed.cols.join(', ') +
+        // 1) duplicates inside the file (same Player ID twice) -> keep the first one
+        var seenId = {}, dupFile = [], existing = [], fresh = [];
+        parsed.rows.forEach(function (r) {
+          var k = (r.username || '').trim().toLowerCase();
+          if (k && seenId[k]) { dupFile.push(r); return; }
+          if (k) seenId[k] = 1;
+          fresh.push(r);
+        });
+        $('biGo').disabled = true; $('biGo').textContent = 'Checking…';
+        $('biPreview').innerHTML = '<b style="color:var(--text)">' + parsed.rows.length + ' row(s) found</b> &middot; checking which Player IDs already exist…';
+        // 2) ask the server which Player IDs are already in the system
+        var ids = fresh.filter(function (r) { return r.username; }).map(function (r) { return r.username.trim().toLowerCase(); });
+        var have = {};
+        for (var i = 0; i < ids.length; i += 1000) {
+          var res = await api('/api/admin/players/check', { ids: ids.slice(i, i + 1000) });
+          if (seq !== checkSeq) return;
+          if (!res.ok) throw new Error(res.error || 'Could not check existing players.');
+          (res.existing || []).forEach(function (u) { have[u] = 1; });
+        }
+        var shortPw = [];
+        var toCreate = fresh.filter(function (r) { var k = (r.username || '').trim().toLowerCase(); if (k && have[k]) { existing.push(r); return false; } if (r.password && r.password.length < 8) { shortPw.push(r); return false; } return true; });
+        parsed.toCreate = toCreate;
+        parsed.skipped = dupFile.map(function (r) { return { row: r.row, name: r.name, username: r.username, ok: false, error: 'Same Player ID appears twice in this file.' }; })
+          .concat(existing.map(function (r) { return { row: r.row, name: r.name, username: r.username, ok: false, error: 'Player ID already exists.' }; }))
+          .concat(shortPw.map(function (r) { return { row: r.row, name: r.name, username: r.username, ok: false, error: 'Password must be at least 8 characters.' }; }));
+        var auto = toCreate.filter(function (r) { return !r.username; }).length;
+        var line = function (n, txt, cls) { return n ? '<div class="' + (cls || '') + '">' + txt.replace('#', n.toLocaleString()) + '</div>' : ''; };
+        $('biPreview').innerHTML = '<div style="color:var(--text);line-height:1.7"><b>' + parsed.rows.length.toLocaleString() + ' row(s) in file</b>' +
+          line(toCreate.length, '✅ # new player(s) will be created', 'bi-ok') +
+          line(existing.length, '⏭ # already exist — will be skipped', 'bi-bad') +
+          line(dupFile.length, '⏭ # duplicate Player ID(s) inside the file — will be skipped', 'bi-bad') +
+          line(shortPw.length, '⚠ # password(s) shorter than 8 characters — will be skipped (fix them in Excel, or clear that password cell to get a random one)', 'bi-bad') +
+          (auto ? '<div class="muted">' + auto + ' will get an automatic Player ID</div>' : '') + '</div>' +
+          '<div class="muted">Columns: ' + parsed.cols.join(', ') + (toCreate.length > 300 ? ' &middot; showing first 300 new rows' : '') + '</div>' +
           '<div class="bi-wrap"><table class="bi-tbl"><thead><tr><th>Row</th><th>Player ID</th><th>Name</th><th>Password</th><th>Tag</th><th>Referred by</th></tr></thead><tbody>' +
-          parsed.rows.slice(0, 300).map(function (r) { return '<tr><td>' + r.row + '</td><td>' + (r.username ? esc(U(r.username)) : '<i class="muted">auto</i>') + '</td><td>' + esc(r.name || '') + '</td><td>' + (r.password ? '••••••' : '<i class="muted">' + ($('biPw').value ? 'shared' : 'random') + '</i>') + '</td><td>' + esc(r.tag || '') + '</td><td>' + esc(U(r.referred_by || '')) + '</td></tr>'; }).join('') +
+          toCreate.slice(0, 300).map(function (r) { return '<tr><td>' + r.row + '</td><td>' + (r.username ? esc(U(r.username)) : '<i class="muted">auto</i>') + '</td><td>' + esc(r.name || '') + '</td><td>' + (r.password ? '••••••' : '<i class="muted">' + ($('biPw').value ? 'shared' : 'random') + '</i>') + '</td><td>' + esc(r.tag || '') + '</td><td>' + esc(U(r.referred_by || '')) + '</td></tr>'; }).join('') +
           '</tbody></table></div>';
-        $('biGo').disabled = !parsed.rows.length;
-        $('biGo').textContent = 'Create ' + parsed.rows.length + ' player' + (parsed.rows.length === 1 ? '' : 's');
-      } catch (e) { parsed = null; $('biGo').disabled = true; $('biPreview').innerHTML = '<span class="bi-bad">' + esc(e.message || 'Could not read that file.') + '</span>'; }
+        $('biGo').disabled = !toCreate.length;
+        $('biGo').textContent = toCreate.length ? 'Create ' + toCreate.length.toLocaleString() + ' player' + (toCreate.length === 1 ? '' : 's') : 'Nothing new to create';
+      } catch (e) { if (seq !== checkSeq) return; parsed = null; $('biGo').disabled = true; $('biGo').textContent = 'Create players'; $('biPreview').innerHTML = '<span class="bi-bad">' + esc(e.message || 'Could not read that file.') + '</span>'; }
     }
     $('biPaste').oninput = function () { if (this.value.trim()) show(biParseText(this.value)); };
     $('biFile').onchange = async function () {
@@ -1561,27 +1594,33 @@ td > select.tag-inline { width: 110px; min-width: 104px; }
       } catch (e) { $('biPreview').innerHTML = '<span class="bi-bad">' + esc(e.message || 'Could not read that file.') + '</span>'; }
     };
     $('biGo').onclick = async function () {
-      if (!parsed || !parsed.rows.length) return;
+      if (!parsed || !parsed.toCreate || !parsed.toCreate.length) return;
       var pw = $('biPw').value;
       if (pw && pw.length < 8) { toast('The shared password must be at least 8 characters.', true); return; }
-      if (!confirm('Create ' + parsed.rows.length + ' player account(s) now?')) return;
+      if (!confirm('Create ' + parsed.toCreate.length.toLocaleString() + ' player account(s) now?' + (parsed.skipped.length ? '\n' + parsed.skipped.length.toLocaleString() + ' duplicate(s) will be skipped.' : '') + '\n\nKeep this page open until it finishes.')) return;
       var btn = this; busy(btn, true); $('biClose').disabled = true;
-      var all = [], rows = parsed.rows, size = 25;
+      var all = [], rows = parsed.toCreate, size = 25;
+      window.onbeforeunload = function () { return 'Import still running'; };
       for (var i = 0; i < rows.length; i += size) {
-        btn.textContent = 'Creating… ' + Math.min(i + size, rows.length) + ' / ' + rows.length;
-        try {
-          var res = await api('/api/admin/players/bulk', { rows: rows.slice(i, i + size), prefix: $('biPrefix').value.trim() || 'le', default_password: pw, send_welcome: $('biWelcome').checked });
-          if (!res.ok) { rows.slice(i, i + size).forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: res.error || 'Failed' }); }); continue; }
-          all = all.concat(res.results || []);
-        } catch (e) { rows.slice(i, i + size).forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: 'Network error' }); }); }
+        var chunk = rows.slice(i, i + size), res = null;
+        btn.textContent = 'Creating… ' + Math.min(i + size, rows.length).toLocaleString() + ' / ' + rows.length.toLocaleString();
+        for (var t = 0; t < 3 && !(res && res.ok); t++) { // retry a batch up to 3 times
+          try { res = await api('/api/admin/players/bulk', { rows: chunk, prefix: $('biPrefix').value.trim() || 'le', default_password: pw, send_welcome: $('biWelcome').checked }); }
+          catch (e) { res = { ok: false, error: 'Network error' }; }
+          if (!(res && res.ok)) await new Promise(function (ok) { setTimeout(ok, 1500); });
+        }
+        if (!res.ok) { chunk.forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: res.error || 'Failed' }); }); continue; }
+        all = all.concat(res.results || []);
       }
+      window.onbeforeunload = null;
+      all = all.concat(parsed.skipped).sort(function (a, b) { return a.row - b.row; });
       busy(btn, false); $('biClose').disabled = false;
       var okN = all.filter(function (r) { return r.ok; }).length, badN = all.length - okN;
       var csvRows = [['Row', 'Name', 'Player ID', 'Password', 'Status']].concat(all.map(function (r) { return [r.row, r.name || '', U(r.username || ''), r.ok ? r.password : '', r.ok ? 'Created' : ('Skipped: ' + (r.error || ''))]; }));
       $('biPreview').innerHTML = '<b style="color:var(--text)">✅ ' + okN + ' created' + (badN ? ' &middot; <span class="bi-bad">❌ ' + badN + ' skipped</span>' : '') + '</b>' +
-        '<p class="muted" style="margin:6px 0 0">Download the results now — the passwords are shown <b>only this once</b>. Keep the file private.</p>' +
+        '<p class="muted" style="margin:6px 0 0">Download the results now — the passwords are shown <b>only this once</b>. Keep the file private.' + (all.length > 500 ? ' Showing the first 500 rows here; the downloaded file has all ' + all.length.toLocaleString() + '.' : '') + '</p>' +
         '<div class="bi-wrap"><table class="bi-tbl"><thead><tr><th>Row</th><th>Name</th><th>Player ID</th><th>Password</th><th>Status</th></tr></thead><tbody>' +
-        all.map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.name || '') + '</td><td>' + esc(U(r.username || '')) + '</td><td>' + (r.ok ? '<code>' + esc(r.password) + '</code>' : '') + '</td><td>' + (r.ok ? '<span class="bi-ok">Created</span>' : '<span class="bi-bad">' + esc(r.error || 'Skipped') + '</span>') + '</td></tr>'; }).join('') +
+        all.slice(0, 500).map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.name || '') + '</td><td>' + esc(U(r.username || '')) + '</td><td>' + (r.ok ? '<code>' + esc(r.password) + '</code>' : '') + '</td><td>' + (r.ok ? '<span class="bi-ok">Created</span>' : '<span class="bi-bad">' + esc(r.error || 'Skipped') + '</span>') + '</td></tr>'; }).join('') +
         '</tbody></table></div>';
       btn.textContent = '⬇ Download results (Excel)'; btn.disabled = false;
       btn.onclick = function () { biDownload('players-created-' + new Date().toISOString().slice(0, 10) + '.csv', biCsv(csvRows)); };
