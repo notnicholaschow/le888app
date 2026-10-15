@@ -31,6 +31,11 @@ export interface Env {
   // Optional R2 bucket for chat image uploads. If not bound, image uploads
   // are disabled but text chat still works.
   CHAT_IMAGES?: R2BucketLite;
+  // Google Sheet link (LE888 CUSTOMER DATA). Both set as Cloudflare Secrets.
+  // SHEET_URL = the Apps Script web-app link; SHEET_SECRET = same secret as in
+  // the script. If either is missing, sign-up still works (sheet sync is off).
+  SHEET_URL?: string;
+  SHEET_SECRET?: string;
 }
 
 // Minimal R2 surface we use (keeps the file free of extra type packages).
@@ -899,6 +904,52 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     return v.replace(' ', 'T') + 'Z';
   }
 
+  // ---- SELF SIGN-UP (player creates their own account) ----
+  // Player ID = next free LE number (system + Google Sheet). One account per
+  // phone number. Bank details are saved + locked (staff can still edit).
+  if (p === '/api/member/register' && method === 'POST') {
+    const st = await getSettings(env);
+    if (String(st.signup_enabled ?? '1') === '0') return j({ error: 'Sign-up is closed right now. Please contact customer service.' }, 403);
+    if (!(await rateLimit(env, 'signup:ip:' + ip, 30, 3600))) return j({ error: 'Too many attempts. Please try again later or contact customer service.' }, 429);
+    let b: any = {};
+    try { b = await request.json(); } catch (e) { /* ignore */ }
+    const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const phone = normalizePhone(b.phone);
+    const paynowRaw = String(b.paynow || '').replace(/[\s-]+/g, '').trim().slice(0, 30);
+    const paynow = !paynowRaw ? phone : (/^\+?\d{8,15}$/.test(paynowRaw) ? normalizePhone(paynowRaw) : paynowRaw.toUpperCase());
+    const holder = String(b.bank_holder || '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 60);
+    const account = String(b.bank_account || '').trim().slice(0, 40);
+    const bankType = String(b.bank_type || '').trim().toUpperCase();
+    const password = String(b.password || '');
+    if (name.length < 2) return j({ error: 'Please enter your name.' }, 400);
+    if (!/^\d{8,15}$/.test(phone)) return j({ error: 'Please enter a valid phone number, e.g. 91234567.' }, 400);
+    if (!holder) return j({ error: 'Please enter the name on your bank account.' }, 400);
+    if (!/^[0-9A-Za-z#\-\s.]{5,40}$/.test(account)) return j({ error: 'Please enter a valid bank account number.' }, 400);
+    if (SIGNUP_BANKS.indexOf(bankType) === -1) return j({ error: 'Please choose your bank.' }, 400);
+    if (password.length < 8) return j({ error: 'Password must be at least 8 characters.' }, 400);
+    // One account per phone number (compare digits only).
+    const dup = await env.DB.prepare("SELECT id FROM players WHERE replace(replace(replace(replace(COALESCE(whatsapp,''),' ',''),'+',''),'-',''),'.','') IN (?, ?) LIMIT 1")
+      .bind(phone, phone.replace(/^65(?=[89]\d{7}$)/, '')).first();
+    if (dup) return j({ error: 'This phone number is already registered. Please log in, or contact customer service if you forgot your Player ID.' }, 409);
+    // Only checked (valid, new-phone) sign-ups count here: max 10 new accounts / hour / network.
+    if (!(await rateLimit(env, 'signup-ok:ip:' + ip, 10, 3600))) return j({ error: 'Too many new accounts from this network. Please try again later or contact customer service.' }, 429);
+    const hash = await hashPassword(password);
+    let created: { id: number; username: string };
+    try {
+      created = await insertPlayerWithNextId(env, async (username) => {
+        const ins = await env.DB.prepare("INSERT INTO players (username, password, display_name, whatsapp, tag, bank_name, bank_account, bank_holder, paynow_number, bank_locked) VALUES (?, ?, ?, ?, 'SELF SIGNUP', ?, ?, ?, ?, 1)")
+          .bind(username, hash, name, phone, bankType, account, holder, paynow).run();
+        return Number(ins.meta.last_row_id);
+      });
+    } catch (e) {
+      return j({ error: 'Could not create your account right now. Please try again.' }, 500);
+    }
+    const row: SheetRow = { code: created.username.toUpperCase(), contact: phone, paynow, holder, account, bankType };
+    ctx.waitUntil(sheetPushRow(env, created.id, row).then(() => flushSheetQueue(env, 10)).catch(() => {}));
+    const token = await signToken(env, 'player', String(created.id), 1, PLAYER_SESSION_SECONDS);
+    return j({ ok: true, username: created.username.toUpperCase() }, 200, token);
+  }
+
   // ---- LOGIN (real password check; token goes into an HttpOnly cookie) ----
   if (p === '/api/member/login' && method === 'POST') {
     let body: { username?: unknown; password?: unknown } = {};
@@ -1435,6 +1486,7 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
 export default {
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runScheduledPushes(env));
+    ctx.waitUntil(flushSheetQueue(env, 100).catch(() => {}));
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -2914,6 +2966,92 @@ async function ensureAutoTemplates(env: Env): Promise<void> {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Player ID counter + Google Sheet sync ("LE888 CUSTOMER DATA")
+// The system hands out every new LE number. Each time it also asks the sheet
+// for its highest LE number, so an ID typed into the sheet by hand can never
+// be given out twice. New rows are pushed to the sheet; if Google is down
+// they wait in sheet_queue and are retried (next sign-up / daily job).
+// ---------------------------------------------------------------------------
+const PLAYER_ID_PREFIX = 'le';
+async function sheetCall(env: Env, payload: Record<string, unknown>, timeoutMs = 8000): Promise<any | null> {
+  const url = String(env.SHEET_URL || '').trim(), secret = String(env.SHEET_SECRET || '').trim();
+  if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url) || !secret) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...payload, secret }), redirect: 'follow', signal: ctrl.signal });
+    const txt = await r.text();
+    try { return JSON.parse(txt); } catch { return { ok: false, error: 'Bad reply from Google (' + r.status + ')' }; }
+  } catch (e) {
+    return { ok: false, error: (e as any)?.name === 'AbortError' ? 'Google Sheet took too long' : 'Could not reach Google Sheet' };
+  } finally { clearTimeout(t); }
+}
+async function dbMaxPlayerNumber(env: Env): Promise<number> {
+  let max = 0;
+  const { results } = await env.DB.prepare('SELECT username FROM players WHERE username LIKE ?').bind(PLAYER_ID_PREFIX + '%').all<{ username: string }>();
+  for (const r of results || []) {
+    const rest = String(r.username).slice(PLAYER_ID_PREFIX.length);
+    if (/^\d{1,9}$/.test(rest)) max = Math.max(max, Number(rest));
+  }
+  return max;
+}
+async function nextPlayerIdInfo(env: Env): Promise<{ next: string; db_max: number; sheet_max: number | null; sheet_error?: string }> {
+  const [dbMax, sh] = await Promise.all([dbMaxPlayerNumber(env), sheetCall(env, { action: 'max' }, 5000)]);
+  const sheetMax = sh && sh.ok ? Number(sh.max) || 0 : null;
+  const n = Math.max(dbMax, sheetMax || 0) + 1;
+  return { next: PLAYER_ID_PREFIX + n, db_max: dbMax, sheet_max: sheetMax, sheet_error: sh && !sh.ok ? String(sh.error || '') : (sh ? undefined : 'not set up') };
+}
+async function ensureSheetQueue(env: Env): Promise<void> {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS sheet_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER, payload TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+}
+type SheetRow = { code: string; contact?: string; paynow?: string; holder?: string; account?: string; bankType?: string };
+// Push one player row to the sheet; on failure it is queued for a retry.
+async function sheetPushRow(env: Env, playerId: number, row: SheetRow): Promise<boolean> {
+  if (!env.SHEET_URL || !env.SHEET_SECRET) return false;
+  const res = await sheetCall(env, { action: 'append', row });
+  if (res && res.ok) return true;
+  try {
+    await ensureSheetQueue(env);
+    await env.DB.prepare('INSERT INTO sheet_queue (player_id, payload, last_error) VALUES (?, ?, ?)').bind(playerId, JSON.stringify(row), String(res?.error || 'failed').slice(0, 200)).run();
+  } catch { /* best-effort */ }
+  return false;
+}
+async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; left: number }> {
+  if (!env.SHEET_URL || !env.SHEET_SECRET) return { sent: 0, left: 0 };
+  await ensureSheetQueue(env);
+  const { results } = await env.DB.prepare('SELECT id, payload FROM sheet_queue WHERE tries < 50 ORDER BY id LIMIT ?').bind(limit).all<{ id: number; payload: string }>();
+  let sent = 0;
+  for (const q of results || []) {
+    let row: SheetRow;
+    try { row = JSON.parse(q.payload); } catch { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); continue; }
+    const res = await sheetCall(env, { action: 'append', row });
+    if (res && res.ok) { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); sent++; }
+    else { await env.DB.prepare('UPDATE sheet_queue SET tries = tries + 1, last_error = ? WHERE id = ?').bind(String(res?.error || 'failed').slice(0, 200), q.id).run(); break; }
+  }
+  const left = await env.DB.prepare('SELECT COUNT(*) AS c FROM sheet_queue WHERE tries < 50').first<{ c: number }>();
+  return { sent, left: Number(left?.c || 0) };
+}
+// Insert a player under the next free LE number. Retries if two sign-ups
+// race for the same number (the UNIQUE username blocks the second one).
+async function insertPlayerWithNextId(env: Env, insert: (username: string) => Promise<number>): Promise<{ id: number; username: string }> {
+  const info = await nextPlayerIdInfo(env);
+  let n = Number(info.next.slice(PLAYER_ID_PREFIX.length));
+  for (let attempt = 0; attempt < 8; attempt++, n++) {
+    const username = PLAYER_ID_PREFIX + n;
+    try { return { id: await insert(username), username }; }
+    catch (e) { if (!/UNIQUE/i.test(String((e as any)?.message || e))) throw e; }
+  }
+  throw new Error('Could not find a free Player ID, please try again.');
+}
+// Phone -> digits; 8-digit Singapore numbers get the 65 prefix.
+function normalizePhone(v: unknown): string {
+  let d = String(v || '').replace(/\D/g, '');
+  if (/^[89]\d{7}$/.test(d)) d = '65' + d;
+  return d;
+}
+const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
+
+// ---------------------------------------------------------------------------
 // One-tap login links (admin -> player). 24h, reusable until expiry, and
 // cancelled when a newer link is made or the player's sessions are reset.
 // Only the SHA-256 of the token is stored, so a DB leak cannot log anyone in.
@@ -3062,6 +3200,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
       contact_url: s.contact_url || '',
       contact_whatsapp: s.contact_whatsapp || '',
       contact_telegram: s.contact_telegram || '',
+      signup_enabled: String(s.signup_enabled ?? '1') !== '0',
       game_costs: games.game_costs,
       game_prizes: games.game_prizes,
       game_enabled: games.game_enabled,
@@ -3086,7 +3225,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
     } catch { return json({ ok: true, banners: [] }, 200, rid); }
   }
 
-  if (path.startsWith('/api/admin/')) return handleAdminApi(path, request, env, rid);
+  if (path.startsWith('/api/admin/')) return handleAdminApi(path, request, env, rid, ctx);
   return handlePlayerApi(path, request, env, rid);
 }
 
@@ -4011,7 +4150,8 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
 // Admin API
 // ---------------------------------------------------------------------------
 
-async function handleAdminApi(path: string, request: Request, env: Env, rid: string): Promise<Response> {
+async function handleAdminApi(path: string, request: Request, env: Env, rid: string, ctx?: ExecutionContext): Promise<Response> {
+  const later = (pr: Promise<unknown>) => { if (ctx) ctx.waitUntil(pr); else return pr; };
   const body = await readJsonBody(request);
   if (body === null) return fail('BAD_REQUEST', 'Invalid request.', 400, rid);
   const ip = clientIp(request);
@@ -4447,8 +4587,24 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true, role: auth.role, perms: isManager ? GRANTABLE_PERMS.slice() : auth.perms, players: players?.c ?? 0, active_today: activeToday?.c ?? 0, points_total: pointsTotal?.s ?? 0, tasks: tasks?.c ?? 0, pending_deposit_requests: pendingDepReq?.c ?? 0, pending_payouts: pendingPayouts?.c ?? 0, pending_withdrawals: pendingWithdrawals?.c ?? 0, chat_unread: chatUnread?.s ?? 0 }, 200, rid);
     }
 
+    case '/api/admin/players/next-id': {
+      // Next free Player ID (system + Google Sheet) for the "+ New player" form.
+      const info = await nextPlayerIdInfo(env);
+      return json({ ok: true, next: info.next.toUpperCase(), db_max: info.db_max, sheet_max: info.sheet_max, sheet_error: info.sheet_error || null }, 200, rid);
+    }
+
+    case '/api/admin/sheet/status': {
+      // Settings -> Google Sheet card: is the link working? Also retries waiting rows.
+      const configured = !!(env.SHEET_URL && env.SHEET_SECRET);
+      const info = await nextPlayerIdInfo(env);
+      let queued = 0, sent = 0;
+      if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; } catch { /* ignore */ } }
+      return json({ ok: true, configured, connected: info.sheet_max !== null, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent }, 200, rid);
+    }
+
     case '/api/admin/player/create': {
-      const username = normalizeUsername(body.username);
+      const autoId = body.auto_id === true || String(body.username || '').trim() === '';
+      const username = autoId ? 'auto' : normalizeUsername(body.username);
       const password = String(body.password || '');
       const displayName = String(body.display_name || '').trim().slice(0, 60);
       if (!username) return fail('BAD_USERNAME', 'Username must be 3-32 characters: letters, numbers, dot or underscore.', 400, rid);
@@ -4463,15 +4619,22 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         refById = rp.id;
       }
       const hash = await hashPassword(password);
+      const npPhone = normalizePhone(body.phone);
+      if (body.phone && !/^\d{8,15}$/.test(npPhone)) return fail('BAD_PHONE', 'Phone number looks wrong (e.g. 6591234567).', 400, rid);
       try {
-        const res = await env.DB.prepare('INSERT INTO players (username, password, display_name) VALUES (?, ?, ?)').bind(username, hash, displayName || null).run();
-        const newId = Number(res.meta.last_row_id);
+        let newId: number, finalName: string = username;
+        const doInsert = async (u: string) => Number((await env.DB.prepare('INSERT INTO players (username, password, display_name, whatsapp) VALUES (?, ?, ?, ?)').bind(u, hash, displayName || null, npPhone || null).run()).meta.last_row_id);
+        if (autoId) { const c = await insertPlayerWithNextId(env, doInsert); newId = c.id; finalName = c.username; }
+        else newId = await doInsert(username);
+        const res = { meta: { last_row_id: newId } };
+        // Every new player also gets a row in the Google Sheet.
+        await later(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone, paynow: npPhone }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
         if (refById) { try { await linkReferral(env, refById, newId, admin); } catch { /* best-effort */ } }
         // Pass the just-set password so the Welcome template can show the player
         // their starting login. This is the ONLY point it's known in plain text
         // (it's hashed at rest). It then lives in that chat as plain text.
         try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ }
-        return json({ ok: true, id: res.meta.last_row_id, username }, 200, rid);
+        return json({ ok: true, id: res.meta.last_row_id, username: finalName }, 200, rid);
       } catch {
         return fail('USERNAME_TAKEN', 'That username already exists.', 409, rid);
       }
@@ -6155,7 +6318,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'checkin_rewards', 'tasks_enabled', 'announcement_text', 'contact_url', 'contact_whatsapp', 'contact_telegram', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit'];
+      const allowed = ['checkin_min_deposit', 'checkin_rewards', 'tasks_enabled', 'announcement_text', 'contact_url', 'contact_whatsapp', 'contact_telegram', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit', 'signup_enabled'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
