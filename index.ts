@@ -932,6 +932,13 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     const dup = await env.DB.prepare("SELECT id FROM players WHERE replace(replace(replace(replace(COALESCE(whatsapp,''),' ',''),'+',''),'-',''),'.','') IN (?, ?) LIMIT 1")
       .bind(phone, phone.replace(/^65(?=[89]\d{7}$)/, '')).first();
     if (dup) return j({ error: 'This phone number is already registered. Please log in, or contact customer service if you forgot your Player ID.' }, 409);
+    // Referral link: le888ref cookie (set by /r/<id>) or the ?ref= the page sends.
+    let refRow: { id: number; username: string } | null = null;
+    {
+      const ck = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)le888ref=([^;]+)/);
+      const refCode = normalizeUsername(ck ? decodeURIComponent(ck[1]) : (b.ref || ''));
+      if (refCode) { try { refRow = await env.DB.prepare("SELECT id, username FROM players WHERE username = ? AND status = 'active'").bind(refCode).first<{ id: number; username: string }>(); } catch { refRow = null; } }
+    }
     // Only checked (valid, new-phone) sign-ups count here: max 10 new accounts / hour / network.
     if (!(await rateLimit(env, 'signup-ok:ip:' + ip, 10, 3600))) return j({ error: 'Too many new accounts from this network. Please try again later or contact customer service.' }, 429);
     const hash = await hashPassword(password);
@@ -946,10 +953,16 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     } catch (e) {
       return j({ error: 'Could not create your account right now. Please try again.' }, 500);
     }
-    const row: SheetRow = { code: created.username.toUpperCase(), contact: phone, paynow, holder, account, bankType };
+    let referredBy = '';
+    if (refRow && refRow.id !== created.id) {
+      try { const err = await linkReferral(env, refRow.id, created.id, 'signup link'); if (!err) referredBy = refRow.username.toUpperCase(); } catch { /* best-effort */ }
+    }
+    const row: SheetRow = { code: created.username.toUpperCase(), contact: phone, paynow, holder, account, bankType, referral: referredBy || undefined };
     ctx.waitUntil(sheetPushRow(env, created.id, row).then(() => flushSheetQueue(env, 10)).catch(() => {}));
     const token = await signToken(env, 'player', String(created.id), 1, PLAYER_SESSION_SECONDS);
-    return j({ ok: true, username: created.username.toUpperCase() }, 200, token);
+    const resp = j({ ok: true, username: created.username.toUpperCase(), referred_by: referredBy || null }, 200, token);
+    resp.headers.append('Set-Cookie', 'le888ref=; Path=/; SameSite=Lax; Secure; Max-Age=0');
+    return resp;
   }
 
   // ---- LOGIN (real password check; token goes into an HttpOnly cookie) ----
@@ -1512,6 +1525,20 @@ export default {
       // HttpOnly cookie, and returns real points + points-ledger from D1.
       if (url.pathname.startsWith('/api/member/')) {
         return await handleMember(request, env, url, ctx, rid);
+      }
+      if (request.method === 'GET' && /^\/r\/[^/]+\/?$/.test(url.pathname)) {
+        // Referral link: remember who invited this visitor (30 days), then open sign-up.
+        const code = normalizeUsername(decodeURIComponent(url.pathname.slice(3).replace(/\/$/, '')));
+        let valid = '';
+        if (code) {
+          try { const rp = await env.DB.prepare("SELECT username FROM players WHERE username = ? AND status = 'active'").bind(code).first<{ username: string }>(); if (rp) valid = rp.username; } catch { /* ignore */ }
+        }
+        const dest = new URL('/login', request.url);
+        if (valid) dest.searchParams.set('ref', valid.toUpperCase());
+        dest.hash = 'signup';
+        const r = new Response(null, { status: 302, headers: { Location: dest.pathname + dest.search + dest.hash, 'Cache-Control': 'no-store' } });
+        if (valid) r.headers.append('Set-Cookie', 'le888ref=' + valid.toUpperCase() + '; Path=/; SameSite=Lax; Secure; Max-Age=' + (30 * 86400));
+        return r;
       }
       if (request.method === 'GET' && url.pathname.startsWith('/go/')) {
         return await handleLoginLink(request, env, url.pathname.slice(4).replace(/\/+$/, ''));
@@ -3031,7 +3058,7 @@ async function nextPlayerIdInfo(env: Env, timeoutMs = 9000): Promise<{ next: str
 async function ensureSheetQueue(env: Env): Promise<void> {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS sheet_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER, payload TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
 }
-type SheetRow = { code: string; contact?: string; paynow?: string; holder?: string; account?: string; bankType?: string };
+type SheetRow = { code: string; contact?: string; paynow?: string; holder?: string; account?: string; bankType?: string; referral?: string };
 type SheetMsg = { action: 'append' | 'update'; row: SheetRow; old_code?: string };
 // Send one change to the sheet, in order: anything still waiting goes first.
 // On failure it is queued and retried later (next change / Settings check / daily job).
@@ -3062,7 +3089,7 @@ async function sheetUpdatePlayer(env: Env, playerId: number, fields: Partial<She
   const p = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(playerId).first<{ username: string }>();
   if (!p) return false;
   const row: SheetRow = { code: String(p.username).toUpperCase() };
-  for (const k of ['contact', 'paynow', 'holder', 'account', 'bankType'] as const) {
+  for (const k of ['contact', 'paynow', 'holder', 'account', 'bankType', 'referral'] as const) {
     const v = String((fields as any)[k] ?? '').trim();
     if (v) (row as any)[k] = v;
   }
@@ -4732,7 +4759,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         else newId = await doInsert(username);
         const res = { meta: { last_row_id: newId } };
         // Every new player also gets a row in the Google Sheet.
-        await later(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
+        await later(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone, referral: refById ? (normalizeUsername(refByRaw) || '').toUpperCase() || undefined : undefined }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
         if (refById) { try { await linkReferral(env, refById, newId, admin); } catch { /* best-effort */ } }
         // Pass the just-set password so the Welcome template can show the player
         // their starting login. This is the ONLY point it's known in plain text
@@ -5564,6 +5591,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       if (!fr) return fail('FRIEND_NOT_FOUND', `No player with ID @${fu}. Create their account first.`, 404, rid);
       const err = await linkReferral(env, id, fr.id, admin);
       if (err) return fail('REFERRAL_EXISTS', err, 409, rid);
+      // Mirror "who referred them" to the Google Sheet (REFFERAL CODE column).
+      try { const rr = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(id).first<{ username: string }>(); if (rr) await later(sheetUpdatePlayer(env, fr.id, { referral: String(rr.username).toUpperCase() }).catch(() => false)); } catch { /* ignore */ }
       // Friend may already have deposits keyed in -> reward straight away.
       let r = { rewarded: false, points: 0, bonus: 0 };
       try { r = await checkReferral(env, fr.id, admin); } catch { /* best-effort */ }
