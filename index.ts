@@ -4048,6 +4048,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     '/api/admin/admins/permissions', '/api/admin/admins/password',
     // Permanently deleting a player wipes their records — managers only.
     '/api/admin/player/delete',
+    // Bulk import creates many accounts at once — managers only.
+    '/api/admin/players/bulk',
   ];
   if (!isManager && MANAGER_ONLY.indexOf(path) !== -1) {
     return fail('FORBIDDEN', 'Managers only. Ask a manager to do this.', 403, rid);
@@ -4426,6 +4428,79 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       } catch {
         return fail('USERNAME_TAKEN', 'That username already exists.', 409, rid);
       }
+    }
+
+    // ---- Bulk import (Admin -> Players -> Bulk import) ----------------------
+    // Up to 50 rows per call (the page sends big lists in batches). Each row:
+    // {username?, name?, password?, tag?, telegram?, whatsapp?, referred_by?}.
+    // Missing Player ID -> next number after the highest "<prefix><digits>".
+    // Missing password -> the shared default, else a random one. Plain
+    // passwords are returned ONCE so staff can hand them out; stored hashed.
+    case '/api/admin/players/bulk': {
+      const rows = Array.isArray(body.rows) ? (body.rows as any[]).slice(0, 50) : [];
+      if (!rows.length) return fail('BAD_REQUEST', 'No rows to import.', 400, rid);
+      const prefix = String(body.prefix || 'le').trim().toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 10) || 'le';
+      const defPw = String(body.default_password || '');
+      if (defPw && defPw.length < 8) return fail('WEAK_PASSWORD', 'The shared password must be at least 8 characters.', 400, rid);
+      const sendWelcome = !!body.send_welcome;
+      // Highest existing number for this prefix (e.g. le10680 -> 10680).
+      let maxNum = 0;
+      try {
+        const { results } = await env.DB.prepare('SELECT username FROM players WHERE username LIKE ?').bind(prefix + '%').all<{ username: string }>();
+        for (const r of results || []) {
+          const rest = String(r.username).slice(prefix.length);
+          if (/^\d{1,12}$/.test(rest)) maxNum = Math.max(maxNum, Number(rest));
+        }
+      } catch { /* empty table */ }
+      const ALPH = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      const randPw = () => { const b = crypto.getRandomValues(new Uint8Array(9)); let o = ''; for (const x of b) o += ALPH[x % ALPH.length]; return o; };
+      const seen = new Set<string>();
+      const out: any[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i] || {};
+        const name = String(r.name || '').trim().slice(0, 60);
+        const rawId = String(r.username || '').trim();
+        let username: string | null;
+        if (rawId) username = normalizeUsername(rawId);
+        else { maxNum += 1; username = prefix + String(maxNum); }
+        const res: any = { row: Number(r.row) || i + 1, name, username: username || rawId, ok: false };
+        if (!username) { res.error = 'Player ID must be 3-32 letters/numbers (dot or underscore allowed).'; out.push(res); continue; }
+        if (seen.has(username)) { res.error = 'Same Player ID appears twice in this file.'; out.push(res); continue; }
+        seen.add(username);
+        const password = String(r.password || '').trim() || defPw || randPw();
+        if (password.length < 8) { res.error = 'Password must be at least 8 characters.'; out.push(res); continue; }
+        const exists = await env.DB.prepare('SELECT id FROM players WHERE username = ?').bind(username).first();
+        if (exists) { res.error = 'Player ID already exists.'; out.push(res); continue; }
+        let refId = 0;
+        const refRaw = String(r.referred_by || '').trim();
+        if (refRaw) {
+          const ru = normalizeUsername(refRaw);
+          const rp = ru ? await env.DB.prepare('SELECT id FROM players WHERE username = ?').bind(ru).first<{ id: number }>() : null;
+          if (!rp) { res.error = `"Referred by" ${refRaw.toUpperCase()} not found.`; out.push(res); continue; }
+          refId = rp.id;
+        }
+        const tag = String(r.tag || '').trim().slice(0, 40);
+        const telegram = String(r.telegram || '').trim().slice(0, 100);
+        const whatsapp = String(r.whatsapp || '').trim().slice(0, 100);
+        const hash = await hashPassword(password);
+        let newId = 0;
+        try {
+          const ins = await env.DB.prepare('INSERT INTO players (username, password, display_name, tag, telegram, whatsapp) VALUES (?, ?, ?, ?, ?, ?)')
+            .bind(username, hash, name || null, tag || null, telegram || null, whatsapp || null).run();
+          newId = Number(ins.meta.last_row_id);
+        } catch (e) {
+          if (/UNIQUE/i.test(String((e as any)?.message || e))) { res.error = 'Player ID already exists.'; out.push(res); continue; }
+          try { // columns not migrated yet -> basic insert
+            const ins = await env.DB.prepare('INSERT INTO players (username, password, display_name) VALUES (?, ?, ?)').bind(username, hash, name || null).run();
+            newId = Number(ins.meta.last_row_id);
+          } catch { res.error = 'Could not create this player.'; out.push(res); continue; }
+        }
+        if (refId) { try { await linkReferral(env, refId, newId, admin); } catch { /* best-effort */ } }
+        if (sendWelcome) { try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ } }
+        res.ok = true; res.password = password; res.id = newId;
+        out.push(res);
+      }
+      return json({ ok: true, results: out, created: out.filter((x) => x.ok).length }, 200, rid);
     }
 
     case '/api/admin/player/impersonate': {
