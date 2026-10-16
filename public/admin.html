@@ -1640,12 +1640,13 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       for (var i = 0; i < rows.length; i += size) {
         var chunk = rows.slice(i, i + size), res = null;
         btn.textContent = 'Creating… ' + Math.min(i + size, rows.length).toLocaleString() + ' / ' + rows.length.toLocaleString();
-        for (var t = 0; t < 3 && !(res && res.ok); t++) { // retry a batch up to 3 times
+        var safeRetry = chunk.every(function (r) { return !!r.username; }); // auto-ID rows could be created twice
+        for (var t = 0; t < (safeRetry ? 3 : 1) && !(res && res.ok); t++) { // retry a batch up to 3 times
           try { res = await api('/api/admin/players/bulk', { rows: chunk, prefix: $('biPrefix').value.trim() || 'le', default_password: pw, send_welcome: $('biWelcome').checked }); }
           catch (e) { res = { ok: false, error: 'Network error' }; }
           if (!(res && res.ok)) await new Promise(function (ok) { setTimeout(ok, 1500); });
         }
-        if (!res.ok) { chunk.forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: res.error || 'Failed' }); }); continue; }
+        if (!res.ok) { chunk.forEach(function (r) { all.push({ row: r.row, name: r.name, username: r.username, ok: false, error: (res.error || 'Failed') + (safeRetry ? '' : ' — check the Players list before importing these rows again') }); }); continue; }
         all = all.concat(res.results || []);
       }
       window.onbeforeunload = null;
@@ -4115,7 +4116,9 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       if (!r.configured) { st.innerHTML = '<span style="color:var(--red)">⚠️ Not set up yet</span> — add SHEET_URL and SHEET_SECRET in Cloudflare. Next ID (system only): <b>' + esc(r.next) + '</b>'; return; }
       if (!r.connected) { st.innerHTML = '<span style="color:var(--red)">❌ Can\u2019t reach the sheet</span> (' + esc(r.sheet_error || 'error') + '). Check the script link + secret.'; return; }
       st.innerHTML = '<span style="color:var(--green)">✅ Connected</span> · highest in sheet <b>LE' + r.sheet_max + '</b> · in system <b>LE' + r.db_max + '</b> · next ID <b>' + esc(r.next) + '</b>' +
-        (r.queued ? ' · <span style="color:var(--red)">' + r.queued + ' row(s) waiting to be sent</span>' : '') + (r.sent ? ' · sent ' + r.sent + ' waiting row(s) now' : '');
+        (r.queued ? ' · <span style="color:var(--red)">' + r.queued + ' row(s) waiting to be sent</span>' : '') + (r.sent ? ' · sent ' + r.sent + ' waiting row(s) now' : '') +
+        (r.stuck ? ' · <span style="color:var(--red)">' + r.stuck + ' row(s) failed many times — tell your developer</span>' : '') +
+        (r.last_error ? '<div style="margin-top:6px;font-size:12px;color:var(--red)">Google said: ' + esc(r.last_error) + '</div>' : '');
     }).catch(function () { busy(btn, false); st.textContent = 'Network error.'; });
   };
   $('settingsSaveBtn').onclick = function () {
