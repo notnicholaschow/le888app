@@ -428,7 +428,7 @@ function showVerifyNeeded(){const esc=x=>String(x==null?'':x).replace(/[&<>"']/g
  const rows=[['Name on account',v.holder],['Bank',v.bank],['Account number',v.account_end?'•••• '+v.account_end:'']].filter(r=>r[1]).map(r=>`<div class="vfy-row"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('');
  showModal('Verify your account',`<div class="vfy-pop"><div class="vfy-ic" aria-hidden="true">🛡️</div>
  <p class="vfy-lead">Before you can submit <b>free credit</b>, our team needs to verify your bank account. It only takes a minute.</p>
- <ol class="vfy-steps"><li>Open <b>Live Chat</b></li><li>Send your <b>bank statement</b> (screenshot or PDF)</li><li>Our team verifies it and lets you know</li></ol>
+ <ol class="vfy-steps"><li>Open <b>Live Chat</b></li><li>Send a <b>screenshot</b> of your bank statement (📷 photo button)</li><li>Our team verifies it and lets you know</li></ol>
  <div class="vfy-box"><div class="vfy-must">⚠️ The name on the bank statement must be the <b>same</b> as your account name and bank details:</div>${rows||'<div class="vfy-row"><span>Bank details</span><b>As registered</b></div>'}</div>
  <button class="primary-btn vfy-chat" id="vfy-chat" type="button">Send bank statement in Live Chat</button></div>`);
  const c=document.querySelector('#vfy-chat');if(c)c.onclick=()=>{try{modal.close();}catch(e){}go('chat');};}
