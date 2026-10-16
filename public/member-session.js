@@ -433,3 +433,26 @@ function showVerifyNeeded(){const esc=x=>String(x==null?'':x).replace(/[&<>"']/g
  <button class="primary-btn vfy-chat" id="vfy-chat" type="button">Send bank statement in Live Chat</button></div>`);
  const c=document.querySelector('#vfy-chat');if(c)c.onclick=()=>{try{modal.close();}catch(e){}go('chat');};}
 window.showVerifyNeeded=showVerifyNeeded;
+
+/* ===== Red number badges: how many things are waiting (claims, rewards to submit,
+   deposit / withdrawal / free credit done). Shown on the ☰ button, menu items,
+   home shortcuts and (where the phone supports it) the app icon. ===== */
+(()=>{let bd=null,loading=false,lastPage='',lastLoad=0;
+ const SEEN={deposit:'deposit',withdraw:'withdraw',wallet:'wallet',submit:'wallet',history:'wallet'};
+ const SEL='#modal [data-go], .os-action-dock [data-go], .quick-grid [data-go], [class*="mosaic-"][data-go], .menu-drawer [data-go], #side-menu [data-route], #side-menu [data-go]';
+ const cnt=r=>bd?Number(({rewards:bd.rewards,vip:bd.vip,wallet:bd.wallet,submit:bd.wallet,deposit:bd.deposit,withdraw:bd.withdraw})[r]||0):0;
+ const put=(el,n)=>{let b=el.querySelector(':scope > .nb-badge');if(n>0){const t=n>99?'99+':String(n);if(!b){b=document.createElement('span');b.className='nb-badge';b.setAttribute('aria-label',t+' new');el.appendChild(b);}if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();};
+ function paint(){document.querySelectorAll(SEL).forEach(el=>put(el,cnt(el.dataset.go||el.dataset.route)));document.querySelectorAll('#os-menu, #ios-menu').forEach(mb=>put(mb,bd?Number(bd.total)||0:0));
+  try{if(!window.memberImp&&navigator.setAppBadge){const t=bd?Number(bd.total)||0:0;if(t>0)navigator.setAppBadge(t).catch(()=>{});else navigator.clearAppBadge().catch(()=>{});}}catch(e){}}
+ async function load(force){if(loading)return;if(!force&&Date.now()-lastLoad<8000)return;loading=true;try{const r=await memberRequest('badges');if(r&&r.ok){bd=r;lastLoad=Date.now();}}catch(e){}finally{loading=false;}paint();}
+ async function seen(kind){try{await memberRequest('badges/seen',{kind});}catch(e){}load(true);}
+ window.memberBadgesRefresh=()=>load(true);
+ // After a claim / check-in / reward submit, update the numbers straight away.
+ const mr=window.memberRequest;if(typeof mr==='function'&&!mr.__nb){const w=async function(path,body){const r=await mr.apply(this,arguments);if(body!==undefined&&/^(checkin|vip\/claim-weekly|promos\/claim|deposit-bonus\/claim|reward\/submit|reward\/cancel|task\/complete)/.test(String(path)))setTimeout(()=>load(true),300);return r;};w.__nb=1;window.memberRequest=w;try{memberRequest=w;}catch(e){}}
+ const prev=render;render=function(){prev();paint();const pg=state.page;if(pg!==lastPage){lastPage=pg;const k=SEEN[pg];if(k&&bd&&!window.memberImp){const done=k==='wallet'?Number(bd.detail&&bd.detail.free_credit_done||0):Number(bd[k]||0);if(done>0)seen(k);}load(false);}};
+ // Repaint when the menu opens or the header / home is redrawn.
+ let raf=0;const soon=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint();});};
+ if(window.MutationObserver)['#modal','#side-menu','#header','#screen'].forEach(q=>{const el=document.querySelector(q);if(el)new MutationObserver(soon).observe(el,{childList:true,subtree:true,attributes:true,attributeFilter:['open']});});
+ load(true);setInterval(()=>{if(document.visibilityState==='visible')load(true);},60000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')load(true);});
+})();

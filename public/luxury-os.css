@@ -1950,3 +1950,11 @@ body.luxury-os dialog.vip-detail-modal .vip-perks small{text-transform:none;lett
 /* Invite link (referral) */
 .ref-link b{font-size:15px!important;letter-spacing:0!important;word-break:break-all;text-align:left}
 .ref-link-note{margin:8px 0 12px!important;font-size:12.5px}
+
+/* Red number badges */
+#os-menu,#ios-menu,.os-action-dock [data-go],.quick-grid [data-go],[class*="mosaic-"][data-go],#modal [data-go],.menu-drawer [data-go],#side-menu [data-route],#side-menu [data-go]{position:relative}
+.nb-badge{position:absolute;top:4px;right:6px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:linear-gradient(180deg,#ff5a52,#d81f26);color:#fff;font:700 11px/19px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;box-shadow:0 0 0 2px #0b0a08,0 3px 10px rgba(216,31,38,.45);pointer-events:none;z-index:3;letter-spacing:0;font-style:normal}
+#os-menu .nb-badge,#ios-menu .nb-badge{top:-4px;right:-4px}
+.os-action-dock [data-go] .nb-badge{top:2px;right:calc(50% - 26px)}
+
+#side-menu .drawer-link .nb-badge{top:10px;right:10px}
