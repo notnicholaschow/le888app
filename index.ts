@@ -967,6 +967,82 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     return resp;
   }
 
+  // ---- RED NUMBER BADGES (things waiting for the player) ----
+  // "Claim" counts stay until claimed; "done" counts (deposit / withdrawal /
+  // free credit decided) clear when the player opens that page (badges/seen).
+  if (p === '/api/member/badges' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const pid = player.id;
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS badge_seen (player_id INTEGER NOT NULL, kind TEXT NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY (player_id, kind))').run();
+    const seenRows = await env.DB.prepare('SELECT kind, seen_at FROM badge_seen WHERE player_id = ?').bind(pid).all<{ kind: string; seen_at: string }>();
+    const seen: Record<string, string> = {};
+    for (const r of seenRows.results || []) seen[r.kind] = r.seen_at;
+    // First time: start counting from now, so old history doesn't light up.
+    for (const k of ['deposit', 'withdraw', 'wallet']) {
+      if (!seen[k]) { await env.DB.prepare("INSERT OR IGNORE INTO badge_seen (player_id, kind, seen_at) VALUES (?, ?, datetime('now'))").bind(pid, k).run(); seen[k] = '9999'; }
+    }
+    const safe = async <T>(fn: () => Promise<T>, d: T): Promise<T> => { try { return await fn(); } catch { return d; } };
+    const settings = await getSettings(env);
+    const [checkin, vipWeekly, bonus, promos, submit, depDone, wdDone, fcDone] = await Promise.all([
+      safe(async () => ((await checkinStatus(env, pid, settings)).can_check_in ? 1 : 0), 0),
+      safe(async () => {
+        const vip = await getVipStatus(env, pid);
+        if (vip.rank_idx < 0) return 0;
+        const rank = (await getRanks(env))[vip.rank_idx];
+        if (!rank || !(Number(rank.weekly) > 0)) return 0;
+        const c = await env.DB.prepare('SELECT 1 AS x FROM vip_weekly_claims WHERE player_id = ? AND week_key = ?').bind(pid, vip.week_key).first();
+        return c ? 0 : 1;
+      }, 0),
+      safe(async () => (await depositBonusStatus(env, pid)).tiers.filter((t: any) => t.reached && !t.claimed).length, 0),
+      safe(async () => {
+        const today = sgtDateKey();
+        const { results } = await env.DB.prepare('SELECT id, access, limit_type, limit_count FROM promos WHERE active = 1').all<any>();
+        let n = 0;
+        for (const pr of results || []) {
+          if (pr.access === 'gated') {
+            const a = await env.DB.prepare("SELECT COUNT(*) AS c FROM promo_unlocks WHERE player_id = ? AND promo_id = ? AND status = 'available'").bind(pid, pr.id).first<{ c: number }>();
+            n += Number(a?.c || 0) > 0 ? 1 : 0;
+          } else {
+            const c = pr.limit_type === 'day'
+              ? await env.DB.prepare('SELECT COUNT(*) AS c FROM promo_claims WHERE player_id = ? AND promo_id = ? AND day_key = ?').bind(pid, pr.id, today).first<{ c: number }>()
+              : await env.DB.prepare('SELECT COUNT(*) AS c FROM promo_claims WHERE player_id = ? AND promo_id = ?').bind(pid, pr.id).first<{ c: number }>();
+            if (Number(c?.c || 0) < Math.max(1, Number(pr.limit_count) || 1)) n++;
+          }
+        }
+        return n;
+      }, 0),
+      safe(async () => {
+        if (!(Number(player.reward_cents) > 0)) return 0;
+        const pend = await env.DB.prepare("SELECT 1 AS x FROM payout_requests WHERE player_id = ? AND status = 'pending' LIMIT 1").bind(pid).first();
+        return pend ? 0 : 1;
+      }, 0),
+      safe(async () => Number((await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE player_id = ? AND status IN ('approved','rejected') AND decided_at > ?").bind(pid, seen.deposit).first<{ c: number }>())?.c || 0), 0),
+      safe(async () => Number((await env.DB.prepare("SELECT COUNT(*) AS c FROM withdrawals WHERE player_id = ? AND status IN ('approved','rejected') AND decided_at > ?").bind(pid, seen.withdraw).first<{ c: number }>())?.c || 0), 0),
+      safe(async () => Number((await env.DB.prepare("SELECT COUNT(*) AS c FROM payout_requests WHERE player_id = ? AND status IN ('approved','rejected') AND decided_at > ?").bind(pid, seen.wallet).first<{ c: number }>())?.c || 0), 0),
+    ]);
+    // Everything claimable lives on the Rewards page (check-in, VIP weekly, deposit bonus, promos).
+    const rewards = checkin + vipWeekly + bonus + promos;
+    const out = {
+      rewards, vip: 0, wallet: submit + fcDone, deposit: depDone, withdraw: wdDone,
+      detail: { checkin, vip_weekly: vipWeekly, deposit_bonus: bonus, promos, reward_submit: submit, deposit_done: depDone, withdraw_done: wdDone, free_credit_done: fcDone },
+      total: rewards + submit + fcDone + depDone + wdDone,
+    };
+    return j({ ok: true, ...out }, 200);
+  }
+  if (p === '/api/member/badges/seen' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (impToken()) return j({ ok: true, skipped: 'staff view' }, 200); // staff "View app" never clears the player's dots
+    let b: any = {};
+    try { b = await request.json(); } catch (e) { /* ignore */ }
+    const kind = String(b.kind || '');
+    if (['deposit', 'withdraw', 'wallet'].indexOf(kind) === -1) return j({ error: 'Bad kind' }, 400);
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS badge_seen (player_id INTEGER NOT NULL, kind TEXT NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY (player_id, kind))').run();
+    await env.DB.prepare("INSERT INTO badge_seen (player_id, kind, seen_at) VALUES (?, ?, datetime('now')) ON CONFLICT(player_id, kind) DO UPDATE SET seen_at = excluded.seen_at").bind(player.id, kind).run();
+    return j({ ok: true }, 200);
+  }
+
   // ---- LOGIN (real password check; token goes into an HttpOnly cookie) ----
   if (p === '/api/member/login' && method === 'POST') {
     let body: { username?: unknown; password?: unknown } = {};
