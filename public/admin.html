@@ -245,6 +245,9 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
 .tagc-nicupload { background: rgba(255,146,60,.18); color: #ff9a4d; border-color: rgba(255,146,60,.4); }
 .tagc-selfsignup { background: rgba(45,212,191,.16); color: #2dd4bf; border-color: rgba(45,212,191,.4); }
 /* Any other tag gets one of these, picked from its name (same tag = same colour everywhere). */
+.p-chatlink { display: block; color: inherit; text-decoration: none; border-radius: 6px; }
+.p-chatlink:hover .p-name { color: var(--gold); text-decoration: underline; text-underline-offset: 3px; }
+.btn-chat { border-color: rgba(217,180,81,.45) !important; color: var(--gold) !important; }
 .vf-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
   border: 1px solid rgba(255,146,60,.55); background: rgba(255,146,60,.14); color: #ffa75c; }
 .vf-btn:hover { background: rgba(255,146,60,.24); }
@@ -1799,13 +1802,14 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       pager('player', res.total, loadPlayers);
       var tb = $('playerTbl').querySelector('tbody');
       tb.innerHTML = res.players.map(function (p) {
-        return '<tr><td>' + playerCell(p.username, p.display_name) + verifyBadge(p) + '</td>' +
+        return '<tr><td><a href="#" class="p-chatlink" data-chat-player="' + p.id + '" title="Open Live Chat with this player">' + playerCell(p.username, p.display_name) + '</a>' + verifyBadge(p) + '</td>' +
           '<td class="pid">' + esc(U(p.username)) + '</td>' +
           '<td><select class="tag-inline ' + tagClass(p.tag) + '" data-tag-player="' + p.id + '">' + tagSelectHtml(p.tag) + '</select></td>' +
           '<td>' + Number(p.points).toLocaleString('en-US') + '</td>' +
           '<td>' + ((p.reward_cents || 0) / 100).toFixed(2) + '</td>' +
           '<td><span class="pill ' + esc(p.status) + '">' + esc(p.status) + '</span></td>' +
           '<td class="act-btns">' +
+            '<button class="btn ghost small btn-chat" data-chat-player="' + p.id + '" title="Open Live Chat">💬 Chat</button>' +
             '<button class="btn small" data-dep-player="' + p.id + '">Deposit</button>' +
             '<button class="btn ghost small" data-earn-player="' + p.id + '">Earn</button>' +
             '<button class="btn ghost small" data-his-player="' + p.id + '">History</button>' +
@@ -1817,6 +1821,9 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
             '<button class="btn ghost small" data-edit-player="' + p.id + '">Manage</button></td></tr>';
       }).join('') || '<tr><td colspan="7" class="muted">No players yet. Tap "+ New player" to create the first account.</td></tr>';
       function findP(attr, b) { return res.players.find(function (x) { return String(x.id) === b.getAttribute(attr); }); }
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-chat-player]'), function (b) {
+        b.onclick = function (e) { e.preventDefault(); openChatWith(findP('data-chat-player', b)); };
+      });
       Array.prototype.forEach.call(tb.querySelectorAll('[data-verify-player]'), function (b) {
         b.onclick = function () { verifyModal(findP('data-verify-player', b), function () { loadPlayers(); }); };
       });
@@ -2848,6 +2855,13 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     if (!acPlayer) return;
     verifyModal(acPlayer, function (x) { acPlayer.bank_verified = x.bank_verified; acPlayer.verified_by = x.verified_by; acPlayer.verified_at = x.verified_at; setConvVerify(acPlayer); });
   };
+  // Jump from anywhere (e.g. the Players list) straight into a player's Live Chat.
+  function openChatWith(p) {
+    if (!p) return;
+    var link = document.querySelector('.side-link[data-tab="messages"]');
+    if (link) link.click();
+    openConv(p.id, p.username, p.tag || '');
+  }
   function openConv(pid, username, tag) {
     setConvVerify(null);
     clearInterval(acTimer); acLastId = 0; acPid = pid;
