@@ -925,7 +925,7 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     if (!validPhone(phone)) return j({ error: 'Please enter a valid phone number, e.g. 91234567.' }, 400);
     if (!paynow || paynow.replace(/[^0-9A-Za-z]/g, '').length < 8) return j({ error: 'Please enter your PayNow number (mobile number or UEN).' }, 400);
     if (!holder) return j({ error: 'Please enter the name on your bank account.' }, 400);
-    if (!/^[0-9A-Za-z#\-\s.]{5,40}$/.test(account)) return j({ error: 'Please enter a valid bank account number.' }, 400);
+    if (!/^[0-9A-Za-z#\-\s./]{5,40}$/.test(account)) return j({ error: 'Please enter a valid bank account number (numbers and letters only).' }, 400);
     if (SIGNUP_BANKS.indexOf(bankType) === -1) return j({ error: 'Please choose your bank.' }, 400);
     if (password.length < 8) return j({ error: 'Password must be at least 8 characters.' }, 400);
     // One account per phone number (compare digits only).
@@ -936,7 +936,9 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     let refRow: { id: number; username: string } | null = null;
     {
       const ck = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)le888ref=([^;]+)/);
-      const refCode = normalizeUsername(ck ? decodeURIComponent(ck[1]) : (b.ref || ''));
+      let ckVal = ''; try { ckVal = ck ? decodeURIComponent(ck[1]) : ''; } catch { ckVal = ''; }
+      // Same order as the sign-up page shows: the link's ?ref= first, then the remembered cookie.
+      const refCode = normalizeUsername(b.ref || ckVal || '');
       if (refCode) { try { refRow = await env.DB.prepare("SELECT id, username FROM players WHERE username = ? AND status = 'active'").bind(refCode).first<{ id: number; username: string }>(); } catch { refRow = null; } }
     }
     // Only checked (valid, new-phone) sign-ups count here: max 10 new accounts / hour / network.
@@ -1528,7 +1530,8 @@ export default {
       }
       if (request.method === 'GET' && /^\/r\/[^/]+\/?$/.test(url.pathname)) {
         // Referral link: remember who invited this visitor (30 days), then open sign-up.
-        const code = normalizeUsername(decodeURIComponent(url.pathname.slice(3).replace(/\/$/, '')));
+        let rawCode = ''; try { rawCode = decodeURIComponent(url.pathname.slice(3).replace(/\/$/, '')); } catch { rawCode = ''; }
+        const code = normalizeUsername(rawCode);
         let valid = '';
         if (code) {
           try { const rp = await env.DB.prepare("SELECT username FROM players WHERE username = ? AND status = 'active'").bind(code).first<{ username: string }>(); if (rp) valid = rp.username; } catch { /* ignore */ }
@@ -3097,7 +3100,7 @@ async function sheetUpdatePlayer(env: Env, playerId: number, fields: Partial<She
   if (Object.keys(row).length === 1 && !(old && old !== row.code)) return true; // nothing to send
   return sheetSend(env, playerId, { action: 'update', row, old_code: old && old !== row.code ? old : undefined });
 }
-async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; left: number }> {
+async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; left: number; stuck?: number; last_error?: string }> {
   if (!env.SHEET_URL || !env.SHEET_SECRET) return { sent: 0, left: 0 };
   await ensureSheetQueue(env);
   const { results } = await env.DB.prepare('SELECT id, payload FROM sheet_queue WHERE tries < 50 ORDER BY id LIMIT ?').bind(limit).all<{ id: number; payload: string }>();
@@ -3106,11 +3109,17 @@ async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; le
     let msg: SheetMsg;
     try { const j = JSON.parse(q.payload); msg = j && j.action ? j : { action: 'append', row: j }; } catch { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); continue; }
     const res = await sheetCall(env, { ...msg });
-    if (res && res.ok) { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); sent++; }
-    else { await env.DB.prepare('UPDATE sheet_queue SET tries = tries + 1, last_error = ? WHERE id = ?').bind(String(res?.error || 'failed').slice(0, 200), q.id).run(); break; }
+    if (res && res.ok) { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); sent++; continue; }
+    await env.DB.prepare('UPDATE sheet_queue SET tries = tries + 1, last_error = ? WHERE id = ?').bind(String(res?.error || 'failed').slice(0, 200), q.id).run();
+    // Google down / slow -> stop for now. The script refused THIS row -> skip it, keep sending the others.
+    if (!res || /reach|too long|Bad reply/i.test(String(res.error || ''))) break;
   }
   const left = await env.DB.prepare('SELECT COUNT(*) AS c FROM sheet_queue WHERE tries < 50').first<{ c: number }>();
-  return { sent, left: Number(left?.c || 0) };
+  const stuck = await env.DB.prepare('SELECT COUNT(*) AS c FROM sheet_queue WHERE tries >= 50').first<{ c: number }>();
+  const le = await env.DB.prepare('SELECT payload, last_error FROM sheet_queue ORDER BY id LIMIT 1').first<{ payload: string; last_error: string }>();
+  let lastErr = '';
+  if (le) { let code = ''; try { const j = JSON.parse(le.payload); code = String((j.row || j).code || ''); } catch { /* ignore */ } lastErr = (code ? code + ': ' : '') + String(le.last_error || ''); }
+  return { sent, left: Number(left?.c || 0), stuck: Number(stuck?.c || 0), last_error: lastErr };
 }
 // Insert a player under the next free LE number. Retries if two sign-ups
 // race for the same number (the UNIQUE username blocks the second one).
@@ -3144,8 +3153,16 @@ async function ensureVerifyCols(env: Env): Promise<void> {
   for (const c of ['bank_verified INTEGER', 'verified_by TEXT', 'verified_at TEXT']) {
     try { await env.DB.prepare('ALTER TABLE players ADD COLUMN ' + c).run(); } catch { /* already there */ }
   }
-  // Self sign-ups made before this feature existed also need verifying.
-  try { await env.DB.prepare("UPDATE players SET bank_verified = 0 WHERE bank_verified IS NULL AND verified_at IS NULL AND upper(trim(COALESCE(tag,''))) = 'SELF SIGNUP'").run(); } catch { /* ignore */ }
+  // Self sign-ups made before this feature existed also need verifying (ONE time only,
+  // so a staff member using the SELF SIGNUP tag later doesn't block anyone).
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS sheet_meta (k TEXT PRIMARY KEY, v TEXT)').run();
+    const done = await env.DB.prepare("SELECT v FROM sheet_meta WHERE k = 'verify_backfill'").first();
+    if (!done) {
+      await env.DB.prepare("UPDATE players SET bank_verified = 0 WHERE bank_verified IS NULL AND verified_at IS NULL AND upper(trim(COALESCE(tag,''))) = 'SELF SIGNUP'").run();
+      await env.DB.prepare("INSERT OR IGNORE INTO sheet_meta (k, v) VALUES ('verify_backfill', datetime('now'))").run();
+    }
+  } catch { /* ignore */ }
   verifyColsReady = true;
 }
 const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
@@ -3550,6 +3567,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
         if (!bn || !ba || !bh) return fail('BAD_REQUEST', 'Bank name, account number and account holder are all required.', 400, rid);
         // Guarded on bank_locked=0 so a double submit can't overwrite.
         stmts.push(env.DB.prepare("UPDATE players SET bank_name=?, bank_account=?, bank_holder=?, paynow_number=?, bank_locked=1, updated_at=datetime('now') WHERE id=? AND bank_locked=0").bind(bn, ba, bh, pn, player.id));
+        if ((player as any).bank_verified === 1) stmts.push(env.DB.prepare("UPDATE players SET bank_verified = 0, verified_by = 'player (new bank)', verified_at = datetime('now') WHERE id = ?").bind(player.id));
       }
       if (wantBday) {
         if (cur?.birthday_locked) return fail('LOCKED', 'Your birthday is already saved. Contact support to change it.', 403, rid);
@@ -4728,9 +4746,9 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // Settings -> Google Sheet card: is the link working? Also retries waiting rows.
       const configured = !!(env.SHEET_URL && env.SHEET_SECRET);
       const info = await nextPlayerIdInfo(env, 20000);
-      let queued = 0, sent = 0;
-      if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; } catch { /* ignore */ } }
-      return json({ ok: true, configured, connected: info.sheet_live, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent }, 200, rid);
+      let queued = 0, sent = 0, stuck = 0, lastError = '';
+      if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; stuck = f.stuck || 0; lastError = f.last_error || ''; } catch { /* ignore */ } }
+      return json({ ok: true, configured, connected: info.sheet_live, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent, stuck, last_error: (queued || stuck) ? lastError : '' }, 200, rid);
     }
 
     case '/api/admin/player/create': {
@@ -4766,8 +4784,10 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         // (it's hashed at rest). It then lives in that chat as plain text.
         try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ }
         return json({ ok: true, id: res.meta.last_row_id, username: finalName }, 200, rid);
-      } catch {
-        return fail('USERNAME_TAKEN', 'That username already exists.', 409, rid);
+      } catch (e) {
+        const m = String((e as any)?.message || e);
+        if (/UNIQUE/i.test(m)) return fail('USERNAME_TAKEN', 'That Player ID already exists.', 409, rid);
+        return fail('CREATE_FAILED', /free Player ID/i.test(m) ? m : 'Could not create the player. Please try again.', 500, rid);
       }
     }
 
@@ -4805,6 +4825,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           if (/^\d{1,12}$/.test(rest)) maxNum = Math.max(maxNum, Number(rest));
         }
       } catch { /* empty table */ }
+      // Never reuse a number already in the Google Sheet (last known highest).
+      if (prefix === PLAYER_ID_PREFIX) { try { maxNum = Math.max(maxNum, await sheetMaxCache(env)); } catch { /* ignore */ } }
       const ALPH = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
       const randPw = () => { const b = crypto.getRandomValues(new Uint8Array(9)); let o = ''; for (const x of b) o += ALPH[x % ALPH.length]; return o; };
       const seen = new Set<string>();
@@ -4850,6 +4872,9 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         }
         if (refId) { try { await linkReferral(env, refId, newId, admin); } catch { /* best-effort */ } }
         if (sendWelcome) { try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ } }
+        // Rows WITHOUT a Player ID got a new number -> add them to the Google Sheet.
+        // (Rows with an ID came from the sheet already.)
+        if (!rawId) await later(sheetPushRow(env, newId, { code: username.toUpperCase(), contact: whatsapp ? (normalizePhone(whatsapp) || whatsapp) : undefined, referral: refId ? (normalizeUsername(refRaw) || '').toUpperCase() || undefined : undefined }).catch(() => false));
         res.ok = true; res.password = password; res.id = newId;
         out.push(res);
       }
@@ -4915,7 +4940,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         const conds: string[] = []; const binds: unknown[] = [];
         if (q) { conds.push("(lower(username) LIKE ? OR lower(display_name) LIKE ? OR CAST(id AS TEXT) LIKE ? OR lower(COALESCE(tag,'')) LIKE ?)"); binds.push(like, like, like, like); }
         if (tagFilter === '__unverified') conds.push('bank_verified = 0');
-        else if (tagFilter) { conds.push("lower(COALESCE(tag,'')) = ?"); binds.push(tagFilter.toLowerCase()); }
+        else if (tagFilter) { conds.push("lower(trim(COALESCE(tag,''))) = ?"); binds.push(tagFilter.trim().toLowerCase()); }
         if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
         const total = await countRows(env, sql, binds);
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
@@ -5085,10 +5110,18 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // Lock a group once it holds data; clearing it unlocks so the player could re-enter.
       const bankLock = (bn || ba || bh || pn) ? 1 : 0;
       const bdayLock = bd ? 1 : 0;
+      const prevBank = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<any>();
       try {
         await env.DB.prepare("UPDATE players SET bank_name=?, bank_account=?, bank_holder=?, paynow_number=?, birthday=?, bank_locked=?, birthday_locked=?, updated_at=datetime('now') WHERE id=?")
           .bind(bn || null, ba || null, bh || null, pn || null, bd || null, bankLock, bdayLock, id).run();
       } catch { return fail('NEEDS_MIGRATION', 'Run the profile migration first.', 409, rid); }
+      // A verified sign-up whose bank account/name changes must be checked again.
+      try {
+        const norm = (v: unknown) => String(v || '').replace(/\s+/g, '').toUpperCase();
+        if (prevBank && prevBank.bank_verified === 1 && (norm(prevBank.bank_account) !== norm(ba) || norm(prevBank.bank_holder) !== norm(bh) || norm(prevBank.bank_name) !== norm(bn))) {
+          await env.DB.prepare("UPDATE players SET bank_verified = 0, verified_by = ?, verified_at = datetime('now') WHERE id = ?").bind(admin + ' (bank changed)', id).run();
+        }
+      } catch { /* verify columns not added yet */ }
       const p = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<any>();
       // Mirror to the Google Sheet (Bank Type / Acc No. / Bank Name / PayNow).
       await later(sheetUpdatePlayer(env, id, { bankType: bn.toUpperCase(), account: ba, holder: bh.toUpperCase(), paynow: pn }).catch(() => false));
