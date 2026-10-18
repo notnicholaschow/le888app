@@ -211,6 +211,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 .conv-gameids { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
 .conv-actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line-soft); }
 .conv-actions .tag-inline { margin-left: auto; }
+.tag-pill.guest-pill { background: rgba(120,170,255,.15); color: #9cc2ff; border-color: rgba(120,170,255,.4); }
+.conv-guest { flex: none; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.conv-guest a { color: var(--gold); }
 .tag-inline { height: 28px; padding: 2px 8px; border-radius: 7px; font-size: 12px; cursor: pointer;
   background: var(--field); border: 1px solid var(--line); color: var(--text); max-width: 150px; min-width: 104px; }
 /* Players table: never let the many action buttons squash the Tag dropdown to just its arrow */
@@ -712,6 +715,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
             <button type="button" class="vf-btn" id="caVerify" style="display:none;margin-top:0">⚠ Verify bank</button>
             <select class="tag-inline" id="caTag" title="User tag" aria-label="User tag"></select>
           </div>
+          <div class="conv-guest" id="convGuest" style="display:none"></div>
           <div class="chat-conv-body" id="convBody"><div class="chat-conv-empty">Choose a chat on the left, or start a new one.</div></div>
           <div class="chat-pending" id="acPending" style="display:none"></div>
           <div class="chat-compose" id="convCompose" style="display:none">
@@ -966,6 +970,9 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         <label for="sSignupOn">Players can create their own account (login page &rarr; "Create an account")</label>
         <select id="sSignupOn"><option value="1">On &mdash; show "Create an account"</option><option value="0">Off &mdash; hide it (staff create accounts)</option></select>
         <p class="muted" style="margin:8px 0 0">Saved with the <b>Save settings</b> button below. New sign-ups get the next free LE number and the <b>SELF SIGNUP</b> tag.</p>
+        <label for="sGuestChatOn" style="margin-top:14px">Live Chat on the login page (for people who are not logged in)</label>
+        <select id="sGuestChatOn"><option value="1">On &mdash; show the &#128172; Live Chat button</option><option value="0">Off &mdash; hide it</option></select>
+        <p class="muted" style="margin:8px 0 0">Guests type their name + phone, then chat. They appear in <b>Messages</b> with a blue <b>GUEST</b> label. Use <b>Link to player</b> to move the chat into their account.</p>
         <div class="row" style="margin-top:14px;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn ghost small" id="sheetCheckBtn">Check Google Sheet link</button><span id="sheetStatus" class="muted">Not checked yet.</span></div>
       </div>
       <div class="card">
@@ -1744,7 +1751,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       }
       // Re-colour what is already on screen.
       Array.prototype.forEach.call(document.querySelectorAll('select.tag-inline'), function (s2) { colorTagSelect(s2, s2.value); });
-      Array.prototype.forEach.call(document.querySelectorAll('.tag-pill'), function (p2) { var v = p2.textContent.trim(); if (v) p2.className = 'tag-pill ' + tagClass(v); });
+      Array.prototype.forEach.call(document.querySelectorAll('.tag-pill:not(.guest-pill)'), function (p2) { var v = p2.textContent.trim(); if (v) p2.className = 'tag-pill ' + tagClass(v); });
     }).catch(function () { tagListBusy = false; });
   }
   // Colour a <select> to match its currently-selected tag.
@@ -2673,13 +2680,18 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       var el = $('chatThreads');
       el.innerHTML = (res.threads || []).map(function (t) {
         var unread = t.admin_unread ? '<span class="side-badge" style="position:static">' + t.admin_unread + '</span>' : '';
-        return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(t.username || '') + '" data-chat-tag="' + esc(t.tag || '') + '">' +
-          '<div class="ct-main"><div class="ct-name">' + esc(U(t.username) || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '') + '</div>' +
+        // Guest chat (login page, no account): negative id, shows name + GUEST label.
+        var guest = t.player_id < 0;
+        var nameHtml = guest
+          ? esc(t.guest_name || 'Guest') + ' <span class="tag-pill guest-pill">GUEST</span>'
+          : esc(U(t.username) || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '');
+        return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(guest ? (t.guest_name || 'Guest') : (t.username || '')) + '" data-chat-tag="' + esc(guest ? '' : (t.tag || '')) + '"' + (guest ? ' data-chat-phone="' + esc(t.guest_phone || '') + '"' : '') + '>' +
+          '<div class="ct-main"><div class="ct-name">' + nameHtml + '</div>' +
           '<div class="ct-last">' + esc(String(t.last_body || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)) + '</div></div>' +
           '<div class="ct-right"><div class="ct-time">' + sgt(t.last_msg_at).slice(5) + '</div>' + unread + '</div></div>';
       }).join('') || '<p class="muted" style="padding:14px">No conversations yet.</p>';
       Array.prototype.forEach.call(el.querySelectorAll('[data-chat-open]'), function (b) {
-        b.onclick = function () { openConv(Number(b.getAttribute('data-chat-open')), b.getAttribute('data-chat-user'), b.getAttribute('data-chat-tag')); };
+        b.onclick = function () { openConv(Number(b.getAttribute('data-chat-open')), b.getAttribute('data-chat-user'), b.getAttribute('data-chat-tag'), b.getAttribute('data-chat-phone') || ''); };
       });
     });
   }
@@ -2862,7 +2874,48 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     if (link) link.click();
     openConv(p.id, p.username, p.tag || '');
   }
-  function openConv(pid, username, tag) {
+  // Guest chat bar: who they are + "Link to player" (moves the chat into a real account).
+  function showGuestBar(pid, name, phone) {
+    var bar = $('convGuest'); if (!bar) return;
+    if (!(pid < 0)) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    var digits = String(phone || '').replace(/\D/g, '');
+    bar.innerHTML = '<span class="cg-info"><span class="tag-pill guest-pill">GUEST</span> Not logged in &middot; <b>' + esc(name || 'Guest') + '</b>' +
+      (digits ? ' &middot; <a href="https://wa.me/' + esc(digits) + '" target="_blank" rel="noopener">+' + esc(digits) + '</a>' : '') + '</span>' +
+      '<button class="btn small" id="cgLink" type="button">Link to player</button>';
+    bar.style.display = '';
+    $('cgLink').onclick = function () { guestLinkModal(pid, name, digits); };
+  }
+  function guestLinkModal(pid, name, digits) {
+    openModal(
+      '<h2>Link guest to a player</h2>' +
+      '<p class="muted">Moves this whole chat into the player\'s Live Chat. The guest\'s login-page chat then closes and they are asked to log in.</p>' +
+      '<div id="glMatches" class="muted" style="margin:8px 0">Looking for players with phone ' + esc(digits ? '+' + digits : '-') + '&hellip;</div>' +
+      '<label>Player ID</label><input id="glUser" autocapitalize="characters" placeholder="e.g. LE10695">' +
+      '<button class="btn" id="glGo" style="margin-top:12px;width:100%">Move chat to this player</button>'
+    );
+    // Suggest players with the same phone number.
+    if (digits) {
+      api('/api/admin/players', { phone: digits, limit: 5 }).then(function (res) {
+        var box = $('glMatches'); if (!box) return;
+        var list = (res && res.ok && res.players) || [];
+        if (!list.length) { box.textContent = 'No player found with this phone number. Type the Player ID below.'; return; }
+        box.innerHTML = 'Same phone: ' + list.map(function (p) { return '<button type="button" class="btn ghost small" data-gl-pick="' + esc(p.username) + '" style="margin:2px">' + esc(U(p.username)) + (p.display_name ? ' &middot; ' + esc(p.display_name) : '') + '</button>'; }).join('');
+        Array.prototype.forEach.call(box.querySelectorAll('[data-gl-pick]'), function (b) { b.onclick = function () { $('glUser').value = U(b.getAttribute('data-gl-pick')); }; });
+      }).catch(function () {});
+    } else { $('glMatches').textContent = ''; }
+    $('glGo').onclick = function () {
+      var u = $('glUser').value.trim();
+      if (!u) { toast('Enter the Player ID.', true); return; }
+      var btn = $('glGo'); busy(btn, true);
+      api('/api/admin/chat/guest-link', { guest_id: -pid, username: u }).then(function (res) {
+        busy(btn, false);
+        if (!res.ok) { toast(res.error || 'Could not link.', true); return; }
+        closeModal(); toast('Chat moved to ' + U(res.username) + '.');
+        loadChats(); openConv(res.player_id, res.username, res.tag || '');
+      }).catch(function () { busy(btn, false); toast('Network error.', true); });
+    };
+  }
+  function openConv(pid, username, tag, guestPhone) {
     setConvVerify(null);
     clearInterval(acTimer); acLastId = 0; acPid = pid;
     if ($('convSearch')) { $('convSearch').value = ''; $('convSearch').style.display = ''; }
@@ -2871,13 +2924,16 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     // record replaces it as soon as the profile fetch returns.
     acPlayer = { id: pid, username: username, display_name: username, tag: tag || '' };
     clearPending(); if ($('acText')) $('acText').value = '';
-    $('convName').textContent = '@' + (U(username) || pid);
-    setConvTagPill(tag || '');
+    var isGuest = pid < 0;
+    $('convName').textContent = isGuest ? (username || 'Guest') : '@' + (U(username) || pid);
+    setConvTagPill(isGuest ? '' : (tag || ''));
+    showGuestBar(pid, username, guestPhone);
     if ($('caTag')) { $('caTag').innerHTML = tagSelectHtml(tag || ''); colorTagSelect($('caTag'), tag || ''); }
-    if ($('convActions')) $('convActions').style.display = '';
+    if ($('convActions')) $('convActions').style.display = isGuest ? 'none' : '';
     // Show the player's saved Game IDs (from Player Manage) under the header.
     var gidBar = $('convGameIds');
-    if (gidBar) {
+    if (gidBar && isGuest) { gidBar.style.display = 'none'; gidBar.innerHTML = ''; }
+    if (gidBar && !isGuest) {
       gidBar.style.display = 'none'; gidBar.innerHTML = '';
       api('/api/admin/player/profile', { id: pid }).then(function (pr) {
         if (!pr || !pr.ok || acPid !== pid) return;
@@ -4015,6 +4071,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       var s = res.settings;
       $('sAnnounce').value = s.announcement_text || '';
       if ($('sSignupOn')) $('sSignupOn').value = String(s.signup_enabled == null ? '1' : s.signup_enabled) === '0' ? '0' : '1';
+      if ($('sGuestChatOn')) $('sGuestChatOn').value = String(s.guest_chat_enabled == null ? '1' : s.guest_chat_enabled) === '0' ? '0' : '1';
       $('sContact').value = s.contact_url || '';
       $('sWhatsapp').value = s.contact_whatsapp || '';
       $('sTelegram').value = s.contact_telegram || '';
@@ -4148,7 +4205,8 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         chat_keep_messages: $('sChatKeep') ? $('sChatKeep').value : '100',
         deposit_point_rate: $('sDepositRate').value,
         tasks_enabled: $('sTasksOn').value,
-        signup_enabled: $('sSignupOn') ? $('sSignupOn').value : '1'
+        signup_enabled: $('sSignupOn') ? $('sSignupOn').value : '1',
+        guest_chat_enabled: $('sGuestChatOn') ? $('sGuestChatOn').value : '1'
       }
     }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Save failed.', true); return; }
