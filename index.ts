@@ -1132,6 +1132,34 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
   }
 
   // ---- ME (real points + points-ledger) ----
+  // ---- GUEST BROWSING: same shape as /me, but no account (nothing private) ----
+  if (p === '/api/member/guest' && method === 'GET') {
+    const games: Record<string, { cost: number; prizes: string[]; enabled: boolean }> = {};
+    try {
+      const pg = await publicGames(env);
+      for (const g of Object.keys(pg.game_prizes)) games[g] = { cost: pg.game_costs[g], prizes: pg.game_prizes[g], enabled: !!pg.game_enabled[g] };
+    } catch { /* none */ }
+    let vip: Record<string, unknown> | null = null;
+    try {
+      const ranks = await getRanks(env);
+      vip = { rank_idx: -1, rank_name: null, deposit_total: 0, month_key: '', next_name: ranks[0] ? ranks[0].name : null, next_deposit: ranks[0] ? ranks[0].deposit : null,
+        ranks: ranks.map((r, i) => ({ name: r.name, key: VIP_RANK_KEYS[i] || 'member', deposit: r.deposit, weekly: r.weekly, upgrade: r.upgrade })) };
+    } catch { vip = null; }
+    const st = await getSettings(env);
+    let noticeLatest = 0;
+    try { const nr = await env.DB.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM broadcasts').first<{ m: number }>(); noticeLatest = Number(nr?.m) || 0; } catch { noticeLatest = 0; }
+    return j({
+      guest: true,
+      member: { username: 'Guest', id: 'GUEST', points: 0, avatar: 0, reward: '0.00', verify_required: false, verify_bank: null },
+      ledger: [], games, vip, chat_unread: 0, notice_latest: noticeLatest,
+      settings: { contact_url: st.contact_url || '', contact_whatsapp: st.contact_whatsapp || '', contact_telegram: st.contact_telegram || '', announcement_text: st.announcement_text || '', terms_text: st.terms_text || '', chat_keep: chatKeepFrom(st), tasks_enabled: st.tasks_enabled === '1', images: false, signup_enabled: String(st.signup_enabled ?? '1') !== '0', guest_chat_enabled: guestChatOn(st) },
+      bank: { bank_name: '', bank_account: '', bank_holder: '', paynow_number: '', locked: true },
+      game_ids: [], free_ids: [],
+      game_platforms: GAME_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+      free_platforms: FREE_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+    }, 200);
+  }
+
   if (p === '/api/member/me' && method === 'GET') {
     const player = await currentPlayer();
     if (!player) return j({ error: 'Please sign in.' }, 401);
@@ -1355,19 +1383,17 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     }, 200);
   }
   if (p === '/api/member/notifications' && method === 'GET') {
-    const player = await currentPlayer();
-    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const player = await currentPlayer(); // optional: guests see the same public notices
     try {
       await ensureBroadcasts(env);
-      const zh = (player as any).lang === 'zh';
+      const zh = !!player && (player as any).lang === 'zh';
       const r = await env.DB.prepare('SELECT id, message, message_zh, created_at FROM broadcasts ORDER BY id DESC LIMIT 30').all<any>();
       const items = (r.results || []).map((x: any) => ({ id: x.id, message: zh && x.message_zh ? x.message_zh : x.message, created_at: isoDate(x.created_at) }));
       return j({ ok: true, notifications: items }, 200);
     } catch { return j({ ok: true, notifications: [] }, 200); }
   }
   if (p === '/api/member/promotions' && method === 'GET') {
-    const player = await currentPlayer();
-    if (!player) return j({ error: 'Please sign in.' }, 401);
+    // Public: guests can browse promotions too.
     try {
       await ensurePromoPages(env);
       const r = await env.DB.prepare("SELECT id, title, image_url, LENGTH(COALESCE(details_html, '')) AS dl FROM promo_pages WHERE active = 1 ORDER BY sort_order ASC, id DESC LIMIT 100").all<any>();
@@ -1375,8 +1401,6 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
     } catch { return j({ ok: true, promotions: [] }, 200); }
   }
   if (p === '/api/member/promotions/view' && method === 'GET') {
-    const player = await currentPlayer();
-    if (!player) return j({ error: 'Please sign in.' }, 401);
     const id = Number(url.searchParams.get('id')) || 0;
     if (!id) return j({ error: 'Promotion not found.' }, 404);
     await ensurePromoPages(env);
@@ -1696,9 +1720,9 @@ export default {
         // ?view=1 is the staff "View app" tab: its login token lives in the tab
         // (URL #fragment -> sessionStorage), not in a cookie. Serving the static
         // page is harmless; every API call is still checked.
-        const authed = (request.headers.get('Cookie') || '').indexOf('le888sid=') !== -1 || url.searchParams.get('view') === '1';
-        if (!authed) return Response.redirect(new URL('/login', request.url).toString(), 302);
-        // authed -> fall through and serve public/index.html via ASSETS below
+        // Guest browsing: people who are not logged in also get the app (homepage,
+        // promotions, VIP levels, slot platforms). Anything that needs an account
+        // asks them to log in, and every API call is still checked on the server.
       }
       // ===== end step-1 preview block =======================================
 
