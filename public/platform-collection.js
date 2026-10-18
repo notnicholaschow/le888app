@@ -49,143 +49,123 @@
     section.querySelectorAll('[data-pc-select]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.pcSelect)===selected)));
     if(announce) section.querySelector('.pc-announcement').textContent = `${platforms[selected][1]}, platform ${selected+1} of 8`;
   }
+  // Smooth, endless deck: one continuous position (pos) drives every card each
+  // frame, so the deck follows the finger exactly and loops 8 -> 1 -> 2 forever.
   function wire(section) {
-    let deckAnimations=[];
+    const stage=section.querySelector('.pc-stage');
+    const cards=[...section.querySelectorAll('.pc-card')];
+    const N=cards.length;
+    const reduce=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const wrapD=d=>{d=((d%N)+N)%N;if(d>=N/2)d-=N;return d;};
+    let pos=selected, goal=selected, anim=0, drag=null, suppressUntil=0;
     let revealAnimations=[];
     const stopReveal=()=>{revealAnimations.forEach(a=>a.cancel());revealAnimations=[];};
     const reveal=()=>{
       stopReveal();
-      if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-      const card=section.querySelector('.pc-selected');
+      if(reduce())return;
+      const card=section.querySelector('.pc-selected');if(!card)return;
       const animate=(selector,frames,delay,duration)=>{const el=card.querySelector(selector);if(el)revealAnimations.push(el.animate(frames,{duration,delay,easing:'cubic-bezier(.2,.75,.2,1)',fill:'backwards'}));};
-      animate('.pc-scenery',[{opacity:.15,transform:'scale(1.13)'},{opacity:1,transform:'scale(1)'}],0,850);
-      animate('.pc-card-bottom',[{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'translateY(0)'}],260,450);
-      animate('.pc-card-explore',[{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],340,450);
-      animate('.pc-reveal-light',[{opacity:0,transform:'translateX(-130%) skewX(-18deg)'},{opacity:.5,offset:.35},{opacity:0,transform:'translateX(180%) skewX(-18deg)'}],100,850);
+      animate('.pc-card-bottom',[{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],60,380);
+      animate('.pc-card-explore',[{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'translateY(0)'}],120,380);
+      animate('.pc-reveal-light',[{opacity:0,transform:'translateX(-130%) skewX(-18deg)'},{opacity:.5,offset:.35},{opacity:0,transform:'translateX(180%) skewX(-18deg)'}],40,800);
     };
-    const choose = n => {
-      const next=(n+platforms.length)%platforms.length;
-      if(next===selected)return;
-      deckAnimations.forEach(a=>a.cancel());deckAnimations=[];stopReveal();
-      const outgoing=section.querySelector('.pc-selected');
-      const incoming=section.querySelector(`[data-pc-card="${next}"]`);
-      const fromOut=getComputedStyle(outgoing).transform,fromIn=getComputedStyle(incoming).transform;
-      let delta=(next-selected+platforms.length)%platforms.length;
-      const direction=delta>platforms.length/2?1:-1;
-      selected=next;update(section);reveal();
-      if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-      const endOut=getComputedStyle(outgoing).transform,endIn=getComputedStyle(incoming).transform;
-      const endZ=getComputedStyle(outgoing).zIndex;
-      deckAnimations.push(outgoing.animate([
-        {transform:fromOut,zIndex:9,opacity:1},
-        {transform:`translateX(${direction*66}%) translateY(-12px) rotateZ(${direction*13}deg) scale(.94)`,zIndex:9,opacity:1,offset:.42},
-        {transform:endOut,zIndex:endZ,opacity:1}
-      ],{duration:740,easing:'cubic-bezier(.25,.7,.25,1)'}));
-      deckAnimations.push(incoming.animate([
-        {transform:fromIn,opacity:.65},
-        {transform:'translateY(-17px) scale(1.025)',opacity:1,offset:.62},
-        {transform:endIn,opacity:1}
-      ],{duration:740,easing:'cubic-bezier(.25,.7,.25,1)'}));
-    };
-    let start = null, suppressUntil = 0;
-    section.addEventListener('click', e=>{
-      if(Date.now()<suppressUntil) return;
-      const select = e.target.closest('[data-pc-select],[data-pc-card]');
-      if(select) choose(Number(select.dataset.pcSelect ?? select.dataset.pcCard));
-      const step = e.target.closest('[data-pc-step]');
-      if(step) choose(selected + Number(step.dataset.pcStep));
-      if(e.target.closest('.pc-explore')) {
+    function paint(){
+      const W=cards[0].offsetWidth||220;
+      cards.forEach((c,i)=>{
+        const d=wrapD(i-pos), a=Math.abs(d), s=d<0?-1:1;
+        let x,y,rz,sc,z,op=1;
+        if(a<1){ // the two cards swapping: they swing out to opposite sides, then trade places
+          const k=Math.sin(Math.PI*a);
+          x=s*(k*W*.62+8*a); y=9-4*a-k*10; rz=s*(k*10+4*a); sc=1-.035*a; z=a<.5?500:390-Math.round(a*10);
+        }else{ // resting fan behind the front card
+          x=d*8; y=9-4*a; rz=d*4; sc=1-.035*a; z=380-Math.round(a*40); op=a>3.6?0:1;
+        }
+        c.style.transform='translateX('+x.toFixed(2)+'px) translateY('+y.toFixed(2)+'px) translateZ('+(-22*Math.min(a,4)).toFixed(1)+'px) rotateZ('+rz.toFixed(2)+'deg) scale('+sc.toFixed(4)+')';
+        c.style.zIndex=String(z);
+        c.style.opacity=String(op);
+      });
+      const sel=((Math.round(pos)%N)+N)%N;
+      if(sel!==selected){selected=sel;update(section);}
+    }
+    function animateTo(target,dur){
+      cancelAnimationFrame(anim);stopReveal();
+      const from=pos;goal=target;
+      const done=()=>{pos=goal=((Math.round(target)%N)+N)%N;paint();reveal();};
+      if(reduce()||Math.abs(target-from)<.001){pos=target;done();return;}
+      dur=dur||Math.min(820,340+120*Math.abs(target-from));
+      const t0=performance.now();
+      const step=now=>{const t=Math.min(1,(now-t0)/dur);const e=1-Math.pow(1-t,3);pos=from+(target-from)*e;paint();if(t<1)anim=requestAnimationFrame(step);else done();};
+      anim=requestAnimationFrame(step);
+    }
+    // Taps while the deck is still moving add on to where it is heading, so none are lost.
+    const choose=n=>animateTo(goal+wrapD(n-goal));
+    const stepBy=k=>animateTo(Math.round(goal)+k);
+
+    section.addEventListener('click',e=>{
+      if(Date.now()<suppressUntil)return;
+      if(e.target.closest('.pc-explore')){
         // Reuse the existing platform directory and its admin-maintained links.
-        window.pcRequestedPlatform = platforms[selected][0];
-        if(typeof go==='function') go('platforms');
+        window.pcRequestedPlatform=platforms[selected][0];
+        if(typeof go==='function')go('platforms');
+        return;
       }
+      const step=e.target.closest('[data-pc-step]');
+      if(step){stepBy(Number(step.dataset.pcStep));return;}
+      const sel=e.target.closest('[data-pc-select],[data-pc-card]');
+      if(sel)choose(Number(sel.dataset.pcSelect ?? sel.dataset.pcCard));
     });
-    const stage=section.querySelector('.pc-stage');
     stage.addEventListener('keydown',e=>{
-      if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
+      if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
       e.preventDefault();
-      choose(e.key==='Home'?0:e.key==='End'?7:selected+(e.key==='ArrowRight'?1:-1));
+      if(e.key==='Home')choose(0);else if(e.key==='End')choose(N-1);else stepBy(e.key==='ArrowRight'?1:-1);
       stage.focus({preventScroll:true});
     });
-    const cards=[...section.querySelectorAll('.pc-card')];
-    let dragFrame=0;
-    const paintDrag=()=>{
-      dragFrame=0;
-      if(!start?.dragging)return;
-      const {dx,bases,width}=start;
-      const progress=Math.min(Math.abs(dx)/width,1);
-      const next=(selected+(dx<0?1:-1)+cards.length)%cards.length;
-      cards.forEach((card,i)=>{
-        if(i===selected){
-          card.style.transform=`translateX(${dx}px) rotateZ(${dx/width*12}deg) ${bases[i]}`;
-          card.style.zIndex='9';
-        }else if(i===next){
-          // Bring the next card towards the front continuously as the finger moves.
-          const from=new DOMMatrix(bases[i]), to=new DOMMatrix().translate(0,9);
-          const a=Array.from(from.toFloat64Array()), b=Array.from(to.toFloat64Array());
-          card.style.transform=`matrix3d(${a.map((v,j)=>v+(b[j]-v)*progress).join(',')})`;
-          card.style.zIndex='8';
-        }else{
-          card.style.transform=bases[i];card.style.removeProperty('z-index');
-        }
-      });
-    };
-    const finishDrag=(e,cancelled=false)=>{
-      if(!start||start.id!==e.pointerId)return;
-      const gesture=start;
-      if(!gesture.dragging){start=null;return;}
-      cancelAnimationFrame(dragFrame);paintDrag();
-      const snapshots=cards.map(c=>getComputedStyle(c).transform);
-      const velocity=performance.now()-gesture.time<100?gesture.velocity:0;
-      const commit=!cancelled&&(Math.abs(gesture.dx)>gesture.width*.24 || (Math.abs(gesture.dx)>12&&Math.abs(velocity)>.45&&velocity*gesture.dx>0));
-      const outgoing=selected;
-      if(commit)selected=(selected+(gesture.dx<0?1:-1)+cards.length)%cards.length;
-      start=null;suppressUntil=Date.now()+400;
-      stage.classList.remove('pc-dragging');
-      cards.forEach(c=>{c.style.removeProperty('transform');c.style.removeProperty('z-index');});
-      update(section,commit);
-      if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);
-      if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
-        cards.forEach((card,i)=>{
-          const end=getComputedStyle(card).transform;
-          const frames=[{transform:snapshots[i]},{transform:end}];
-          if(commit&&i===outgoing){
-            frames[0].zIndex=9;
-            frames.splice(1,0,{transform:`translateX(${Math.sign(gesture.dx)*Math.max(Math.abs(gesture.dx),gesture.width*.85)}px) translateY(-6px) rotateZ(${Math.sign(gesture.dx)*15}deg)`,zIndex:9,offset:.35});
-            frames[2].zIndex=getComputedStyle(card).zIndex;
-          }
-          deckAnimations.push(card.animate(frames,{duration:commit?360:260,easing:'cubic-bezier(.2,.8,.2,1)'}));
-        });
-      }
-    };
+
+    // Finger / mouse dragging with momentum.
+    const width=()=>(cards[0].offsetWidth||220)*.9;
     stage.addEventListener('pointerdown',e=>{
-      if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||start)return;
-      start={x:e.clientX,y:e.clientY,id:e.pointerId,dx:0,lastX:e.clientX,time:performance.now(),velocity:0,dragging:false};
+      if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||drag)return;
+      drag={id:e.pointerId,x:e.clientX,y:e.clientY,startPos:pos,moving:false,samples:[{t:performance.now(),x:e.clientX}]};
     });
     stage.addEventListener('pointermove',e=>{
-      if(!start||start.id!==e.pointerId)return;
-      const dx=e.clientX-start.x,dy=e.clientY-start.y;
-      if(!start.dragging){
+      if(!drag||drag.id!==e.pointerId)return;
+      const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+      if(!drag.moving){
         if(Math.max(Math.abs(dx),Math.abs(dy))<6)return;
-        if(Math.abs(dy)>Math.abs(dx)){start=null;return;}
-        start.bases=cards.map(c=>getComputedStyle(c).transform);
-        start.width=cards[selected].offsetWidth;
-        deckAnimations.forEach(a=>a.cancel());deckAnimations=[];stopReveal();
-        start.dragging=true;stage.classList.add('pc-dragging');
-        stage.setPointerCapture(e.pointerId);
+        if(Math.abs(dy)>Math.abs(dx)){drag=null;return;} // vertical: let the page scroll
+        drag.moving=true;cancelAnimationFrame(anim);stopReveal();
+        drag.startPos=pos;drag.base=goal;drag.x=e.clientX;drag.x0=e.clientX; // start from where the deck is right now (even mid-animation)
+        stage.classList.add('pc-dragging');
+        try{stage.setPointerCapture(e.pointerId);}catch(err){}
       }
-      const now=performance.now(),dt=now-start.time;
-      if(dt>0)start.velocity=(e.clientX-start.lastX)/dt;
-      start.lastX=e.clientX;start.time=now;start.dx=dx;
-      if(!dragFrame)dragFrame=requestAnimationFrame(paintDrag);
+      const now=performance.now();
+      drag.samples.push({t:now,x:e.clientX});while(drag.samples.length>2&&now-drag.samples[0].t>120)drag.samples.shift();
+      pos=drag.startPos-(e.clientX-drag.x)/width();
+      paint();
     });
-    stage.addEventListener('pointerup',e=>finishDrag(e));
-    stage.addEventListener('pointercancel',e=>finishDrag(e,true));
-    // Touch starts with implicit capture on the inner button. Its loss when
-    // capture transfers to the stage is not a cancelled gesture.
-    stage.addEventListener('lostpointercapture',e=>{if(e.target===stage)finishDrag(e,true);});
-    stage.addEventListener('pointerleave',e=>{if(start&&!start.dragging&&e.pointerType==='mouse')start=null;});
+    const release=(e,cancel)=>{
+      if(!drag||drag.id!==e.pointerId)return;
+      const g=drag;drag=null;
+      if(!g.moving)return;
+      stage.classList.remove('pc-dragging');
+      try{if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);}catch(err){}
+      suppressUntil=Date.now()+350;
+      const a=g.samples[0],b=g.samples[g.samples.length-1];
+      const v=b.t>a.t?(b.x-a.x)/(b.t-a.t):0; // px per ms
+      let target=Math.round(pos-(cancel?0:v*170/width()));
+      const base=Math.round(g.base);
+      const moved=e.clientX-g.x0, dir=moved<0?1:-1;
+      // A real flick (not just a wobble) always moves at least one card, even mid-animation.
+      if(!cancel&&(Math.abs(moved)>24||Math.abs(v)>.3))target=dir>0?Math.max(target,base+1):Math.min(target,base-1);
+      target=Math.max(base-2,Math.min(base+2,target)); // a hard flick moves at most 2 cards
+      animateTo(target);
+    };
+    stage.addEventListener('pointerup',e=>release(e,false));
+    stage.addEventListener('pointercancel',e=>release(e,true));
+    stage.addEventListener('lostpointercapture',e=>{if(e.target===stage&&drag&&drag.moving)release(e,false);});
+    window.addEventListener('resize',()=>paint());
     update(section,false);
+    paint();
   }
   const previousRender=render;
   render=function(){
