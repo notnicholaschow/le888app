@@ -237,14 +237,15 @@
       if (digits.length < 10 || digits.length > 15 || (/^65/.test(digits) && !/^65[3689]\d{7}$/.test(digits))) { err.textContent = 'Please enter your phone number with country code, e.g. 6591234567.'; $('#gc-phone').focus(); return; }
     }
     err.textContent = ''; btn.disabled = true; btn.textContent = 'Starting…';
-    post('start', hasId ? { name: name, player_id: pidv } : { name: name, phone: digits, new_player: true }).then(function (d) {
+    post('start', hasId ? { name: name, player_id: pidv, topic: forgot ? 'forgot' : '' } : { name: name, phone: digits, new_player: true }).then(function (d) {
       btn.disabled = false; btn.innerHTML = 'Start chat <span aria-hidden="true">→</span>';
       if (!d.ok || !d.token) { err.textContent = d.error || 'Could not start the chat. Please try again.'; return; }
       token = d.token; gname = d.name || name; msgs = []; lastId = 0;
       store(KEY, JSON.stringify({ t: token, n: gname }));
       view('chat'); render(); startPoll();
       // Came from "Forgot password?": send that first message for them.
-      if (pendingFirst) { ta.value = forgot ? pendingFirst + ' My Player ID is ' + pidv + '.' : pendingFirst; pendingFirst = ''; send(); }
+      // Show the details message the server just added; forgot-password also sends a first line.
+      if (pendingFirst) { ta.value = pendingFirst; pendingFirst = ''; send(); } else poll(false);
       setTimeout(function () { try { ta.focus(); } catch (e) {} }, 100);
     }).catch(function () { btn.disabled = false; btn.innerHTML = 'Start chat <span aria-hidden="true">→</span>'; err.textContent = 'Connection unavailable. Please try again.'; });
   };
