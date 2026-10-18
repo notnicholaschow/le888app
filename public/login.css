@@ -123,3 +123,11 @@ html.gc-lock,html.gc-lock body{overflow:hidden}
 .gc-inline{display:block;width:100%;height:42px;margin-top:10px;border-radius:10px;border:1px solid #efc77e88;background:linear-gradient(180deg,#2a2114,#14110b);color:#f6dca2;font-weight:700;font-size:13px}
 .gc-inline{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;margin-top:0;font-size:14px}
 .gc-inline .gc-dot{top:-5px;right:-5px}
+.gc-pick{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}
+.gc-pick[hidden],.gc-fields[hidden],.gc-f-id[hidden],.gc-f-phone[hidden],.gc-name-hint[hidden]{display:none}
+.gc-pick button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 8px;border-radius:14px;border:1px solid #c4a56a40;background:linear-gradient(180deg,#1b1812,#0e0d0a);color:#f3ead6;text-align:center}
+.gc-pick button span{font-size:22px;line-height:1}
+.gc-pick button b{font-size:14px;font-weight:750}
+.gc-pick button small{font-size:11px;color:#a29a88}
+.gc-pick button.on{border-color:#efc77e;background:linear-gradient(180deg,#3a2c14,#17120a);box-shadow:0 0 0 3px #e3b05222}
+.gc-pick button.on b{color:#ffe3a3}

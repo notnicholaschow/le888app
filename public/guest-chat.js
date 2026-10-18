@@ -71,13 +71,19 @@
       '<button type="button" class="gc-x" data-gc-close aria-label="Close">&times;</button></header>' +
       '<div class="gc-start" hidden>' +
         '<p class="gc-lead"></p>' +
-        '<label for="gc-name">Full name <span class="gc-hint">(as registered in LE888)</span></label><input id="gc-name" maxlength="60" autocomplete="name" placeholder="e.g. Tan Ah Kow">' +
-        '<div class="gc-f-phone"><label for="gc-phone">Phone number registered in LE888 <span class="gc-hint">(start with 65, no + needed)</span></label>' +
-        '<input id="gc-phone" type="tel" inputmode="numeric" maxlength="20" autocomplete="tel" placeholder="e.g. 6591234567"></div>' +
-        '<div class="gc-f-id" hidden><label for="gc-pid">Your LE888 Player ID</label>' +
-        '<input id="gc-pid" maxlength="32" autocapitalize="characters" autocomplete="username" spellcheck="false" placeholder="e.g. LE10695"></div>' +
-        '<p class="gc-err" role="alert"></p>' +
-        '<button type="button" class="gc-go">Start chat <span aria-hidden="true">→</span></button>' +
+        '<div class="gc-pick" role="radiogroup" aria-label="Who are you?">' +
+          '<button type="button" role="radio" data-who="old"><span aria-hidden="true">👤</span><b>I\'m an existing LE888 player</b><small>I have a Player ID</small></button>' +
+          '<button type="button" role="radio" data-who="new"><span aria-hidden="true">✨</span><b>I\'m a new player</b><small>No account yet</small></button>' +
+        '</div>' +
+        '<div class="gc-fields" hidden>' +
+          '<label for="gc-name">Full name <span class="gc-hint gc-name-hint">(as registered in LE888)</span></label><input id="gc-name" maxlength="60" autocomplete="name" placeholder="e.g. Tan Ah Kow">' +
+          '<div class="gc-f-id"><label for="gc-pid">Your LE888 Player ID</label>' +
+          '<input id="gc-pid" maxlength="32" autocapitalize="characters" autocomplete="username" spellcheck="false" placeholder="e.g. LE10695"></div>' +
+          '<div class="gc-f-phone" hidden><label for="gc-phone">Phone number <span class="gc-hint">(start with 65, no + needed)</span></label>' +
+          '<input id="gc-phone" type="tel" inputmode="numeric" maxlength="20" autocomplete="tel" placeholder="e.g. 6591234567"></div>' +
+          '<p class="gc-err" role="alert"></p>' +
+          '<button type="button" class="gc-go">Start chat <span aria-hidden="true">→</span></button>' +
+        '</div>' +
       '</div>' +
       '<div class="gc-chat" hidden>' +
         '<div class="gc-list" aria-live="polite"></div>' +
@@ -165,24 +171,39 @@
   var FORGOT_MSG = 'Hi, I forgot my password. Please help me reset it.';
   var pendingFirst = '';
   var LEAD = {
-    help: 'Need help? Enter the <b>full name</b> and <b>phone number registered in your LE888 account</b>, and our team will reply here.',
+    help: 'Need help? Tell us who you are and our team will reply here.',
+    old: 'Enter your <b>LE888 Player ID</b> and the <b>full name registered in your account</b>, and our team will reply here.',
+    'new': 'Welcome! Enter your <b>full name</b> and <b>phone number</b>, and our team will help you get started.',
     forgot: '<b>Forgot your password?</b> Enter your <b>LE888 Player ID</b> and the <b>full name registered in your account</b>. Our team will check it and help you reset your password here.'
   };
-  var startMode = 'help';
+  var startMode = 'help', who = '';
+  // "I'm an existing LE888 player" -> Player ID + name.  "I'm a new player" -> name + phone.
+  function pickWho(w, quiet) {
+    who = w;
+    Array.prototype.forEach.call(wrap.querySelectorAll('[data-who]'), function (b) { var on = b.getAttribute('data-who') === w; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
+    $('.gc-fields').hidden = !w;
+    $('.gc-f-id').hidden = w !== 'old'; $('.gc-f-phone').hidden = w !== 'new';
+    $('.gc-name-hint').hidden = w !== 'old';
+    $('.gc-start .gc-err').textContent = '';
+    if (startMode !== 'forgot') $('.gc-lead').innerHTML = w ? LEAD[w] : LEAD.help;
+    if (w && !quiet) setTimeout(function () { try { $('#gc-name').focus(); } catch (e) {} }, 50);
+  }
+  Array.prototype.forEach.call(wrap.querySelectorAll('[data-who]'), function (b) { b.onclick = function () { pickWho(b.getAttribute('data-who')); }; });
   function open(mode) {
     var forgot = mode === 'forgot';
     pendingFirst = forgot ? FORGOT_MSG : '';
     startMode = forgot ? 'forgot' : 'help';
     $('.gc-lead').innerHTML = forgot ? LEAD.forgot : LEAD.help;
-    $('.gc-f-phone').hidden = forgot; $('.gc-f-id').hidden = !forgot;
-    $('.gc-start .gc-err').textContent = '';
+    // Forgot password = existing player for sure: skip the choice.
+    $('.gc-pick').hidden = forgot;
+    pickWho(forgot ? 'old' : who, true);
     isOpen = true; wrap.hidden = false; document.documentElement.classList.add('gc-lock');
     fab.hidden = true;
     if (linked) { view('linked'); return; }
     if (token && forgot && !ta.value.trim()) ta.value = 'Hi, I forgot my password. My Player ID is ';
     if (!token) {
       view('start');
-      setTimeout(function () { try { $('#gc-name').focus(); } catch (e) {} }, 200);
+      if (who) setTimeout(function () { try { $('#gc-name').focus(); } catch (e) {} }, 200);
       return;
     }
     view('chat'); render(); markSeen();
@@ -206,15 +227,17 @@
     var digits = $('#gc-phone').value.replace(/\D/g, '');
     var pidv = $('#gc-pid').value.replace(/\s+/g, '').toUpperCase();
     var forgot = startMode === 'forgot';
+    var hasId = forgot || who === 'old';
+    if (!who && !forgot) { err.textContent = 'Please choose: I\'m an existing LE888 player, or I\'m a new player.'; return; }
     if (name.length < 2) { err.textContent = 'Please enter your full name.'; $('#gc-name').focus(); return; }
-    if (forgot) {
+    if (hasId) {
       if (!/^[A-Z0-9_.]{3,32}$/.test(pidv)) { err.textContent = 'Please enter your LE888 Player ID, e.g. LE10695.'; $('#gc-pid').focus(); return; }
     } else {
       if (/^[3689]\d{7}$/.test(digits)) { err.textContent = 'Please add the country code 65 in front, e.g. 65' + digits + '.'; $('#gc-phone').focus(); return; }
       if (digits.length < 10 || digits.length > 15 || (/^65/.test(digits) && !/^65[3689]\d{7}$/.test(digits))) { err.textContent = 'Please enter your phone number with country code, e.g. 6591234567.'; $('#gc-phone').focus(); return; }
     }
     err.textContent = ''; btn.disabled = true; btn.textContent = 'Starting…';
-    post('start', forgot ? { name: name, player_id: pidv } : { name: name, phone: digits }).then(function (d) {
+    post('start', hasId ? { name: name, player_id: pidv } : { name: name, phone: digits, new_player: true }).then(function (d) {
       btn.disabled = false; btn.innerHTML = 'Start chat <span aria-hidden="true">→</span>';
       if (!d.ok || !d.token) { err.textContent = d.error || 'Could not start the chat. Please try again.'; return; }
       token = d.token; gname = d.name || name; msgs = []; lastId = 0;

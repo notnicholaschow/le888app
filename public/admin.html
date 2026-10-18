@@ -212,6 +212,7 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 .conv-actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line-soft); }
 .conv-actions .tag-inline { margin-left: auto; }
 .tag-pill.guest-pill { background: rgba(120,170,255,.15); color: #9cc2ff; border-color: rgba(120,170,255,.4); }
+.tag-pill.guest-pill.guest-new { background: rgba(80,210,140,.14); color: #6fe0a2; border-color: rgba(80,210,140,.4); }
 .conv-guest { flex: none; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
 .conv-guest a { color: var(--gold); }
 .tag-inline { height: 28px; padding: 2px 8px; border-radius: 7px; font-size: 12px; cursor: pointer;
@@ -2683,7 +2684,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         // Guest chat (login page, no account): negative id, shows name + GUEST label.
         var guest = t.player_id < 0;
         var nameHtml = guest
-          ? esc(t.guest_name || 'Guest') + ' <span class="tag-pill guest-pill">GUEST</span>' + (t.guest_code ? ' <span class="tag-pill guest-pill">🔑 ' + esc(t.guest_code) + '</span>' : '')
+          ? esc(t.guest_name || 'Guest') + ' <span class="tag-pill guest-pill">GUEST</span>' + (t.guest_code ? ' <span class="tag-pill guest-pill">ID ' + esc(t.guest_code) + '</span>' : ' <span class="tag-pill guest-pill guest-new">NEW PLAYER</span>')
           : esc(U(t.username) || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '');
         return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(guest ? (t.guest_name || 'Guest') : (t.username || '')) + '" data-chat-tag="' + esc(guest ? '' : (t.tag || '')) + '"' + (guest ? ' data-chat-phone="' + esc(t.guest_phone || '') + '" data-chat-code="' + esc(t.guest_code || '') + '"' : '') + '>' +
           '<div class="ct-main"><div class="ct-name">' + nameHtml + '</div>' +
@@ -2881,7 +2882,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     var digits = String(phone || '').replace(/\D/g, '');
     bar.innerHTML = '<span class="cg-info"><span class="tag-pill guest-pill">GUEST</span> Not logged in &middot; <b>' + esc(name || 'Guest') + '</b>' +
       (digits ? ' &middot; <a href="https://wa.me/' + esc(digits) + '" target="_blank" rel="noopener">+' + esc(digits) + '</a>' : '') +
-      (code ? ' &middot; 🔑 Forgot password &middot; says Player ID <b>' + esc(code) + '</b>' : '') + '</span>' +
+      (code ? ' &middot; existing player, says Player ID <b>' + esc(code) + '</b> (check the name matches)' : ' &middot; <span class="tag-pill guest-pill guest-new">NEW PLAYER</span>') + '</span>' +
       '<button class="btn small" id="cgLink" type="button">Link to player</button>';
     bar.style.display = '';
     $('cgLink').onclick = function () { guestLinkModal(pid, name, digits, code); };
