@@ -216,6 +216,7 @@
     if (linked) { linked = false; view('start'); }
   }
   fab.onclick = function () { open('help'); };
+  window.leGuestChatOpen = open; // the app (guest browsing) opens this chat from its Live Chat buttons
   var fabWanted = false; // floating button shows only when the in-page Live Chat button is off screen
   Array.prototype.forEach.call(wrap.querySelectorAll('[data-gc-close]'), function (b) { b.addEventListener('click', close); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen) close(); });

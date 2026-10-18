@@ -1,0 +1,48 @@
+/* LE888 Guest browsing: welcome card, "Join now" banner, "please log in" pop-up */
+.gm-welcome{display:flex!important;align-items:center;justify-content:space-between;gap:12px;padding:16px 16px!important}
+.gm-welcome-copy{display:flex;flex-direction:column;min-width:0}
+.gm-welcome-copy small{font-size:10px;letter-spacing:2.4px;color:#c9a865}
+.gm-welcome-copy b{font-size:19px;color:#fff3d6;margin:4px 0 3px;font-weight:800}
+.gm-welcome-copy span{font-size:11.5px;color:#a99c80}
+.gm-welcome-btns{display:flex;flex-direction:column;gap:8px;flex:none}
+.gm-btn{display:block;min-width:104px;height:38px;padding:0 16px;border-radius:999px;font-family:inherit;font-weight:800;font-size:13px;line-height:1;letter-spacing:.3px;cursor:pointer}
+.gm-btn.gm-login{border:1px solid #ffdd95aa;background:linear-gradient(170deg,#ffe8a1,#f2b450 55%,#c57e22);color:#261803}
+.gm-btn.gm-join{border:1px solid #efc77e88;background:linear-gradient(180deg,#2a2114,#14110b);color:#f6dca2}
+.gm-joinbanner{display:block;width:100%;margin:26px 0 8px;padding:0;border:1px solid #e6c27a80;border-radius:20px;overflow:hidden;cursor:pointer;background:radial-gradient(90% 120% at 100% 0%,#c2862a55,transparent 60%),radial-gradient(70% 90% at 0% 100%,#7a1f2a40,transparent 70%),linear-gradient(135deg,#221a0d,#0a0806 70%);box-shadow:0 14px 30px #000a;text-align:left;color:#f8f1df;font-family:inherit}
+.gm-joinbanner.gm-has-img{background:#0a0806}
+.gm-joinbanner img{display:block;width:100%;aspect-ratio:2/1;object-fit:cover}
+.gm-jb-copy{display:flex;flex-direction:column;padding:22px 20px 6px}
+.gm-jb-copy small{font-size:10px;letter-spacing:2.6px;color:#d8b46a}
+.gm-jb-copy b{margin:8px 0 6px;font-size:28px;line-height:1;font-weight:900;font-style:italic;background:linear-gradient(175deg,#fff4c7,#f1c568 45%,#b97a22);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gm-jb-copy span{font-size:12px;color:#cdbf9f}
+.gm-jb-cta{display:inline-block;margin:12px 20px 20px;padding:10px 18px;border-radius:999px;border:1px solid #ffdd95aa;background:linear-gradient(170deg,#ffe8a1,#f2b450 55%,#c57e22);color:#261803;font-weight:800;font-size:13px}
+.gm-joinbanner:active{transform:scale(.99)}
+.gm-sheet{position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-end;justify-content:center}
+.gm-sheet[hidden]{display:none}
+.gm-back{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 100%,#3a2a0f55,transparent 60%),#000c;backdrop-filter:blur(6px) saturate(.8);-webkit-backdrop-filter:blur(6px) saturate(.8);animation:gmFade .25s ease}
+.gm-card{position:relative;width:100%;max-width:460px;padding:1px 1px 0;border-radius:28px 28px 0 0;background:linear-gradient(180deg,#f6d58b,#a77b2c 18%,#3b2c12 45%,#1a140a);box-shadow:0 -20px 70px #000e,0 -2px 30px #e3b05222;animation:gmUp .38s cubic-bezier(.2,.8,.2,1)}
+.gm-card-in{position:relative;overflow:hidden;padding:12px 24px calc(22px + env(safe-area-inset-bottom));border-radius:27px 27px 0 0;background:radial-gradient(90% 55% at 50% -8%,#5a4216 0%,#21180a 42%,transparent 70%),linear-gradient(180deg,#120e07,#080705 70%);text-align:center;color:#f8f1df;font-family:inherit}
+.gm-card-in:before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.07;background-image:linear-gradient(45deg,#f2cf86 1px,transparent 1px),linear-gradient(-45deg,#f2cf86 1px,transparent 1px);background-size:22px 22px;mask-image:linear-gradient(180deg,#000,transparent 55%);-webkit-mask-image:linear-gradient(180deg,#000,transparent 55%)}
+.gm-handle{display:block;width:42px;height:4px;margin:0 auto 14px;border-radius:9px;background:#e9c9853d}
+.gm-glow{position:absolute;left:50%;top:-60px;width:260px;height:160px;transform:translateX(-50%);background:radial-gradient(closest-side,#f5c46a55,transparent);filter:blur(8px);pointer-events:none}
+.gm-logo{position:relative;display:block;width:150px;height:auto;margin:2px auto 10px;filter:drop-shadow(0 6px 18px #000) drop-shadow(0 0 20px #e7a63a40)}
+.gm-eyebrow{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;font-size:10px;letter-spacing:3.2px;color:#d9b468}
+.gm-eyebrow i{width:34px;height:1px;background:linear-gradient(90deg,transparent,#c99a45)}
+.gm-eyebrow i:last-child{transform:scaleX(-1)}
+.gm-card h2{position:relative;margin:12px 0 8px;font-size:30px;line-height:1.02;font-weight:900;font-style:italic;letter-spacing:-.5px;background:linear-gradient(175deg,#fff6d2 10%,#f6d27e 40%,#c88a2c 75%,#f0c46c);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 0 #3d2706)}
+.gm-why{position:relative;margin:0 0 18px;font-size:14px;line-height:1.5;color:#bfb196}
+.gm-why b{color:#f6d690;font-weight:700}
+.gm-perks{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 20px;padding:0;list-style:none}
+.gm-perks li{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 4px 11px;border-radius:14px;border:1px solid #c9a35a33;background:linear-gradient(180deg,#1d170d,#0d0b07);font-size:11px;line-height:1.25;color:#d8ccb2}
+.gm-perks svg{width:24px;height:24px;color:#efc775;filter:drop-shadow(0 0 6px #e3b05255)}
+.gm-card .gm-btn{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:54px;margin:0 0 10px;border-radius:16px;font-size:14px;letter-spacing:1.6px;font-weight:800;overflow:hidden}
+.gm-card .gm-btn.gm-login{border:1px solid #fff0bf;background:linear-gradient(170deg,#fff1bd 0%,#f8cd6a 30%,#e3a03a 68%,#b8741f 100%);color:#2a1a04;box-shadow:inset 0 1px 1px #fff8,inset 0 -3px 6px #8a521833,0 10px 26px #e5a64530}
+.gm-card .gm-btn.gm-login b{font-size:18px;line-height:1}
+.gm-card .gm-btn.gm-login:after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-60%;background:linear-gradient(100deg,transparent,#fff8 50%,transparent);transform:skewX(-20deg);animation:gmShine 3.2s ease-in-out 0.6s infinite}
+.gm-card .gm-btn.gm-join{border:1px solid #e8c47a88;background:linear-gradient(180deg,#221a0e,#100c07);color:#f3d38e;box-shadow:inset 0 1px 0 #ffe7a114}
+.gm-later{position:relative;display:block;width:100%;margin-top:2px;padding:10px;border:0;background:none;color:#8f8672;font-size:13px;letter-spacing:.4px;font-family:inherit;cursor:pointer}
+@media(min-width:700px){.gm-sheet{align-items:center}.gm-card,.gm-card-in{border-radius:28px}.gm-card{padding-bottom:1px}.gm-handle{display:none}}
+@keyframes gmUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+@keyframes gmFade{from{opacity:0}to{opacity:1}}
+@keyframes gmShine{0%,55%{left:-60%}85%,100%{left:130%}}
+@media(prefers-reduced-motion:reduce){.gm-card,.gm-back{animation:none}.gm-card .gm-btn.gm-login:after{display:none}}

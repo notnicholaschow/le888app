@@ -1,10 +1,12 @@
 /* PWA: turn on the LE888 service worker (installable app + offline screen). */
 if('serviceWorker' in navigator)window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});});
+/* After logging in, go back to what the guest tapped (?next=wallet etc.), otherwise home. */
+window.leNext=()=>{const n=new URLSearchParams(location.search).get('next')||'';return '/#'+(/^[a-z][a-z0-9-]{1,30}$/.test(n)?n:'home');};
 const form=document.querySelector('#member-login-form'),error=document.querySelector('#login-error'),password=document.querySelector('#password');
 document.querySelector('#show-password').onclick=e=>{const show=password.type==='password';password.type=show?'text':'password';e.currentTarget.textContent=show?'Hide':'Show';e.currentTarget.setAttribute('aria-label',show?'Hide password':'Show password');e.currentTarget.setAttribute('aria-pressed',String(show));};
 document.querySelector('#forgot-password').onclick=()=>{document.querySelector('#recovery-note').hidden=false;};
 if(new URLSearchParams(location.search).get('password')==='changed')error.textContent='Password updated. Please sign in with your new password.';
-form.onsubmit=async e=>{e.preventDefault();const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='Signing in…';error.textContent='';try{const r=await fetch('/api/member/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:form.username.value.trim(),password:password.value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Unable to sign in');location.replace('/#home');}catch(err){error.textContent=err.message==='Failed to fetch'?'Connection unavailable. Please try again.':err.message;button.disabled=false;button.innerHTML='Log In <span aria-hidden="true">→</span>';}};
+form.onsubmit=async e=>{e.preventDefault();const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='Signing in…';error.textContent='';try{const r=await fetch('/api/member/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:form.username.value.trim(),password:password.value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Unable to sign in');location.replace(leNext());}catch(err){error.textContent=err.message==='Failed to fetch'?'Connection unavailable. Please try again.':err.message;button.disabled=false;button.innerHTML='Log In <span aria-hidden="true">→</span>';}};
 window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
 
 /* Contact buttons (WhatsApp / Telegram) - only used when Live Chat is switched OFF in Admin -> Settings
@@ -48,5 +50,5 @@ window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
    $('#su-new-id').textContent=d.username;show('done');history.replaceState(null,'',location.pathname);
   }catch(x){fail(x.message==='Failed to fetch'?'Connection unavailable. Please try again.':x.message);btn.disabled=false;btn.innerHTML='Create account <span aria-hidden="true">→</span>';}};
  $('#su-copy').onclick=()=>{const t=$('#su-new-id').textContent;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{$('#su-copy').textContent='Copied';},()=>{});};
- $('#su-enter').onclick=()=>location.replace('/#home');
+ $('#su-enter').onclick=()=>location.replace(leNext());
 })();
