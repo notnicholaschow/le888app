@@ -2683,15 +2683,15 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         // Guest chat (login page, no account): negative id, shows name + GUEST label.
         var guest = t.player_id < 0;
         var nameHtml = guest
-          ? esc(t.guest_name || 'Guest') + ' <span class="tag-pill guest-pill">GUEST</span>'
+          ? esc(t.guest_name || 'Guest') + ' <span class="tag-pill guest-pill">GUEST</span>' + (t.guest_code ? ' <span class="tag-pill guest-pill">🔑 ' + esc(t.guest_code) + '</span>' : '')
           : esc(U(t.username) || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '');
-        return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(guest ? (t.guest_name || 'Guest') : (t.username || '')) + '" data-chat-tag="' + esc(guest ? '' : (t.tag || '')) + '"' + (guest ? ' data-chat-phone="' + esc(t.guest_phone || '') + '"' : '') + '>' +
+        return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(guest ? (t.guest_name || 'Guest') : (t.username || '')) + '" data-chat-tag="' + esc(guest ? '' : (t.tag || '')) + '"' + (guest ? ' data-chat-phone="' + esc(t.guest_phone || '') + '" data-chat-code="' + esc(t.guest_code || '') + '"' : '') + '>' +
           '<div class="ct-main"><div class="ct-name">' + nameHtml + '</div>' +
           '<div class="ct-last">' + esc(String(t.last_body || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)) + '</div></div>' +
           '<div class="ct-right"><div class="ct-time">' + sgt(t.last_msg_at).slice(5) + '</div>' + unread + '</div></div>';
       }).join('') || '<p class="muted" style="padding:14px">No conversations yet.</p>';
       Array.prototype.forEach.call(el.querySelectorAll('[data-chat-open]'), function (b) {
-        b.onclick = function () { openConv(Number(b.getAttribute('data-chat-open')), b.getAttribute('data-chat-user'), b.getAttribute('data-chat-tag'), b.getAttribute('data-chat-phone') || ''); };
+        b.onclick = function () { openConv(Number(b.getAttribute('data-chat-open')), b.getAttribute('data-chat-user'), b.getAttribute('data-chat-tag'), b.getAttribute('data-chat-phone') || '', b.getAttribute('data-chat-code') || ''); };
       });
     });
   }
@@ -2875,24 +2875,36 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     openConv(p.id, p.username, p.tag || '');
   }
   // Guest chat bar: who they are + "Link to player" (moves the chat into a real account).
-  function showGuestBar(pid, name, phone) {
+  function showGuestBar(pid, name, phone, code) {
     var bar = $('convGuest'); if (!bar) return;
     if (!(pid < 0)) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
     var digits = String(phone || '').replace(/\D/g, '');
     bar.innerHTML = '<span class="cg-info"><span class="tag-pill guest-pill">GUEST</span> Not logged in &middot; <b>' + esc(name || 'Guest') + '</b>' +
-      (digits ? ' &middot; <a href="https://wa.me/' + esc(digits) + '" target="_blank" rel="noopener">+' + esc(digits) + '</a>' : '') + '</span>' +
+      (digits ? ' &middot; <a href="https://wa.me/' + esc(digits) + '" target="_blank" rel="noopener">+' + esc(digits) + '</a>' : '') +
+      (code ? ' &middot; 🔑 Forgot password &middot; says Player ID <b>' + esc(code) + '</b>' : '') + '</span>' +
       '<button class="btn small" id="cgLink" type="button">Link to player</button>';
     bar.style.display = '';
-    $('cgLink').onclick = function () { guestLinkModal(pid, name, digits); };
+    $('cgLink').onclick = function () { guestLinkModal(pid, name, digits, code); };
   }
-  function guestLinkModal(pid, name, digits) {
+  function guestLinkModal(pid, name, digits, code) {
     openModal(
       '<h2>Link guest to a player</h2>' +
       '<p class="muted">Moves this whole chat into the player\'s Live Chat. The guest\'s login-page chat then closes and they are asked to log in.</p>' +
-      '<div id="glMatches" class="muted" style="margin:8px 0">Looking for players with phone ' + esc(digits ? '+' + digits : '-') + '&hellip;</div>' +
+      (code ? '<p class="muted" style="margin:8px 0">The guest says their Player ID is <b>' + esc(code) + '</b> and name is <b>' + esc(name || '') + '</b>. <b>Check the name matches</b> before moving the chat or resetting a password.</p>' : '') +
+      '<div id="glMatches" class="muted" style="margin:8px 0">' + (digits ? 'Looking for players with phone +' + esc(digits) + '&hellip;' : '') + '</div>' +
       '<label>Player ID</label><input id="glUser" autocapitalize="characters" placeholder="e.g. LE10695">' +
       '<button class="btn" id="glGo" style="margin-top:12px;width:100%">Move chat to this player</button>'
     );
+    if (code) {
+      $('glUser').value = code;
+      // Show the account's real name next to the ID so staff can compare.
+      api('/api/admin/players', { q: code, limit: 5 }).then(function (res) {
+        var box = $('glMatches'); if (!box) return;
+        var p = ((res && res.ok && res.players) || []).find(function (x) { return U(x.username) === U(code); });
+        box.innerHTML = p ? 'Account ' + esc(U(p.username)) + ' is registered to: <b>' + esc(p.display_name || '-') + '</b>' + (p.whatsapp ? ' &middot; +' + esc(String(p.whatsapp).replace(/\D/g, '')) : '')
+          : '<span style="color:var(--red,#ff667d)">No player with ID ' + esc(code) + '.</span> Ask the guest to check, or type the right Player ID.';
+      }).catch(function () {});
+    }
     // Suggest players with the same phone number.
     if (digits) {
       api('/api/admin/players', { phone: digits, limit: 5 }).then(function (res) {
@@ -2902,7 +2914,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         box.innerHTML = 'Same phone: ' + list.map(function (p) { return '<button type="button" class="btn ghost small" data-gl-pick="' + esc(p.username) + '" style="margin:2px">' + esc(U(p.username)) + (p.display_name ? ' &middot; ' + esc(p.display_name) : '') + '</button>'; }).join('');
         Array.prototype.forEach.call(box.querySelectorAll('[data-gl-pick]'), function (b) { b.onclick = function () { $('glUser').value = U(b.getAttribute('data-gl-pick')); }; });
       }).catch(function () {});
-    } else { $('glMatches').textContent = ''; }
+    }
     $('glGo').onclick = function () {
       var u = $('glUser').value.trim();
       if (!u) { toast('Enter the Player ID.', true); return; }
@@ -2915,7 +2927,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       }).catch(function () { busy(btn, false); toast('Network error.', true); });
     };
   }
-  function openConv(pid, username, tag, guestPhone) {
+  function openConv(pid, username, tag, guestPhone, guestCode) {
     setConvVerify(null);
     clearInterval(acTimer); acLastId = 0; acPid = pid;
     if ($('convSearch')) { $('convSearch').value = ''; $('convSearch').style.display = ''; }
@@ -2927,7 +2939,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     var isGuest = pid < 0;
     $('convName').textContent = isGuest ? (username || 'Guest') : '@' + (U(username) || pid);
     setConvTagPill(isGuest ? '' : (tag || ''));
-    showGuestBar(pid, username, guestPhone);
+    showGuestBar(pid, username, guestPhone, guestCode);
     if ($('caTag')) { $('caTag').innerHTML = tagSelectHtml(tag || ''); colorTagSelect($('caTag'), tag || ''); }
     if ($('convActions')) $('convActions').style.display = isGuest ? 'none' : '';
     // Show the player's saved Game IDs (from Player Manage) under the header.

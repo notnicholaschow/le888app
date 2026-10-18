@@ -121,3 +121,5 @@ html.gc-lock,html.gc-lock body{overflow:hidden}
 .gc-send{flex:none;height:44px;padding:0 16px;border-radius:12px;border:1px solid #ffdd95aa;background:linear-gradient(170deg,#ffe8a1,#e79d32);color:#261803;font-weight:800;font-size:14px}
 .gc-send:disabled{opacity:.55}
 .gc-inline{display:block;width:100%;height:42px;margin-top:10px;border-radius:10px;border:1px solid #efc77e88;background:linear-gradient(180deg,#2a2114,#14110b);color:#f6dca2;font-weight:700;font-size:13px}
+.gc-inline{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;margin-top:0;font-size:14px}
+.gc-inline .gc-dot{top:-5px;right:-5px}

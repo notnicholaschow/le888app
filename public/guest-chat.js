@@ -70,10 +70,12 @@
       '<header class="gc-head"><span class="gc-avatar" aria-hidden="true">💬</span><div><b>Live Chat</b><small>LE888 customer service</small></div>' +
       '<button type="button" class="gc-x" data-gc-close aria-label="Close">&times;</button></header>' +
       '<div class="gc-start" hidden>' +
-        '<p class="gc-lead">Need help? Tell us who you are and our team will reply here.</p>' +
-        '<label for="gc-name">Your name</label><input id="gc-name" maxlength="60" autocomplete="name" placeholder="e.g. Tan Ah Kow">' +
-        '<label for="gc-phone">Phone number <span class="gc-hint">(start with 65, no + needed)</span></label>' +
-        '<input id="gc-phone" type="tel" inputmode="numeric" maxlength="20" autocomplete="tel" placeholder="e.g. 6591234567">' +
+        '<p class="gc-lead"></p>' +
+        '<label for="gc-name">Full name <span class="gc-hint">(as registered in LE888)</span></label><input id="gc-name" maxlength="60" autocomplete="name" placeholder="e.g. Tan Ah Kow">' +
+        '<div class="gc-f-phone"><label for="gc-phone">Phone number registered in LE888 <span class="gc-hint">(start with 65, no + needed)</span></label>' +
+        '<input id="gc-phone" type="tel" inputmode="numeric" maxlength="20" autocomplete="tel" placeholder="e.g. 6591234567"></div>' +
+        '<div class="gc-f-id" hidden><label for="gc-pid">Your LE888 Player ID</label>' +
+        '<input id="gc-pid" maxlength="32" autocapitalize="characters" autocomplete="username" spellcheck="false" placeholder="e.g. LE10695"></div>' +
         '<p class="gc-err" role="alert"></p>' +
         '<button type="button" class="gc-go">Start chat <span aria-hidden="true">→</span></button>' +
       '</div>' +
@@ -98,6 +100,7 @@
   function setDot() {
     var unread = msgs.some(function (m) { return m.sender === 'admin' && m.id > seenId; });
     dot.hidden = !unread || isOpen;
+    var din = document.querySelector('.gc-dot-in'); if (din) din.hidden = !unread || isOpen;
   }
   function markSeen() {
     msgs.forEach(function (m) { if (m.sender === 'admin' && m.id > seenId) seenId = m.id; });
@@ -158,10 +161,25 @@
     timer = setInterval(function () { if (!document.hidden) poll(false); }, isOpen ? 4000 : 30000);
   }
 
-  function open() {
+  // "Forgot password?" opens the chat with this first message ready.
+  var FORGOT_MSG = 'Hi, I forgot my password. Please help me reset it.';
+  var pendingFirst = '';
+  var LEAD = {
+    help: 'Need help? Enter the <b>full name</b> and <b>phone number registered in your LE888 account</b>, and our team will reply here.',
+    forgot: '<b>Forgot your password?</b> Enter your <b>LE888 Player ID</b> and the <b>full name registered in your account</b>. Our team will check it and help you reset your password here.'
+  };
+  var startMode = 'help';
+  function open(mode) {
+    var forgot = mode === 'forgot';
+    pendingFirst = forgot ? FORGOT_MSG : '';
+    startMode = forgot ? 'forgot' : 'help';
+    $('.gc-lead').innerHTML = forgot ? LEAD.forgot : LEAD.help;
+    $('.gc-f-phone').hidden = forgot; $('.gc-f-id').hidden = !forgot;
+    $('.gc-start .gc-err').textContent = '';
     isOpen = true; wrap.hidden = false; document.documentElement.classList.add('gc-lock');
     fab.hidden = true;
     if (linked) { view('linked'); return; }
+    if (token && forgot && !ta.value.trim()) ta.value = 'Hi, I forgot my password. My Player ID is ';
     if (!token) {
       view('start');
       setTimeout(function () { try { $('#gc-name').focus(); } catch (e) {} }, 200);
@@ -173,10 +191,11 @@
   }
   function close() {
     isOpen = false; wrap.hidden = true; document.documentElement.classList.remove('gc-lock');
-    fab.hidden = false; setDot(); startPoll();
+    fab.hidden = !fabWanted; setDot(); startPoll();
     if (linked) { linked = false; view('start'); }
   }
-  fab.onclick = open;
+  fab.onclick = function () { open('help'); };
+  var fabWanted = false; // floating button shows only when the in-page Live Chat button is off screen
   Array.prototype.forEach.call(wrap.querySelectorAll('[data-gc-close]'), function (b) { b.addEventListener('click', close); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen) close(); });
 
@@ -185,16 +204,24 @@
     var err = $('.gc-start .gc-err'), btn = this;
     var name = $('#gc-name').value.replace(/\s+/g, ' ').trim();
     var digits = $('#gc-phone').value.replace(/\D/g, '');
-    if (name.length < 2) { err.textContent = 'Please enter your name.'; $('#gc-name').focus(); return; }
-    if (/^[3689]\d{7}$/.test(digits)) { err.textContent = 'Please add the country code 65 in front, e.g. 65' + digits + '.'; $('#gc-phone').focus(); return; }
-    if (digits.length < 10 || digits.length > 15 || (/^65/.test(digits) && !/^65[3689]\d{7}$/.test(digits))) { err.textContent = 'Please enter your phone number with country code, e.g. 6591234567.'; $('#gc-phone').focus(); return; }
+    var pidv = $('#gc-pid').value.replace(/\s+/g, '').toUpperCase();
+    var forgot = startMode === 'forgot';
+    if (name.length < 2) { err.textContent = 'Please enter your full name.'; $('#gc-name').focus(); return; }
+    if (forgot) {
+      if (!/^[A-Z0-9_.]{3,32}$/.test(pidv)) { err.textContent = 'Please enter your LE888 Player ID, e.g. LE10695.'; $('#gc-pid').focus(); return; }
+    } else {
+      if (/^[3689]\d{7}$/.test(digits)) { err.textContent = 'Please add the country code 65 in front, e.g. 65' + digits + '.'; $('#gc-phone').focus(); return; }
+      if (digits.length < 10 || digits.length > 15 || (/^65/.test(digits) && !/^65[3689]\d{7}$/.test(digits))) { err.textContent = 'Please enter your phone number with country code, e.g. 6591234567.'; $('#gc-phone').focus(); return; }
+    }
     err.textContent = ''; btn.disabled = true; btn.textContent = 'Starting…';
-    post('start', { name: name, phone: digits }).then(function (d) {
+    post('start', forgot ? { name: name, player_id: pidv } : { name: name, phone: digits }).then(function (d) {
       btn.disabled = false; btn.innerHTML = 'Start chat <span aria-hidden="true">→</span>';
       if (!d.ok || !d.token) { err.textContent = d.error || 'Could not start the chat. Please try again.'; return; }
       token = d.token; gname = d.name || name; msgs = []; lastId = 0;
       store(KEY, JSON.stringify({ t: token, n: gname }));
       view('chat'); render(); startPoll();
+      // Came from "Forgot password?": send that first message for them.
+      if (pendingFirst) { ta.value = forgot ? pendingFirst + ' My Player ID is ' + pidv + '.' : pendingFirst; pendingFirst = ''; send(); }
       setTimeout(function () { try { ta.focus(); } catch (e) {} }, 100);
     }).catch(function () { btn.disabled = false; btn.innerHTML = 'Start chat <span aria-hidden="true">→</span>'; err.textContent = 'Connection unavailable. Please try again.'; });
   };
@@ -221,13 +248,23 @@
     .then(function (r) { return r.json(); })
     .then(function (c) {
       if (!c || c.guest_chat_enabled === false) return;
-      fab.hidden = false;
-      // "Forgot password?" note gets a quick chat button too.
-      var rec = document.querySelector('#recovery-note');
-      if (rec && !rec.querySelector('.gc-inline')) {
-        var b = document.createElement('button'); b.type = 'button'; b.className = 'gc-inline'; b.textContent = '💬 Chat with us now';
-        b.onclick = open; rec.appendChild(b);
+      // 1) Live Chat button in the "Contact us" spot (replaces WhatsApp / Telegram).
+      var box = document.querySelector('#login-contact'), inline = null;
+      if (box) {
+        box.innerHTML = '<span class="lc-label">Contact us</span>' +
+          '<button type="button" class="gc-inline"><span aria-hidden="true">💬</span> Live Chat<span class="gc-dot gc-dot-in" hidden></span></button>';
+        box.hidden = false;
+        inline = box.querySelector('.gc-inline');
+        inline.onclick = function () { open('help'); };
       }
+      // 2) Floating button only when that one is not on screen (e.g. sign-up form).
+      var showFab = function (v) { fabWanted = v; if (!isOpen) fab.hidden = !v; };
+      if (inline && 'IntersectionObserver' in window) {
+        new IntersectionObserver(function (es) { showFab(!es[0].isIntersecting); }).observe(inline);
+      } else showFab(true);
+      // 3) "Forgot password?" goes straight to Live Chat.
+      var fp = document.querySelector('#forgot-password');
+      if (fp) fp.onclick = function () { var rn = document.querySelector('#recovery-note'); if (rn) rn.hidden = true; open('forgot'); };
       if (token) { poll(true); startPoll(); }
     }).catch(function () {});
 })();
