@@ -988,6 +988,15 @@ async function handleMember(request: Request, env: Env, url: URL, ctx: Execution
       const token = b64urlEncode(crypto.getRandomValues(new Uint8Array(24)));
       const ins = await env.DB.prepare("INSERT INTO chat_guests (name, phone, token_hash, ip, last_seen_at, player_code) VALUES (?, ?, ?, ?, datetime('now'), ?)")
         .bind(name, phone, await sha256HexStr(token), ip.slice(0, 64), code ? code.toUpperCase() : null).run();
+      // First message = the details they typed, so staff (and the guest) see them in the chat itself.
+      const gNew = -Number(ins.meta.last_row_id);
+      const intro = (b.topic === 'forgot' ? '🔑 Forgot password\n' : '') +
+        (forgot ? '👤 Existing LE888 player\nName: ' + name + '\nPlayer ID: ' + String(code).toUpperCase()
+                : '✨ New player\nName: ' + name + '\nPhone: +' + phone);
+      try {
+        await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, body) VALUES (?, ?, ?)').bind(gNew, 'player', intro).run();
+        await env.DB.prepare("INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime('now'), 1, 0) ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime('now'), admin_unread = admin_unread + 1").bind(gNew).run();
+      } catch { /* chat still works without the intro */ }
       return j({ ok: true, token, name, guest_id: Number(ins.meta.last_row_id) }, 200);
     }
 
