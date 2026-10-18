@@ -403,7 +403,8 @@ CREATE TABLE IF NOT EXISTS chat_guests (
   linked_by TEXT,
   linked_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  last_seen_at TEXT
+  last_seen_at TEXT,
+  player_code TEXT                           -- Player ID typed on "Forgot password?"
 );
 
 -- ---------- Push notifications ----------
