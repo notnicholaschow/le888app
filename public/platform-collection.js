@@ -30,15 +30,14 @@
       <span class="pc-announcement" role="status" aria-live="polite"></span>
     </section>`;
   }
-  function update(section, announce = true) {
-    section.style.setProperty('--pc-active-tint', platforms[selected][2]);
+  function update(section, announce = true, tint = true) {
+    // The glow colour is only changed when the deck is at rest (changing it repaints big gradients).
+    if(tint) section.style.setProperty('--pc-active-tint', platforms[selected][2]);
     section.querySelector('.pc-dial > span').textContent=label(selected);
     section.querySelector('.pc-dial > i').style.transform='rotate('+selected*45+'deg)';
     section.querySelectorAll('[data-pc-card]').forEach((card,i)=>{
       let offset = (i - selected + platforms.length) % platforms.length;
       if(offset > platforms.length / 2) offset -= platforms.length;
-      card.style.setProperty('--pc-offset',offset);
-      card.style.setProperty('--pc-distance',Math.abs(offset));
       card.classList.toggle('pc-selected',offset===0);
       card.querySelector('.pc-card-select').tabIndex = offset===0 ? 0 : -1;
       card.querySelector('.pc-card-select').setAttribute('aria-label','Select '+platforms[i][1]);
@@ -57,7 +56,12 @@
     const N=cards.length;
     const reduce=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
     const wrapD=d=>{d=((d%N)+N)%N;if(d>=N/2)d-=N;return d;};
-    let pos=selected, goal=selected, anim=0, drag=null, suppressUntil=0;
+    let pos=selected, goal=selected, anim=0, drag=null, suppressUntil=0, W=0, raf=0;
+    // A see-through dark layer per card (cheap to fade) replaces the old brightness filter.
+    const dims=cards.map(c=>{let d=c.querySelector('.pc-dim');if(!d){d=document.createElement('span');d.className='pc-dim';d.setAttribute('aria-hidden','true');c.appendChild(d);}return d;});
+    const last=cards.map(()=>({t:'',z:'',o:'',d:''}));
+    const measure=()=>{W=cards[0].offsetWidth||220;};
+    section.classList.add('pc-fast');
     let revealAnimations=[];
     const stopReveal=()=>{revealAnimations.forEach(a=>a.cancel());revealAnimations=[];};
     const reveal=()=>{
@@ -70,7 +74,7 @@
       animate('.pc-reveal-light',[{opacity:0,transform:'translateX(-130%) skewX(-18deg)'},{opacity:.5,offset:.35},{opacity:0,transform:'translateX(180%) skewX(-18deg)'}],40,800);
     };
     function paint(){
-      const W=cards[0].offsetWidth||220;
+      if(!W)measure();
       cards.forEach((c,i)=>{
         const d=wrapD(i-pos), a=Math.abs(d), s=d<0?-1:1;
         let x,y,rz,sc,z,op=1;
@@ -80,21 +84,26 @@
         }else{ // resting fan behind the front card
           x=d*8; y=9-4*a; rz=d*4; sc=1-.035*a; z=380-Math.round(a*40); op=a>3.6?0:1;
         }
-        c.style.transform='translateX('+x.toFixed(2)+'px) translateY('+y.toFixed(2)+'px) translateZ('+(-22*Math.min(a,4)).toFixed(1)+'px) rotateZ('+rz.toFixed(2)+'deg) scale('+sc.toFixed(4)+')';
-        c.style.zIndex=String(z);
-        c.style.opacity=String(op);
+        const t='translate3d('+x.toFixed(1)+'px,'+y.toFixed(1)+'px,0) rotate('+rz.toFixed(2)+'deg) scale('+sc.toFixed(4)+')';
+        const L=last[i], zs=String(z), os=String(op), ds=Math.min(.5,a*.45).toFixed(2);
+        if(L.t!==t){c.style.transform=t;L.t=t;}
+        if(L.z!==zs){c.style.zIndex=zs;L.z=zs;}
+        if(L.o!==os){c.style.opacity=os;L.o=os;}
+        if(L.d!==ds){dims[i].style.opacity=ds;L.d=ds;}
       });
       const sel=((Math.round(pos)%N)+N)%N;
-      if(sel!==selected){selected=sel;update(section);}
+      if(sel!==selected){selected=sel;update(section,true,!drag&&!anim);}
     }
+    const paintSoon=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint();});};
     function animateTo(target,dur){
       cancelAnimationFrame(anim);stopReveal();
       const from=pos;goal=target;
-      const done=()=>{pos=goal=((Math.round(target)%N)+N)%N;paint();reveal();};
+      const done=()=>{anim=0;pos=goal=((Math.round(target)%N)+N)%N;paint();update(section,false,true);reveal();};
       if(reduce()||Math.abs(target-from)<.001){pos=target;done();return;}
       dur=dur||Math.min(820,340+120*Math.abs(target-from));
       const t0=performance.now();
       const step=now=>{const t=Math.min(1,(now-t0)/dur);const e=1-Math.pow(1-t,3);pos=from+(target-from)*e;paint();if(t<1)anim=requestAnimationFrame(step);else done();};
+      anim=-1;
       anim=requestAnimationFrame(step);
     }
     // Taps while the deck is still moving add on to where it is heading, so none are lost.
@@ -122,7 +131,7 @@
     });
 
     // Finger / mouse dragging with momentum.
-    const width=()=>(cards[0].offsetWidth||220)*.9;
+    const width=()=>(W||(measure(),W))*.9;
     stage.addEventListener('pointerdown',e=>{
       if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||drag)return;
       drag={id:e.pointerId,x:e.clientX,y:e.clientY,startPos:pos,moving:false,samples:[{t:performance.now(),x:e.clientX}]};
@@ -133,7 +142,7 @@
       if(!drag.moving){
         if(Math.max(Math.abs(dx),Math.abs(dy))<6)return;
         if(Math.abs(dy)>Math.abs(dx)){drag=null;return;} // vertical: let the page scroll
-        drag.moving=true;cancelAnimationFrame(anim);stopReveal();
+        drag.moving=true;cancelAnimationFrame(anim);anim=0;stopReveal();measure();
         drag.startPos=pos;drag.base=goal;drag.x=e.clientX;drag.x0=e.clientX; // start from where the deck is right now (even mid-animation)
         stage.classList.add('pc-dragging');
         try{stage.setPointerCapture(e.pointerId);}catch(err){}
@@ -141,7 +150,7 @@
       const now=performance.now();
       drag.samples.push({t:now,x:e.clientX});while(drag.samples.length>2&&now-drag.samples[0].t>120)drag.samples.shift();
       pos=drag.startPos-(e.clientX-drag.x)/width();
-      paint();
+      paintSoon(); // at most one redraw per screen refresh
     });
     const release=(e,cancel)=>{
       if(!drag||drag.id!==e.pointerId)return;
@@ -163,7 +172,7 @@
     stage.addEventListener('pointerup',e=>release(e,false));
     stage.addEventListener('pointercancel',e=>release(e,true));
     stage.addEventListener('lostpointercapture',e=>{if(e.target===stage&&drag&&drag.moving)release(e,false);});
-    window.addEventListener('resize',()=>paint());
+    window.addEventListener('resize',()=>{measure();paint();});
     update(section,false);
     paint();
   }

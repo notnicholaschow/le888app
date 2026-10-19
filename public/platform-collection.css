@@ -166,3 +166,13 @@
 .pc-banner{display:block;width:100%;margin:22px 0 4px;padding:0;border:1px solid #e6c27a80;border-radius:20px;overflow:hidden;background:#0b0906;box-shadow:0 14px 30px #000a,0 0 0 1px #00000080 inset;cursor:pointer}
 .pc-banner img{display:block;width:100%;aspect-ratio:2/1;object-fit:cover}
 .pc-banner:active{transform:scale(.99)}
+
+/* Performance: during a swipe the phone only MOVES ready-made card pictures.
+   No filters, no changing shadows, no transitions, no 3D perspective. */
+.pc-fast .pc-stage{perspective:none}
+.pc-fast .pc-card{will-change:transform,opacity;backface-visibility:hidden;-webkit-backface-visibility:hidden;contain:layout paint style;transition:none!important;box-shadow:0 14px 26px #000b!important;border-color:#c7ad7c99!important}
+.pc-fast .pc-card.pc-selected{border-color:#d9bb7e!important}
+.pc-fast .pc-card .pc-scenery,.pc-fast .pc-card:not(.pc-selected) .pc-scenery,.pc-fast .pc-selected .pc-scenery{filter:none!important;transform:none!important;transition:none!important}
+.pc-fast .pc-dim{position:absolute;inset:0;z-index:4;background:#05040300;background:#050403;opacity:0;pointer-events:none;border-radius:inherit;will-change:opacity}
+.pc-fast.pc-collection:before,.pc-fast .pc-aura,.pc-fast .pc-floor{transition:none!important}
+.pc-fast .pc-aura{will-change:auto}
