@@ -6111,6 +6111,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const q = String(body.q || '').trim();
       const offset = Math.max(0, Number(body.offset) || 0);
       const like = `%${q.toLowerCase()}%`;
+      // "Needs reply" filter: only chats that are unread or still waiting for a staff reply.
+      const needsOnly = body.filter === 'needs_reply';
       // Guest chats (login page, no account) have a negative id -> chat_guests.
       await ensureGuestChat(env);
       const buildSql = (tagCol: boolean) => `SELECT cs.player_id, cs.last_msg_at, cs.admin_unread, p.username, p.display_name${tagCol ? ', p.tag' : ''},
@@ -6118,7 +6120,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           (${LAST_REAL_SENDER_SQL} = 'player') AS needs_reply,
           (SELECT COALESCE(m.body, '[image]') FROM chat_messages m WHERE m.player_id = cs.player_id ORDER BY m.id DESC LIMIT 1) AS last_body
         FROM chat_state cs LEFT JOIN players p ON p.id = cs.player_id LEFT JOIN chat_guests g ON cs.player_id < 0 AND g.id = -cs.player_id
-        WHERE (cs.player_id > 0 OR g.linked_player_id IS NULL)${q ? ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ? OR lower(g.name) LIKE ? OR g.phone LIKE ? OR lower(g.player_code) LIKE ?)' : ''} ORDER BY cs.last_msg_at DESC LIMIT 50 OFFSET ?`;
+        WHERE (cs.player_id > 0 OR g.linked_player_id IS NULL)${needsOnly ? ` AND (cs.admin_unread > 0 OR ${LAST_REAL_SENDER_SQL} = 'player')` : ''}${q ? ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ? OR lower(g.name) LIKE ? OR g.phone LIKE ? OR lower(g.player_code) LIKE ?)' : ''} ORDER BY cs.last_msg_at DESC LIMIT 50 OFFSET ?`;
       const binds: unknown[] = q ? [like, like, like, like, like, offset] : [offset];
       let results: unknown[] | undefined;
       try {
