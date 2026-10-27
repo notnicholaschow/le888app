@@ -216,6 +216,9 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 .tag-pill.guest-pill.guest-new { background: rgba(80,210,140,.14); color: #6fe0a2; border-color: rgba(80,210,140,.4); }
 .conv-guest { flex: none; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
 .conv-guest a { color: var(--gold); }
+.chat-thread.ct-waiting { box-shadow: inset 3px 0 0 #ff4d5e; }
+.ct-wait { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: rgba(255,77,94,.14); border: 1px solid rgba(255,77,94,.45); color: #ff8a96; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.ct-wait i { width: 7px; height: 7px; border-radius: 50%; background: #ff4d5e; box-shadow: 0 0 6px #ff4d5e; }
 .tag-inline { height: 28px; padding: 2px 8px; border-radius: 7px; font-size: 12px; cursor: pointer;
   background: var(--field); border: 1px solid var(--line); color: var(--text); max-width: 150px; min-width: 104px; }
 /* Players table: never let the many action buttons squash the Tag dropdown to just its arrow */
@@ -1377,10 +1380,10 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         return '<div class="stat"><div class="v">' + s[1] + '</div><div class="k">' + s[0] + '</div></div>';
       }).join('');
       setPayoutBadge(res.pending_payouts || 0);
-      setChatBadge(res.chat_unread || 0);
+      setChatBadge((res.chat_waiting != null ? res.chat_waiting : (res.chat_unread || 0)));
       setWithdrawBadge(res.pending_withdrawals || 0);
       setDepReqBadge(res.pending_deposit_requests || 0);
-      setMobileBadge((res.pending_payouts || 0) + (res.chat_unread || 0) + (res.pending_withdrawals || 0));
+      setMobileBadge((res.pending_payouts || 0) + (res.chat_waiting != null ? res.chat_waiting : (res.chat_unread || 0)) + (res.pending_withdrawals || 0));
       if (admAlarm) { admAlarm.setCounts(res.pending_payouts || 0, res.chat_unread || 0); admAlarm.tick(); }
     });
   }
@@ -2684,16 +2687,20 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
   function loadChats() {
     api('/api/admin/chat/threads', { q: $('chatQ').value.trim() }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load messages.', true); return; }
-      setChatBadge(res.unread_total || 0);
+      setChatBadge(res.waiting_total != null ? res.waiting_total : (res.unread_total || 0));
       var el = $('chatThreads');
       el.innerHTML = (res.threads || []).map(function (t) {
-        var unread = t.admin_unread ? '<span class="side-badge" style="position:static">' + t.admin_unread + '</span>' : '';
+        // Unread count, or a red "waiting" tag when the newest message is still from the player
+        // (stays after staff open the chat; only a staff reply clears it).
+        var waiting = !!Number(t.needs_reply);
+        var unread = t.admin_unread ? '<span class="side-badge" style="position:static">' + t.admin_unread + '</span>'
+          : (waiting ? '<span class="ct-wait" title="Waiting for a staff reply"><i></i>Reply</span>' : '');
         // Guest chat (login page, no account): negative id, shows name + GUEST label.
         var guest = t.player_id < 0;
         var nameHtml = guest
           ? esc(t.guest_name || 'Guest') + ' <span class="tag-pill guest-pill">GUEST</span>' + (t.guest_code ? ' <span class="tag-pill guest-pill">ID ' + esc(t.guest_code) + '</span>' : ' <span class="tag-pill guest-pill guest-new">NEW PLAYER</span>')
           : esc(U(t.username) || ('#' + t.player_id)) + (t.tag ? ' <span class="tag-pill ' + tagClass(t.tag) + '">' + esc(t.tag) + '</span>' : '');
-        return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(guest ? (t.guest_name || 'Guest') : (t.username || '')) + '" data-chat-tag="' + esc(guest ? '' : (t.tag || '')) + '"' + (guest ? ' data-chat-phone="' + esc(t.guest_phone || '') + '" data-chat-code="' + esc(t.guest_code || '') + '"' : '') + '>' +
+        return '<div class="chat-thread' + (t.player_id === acPid ? ' active' : '') + (waiting ? ' ct-waiting' : '') + '" data-chat-open="' + t.player_id + '" data-chat-user="' + esc(guest ? (t.guest_name || 'Guest') : (t.username || '')) + '" data-chat-tag="' + esc(guest ? '' : (t.tag || '')) + '"' + (guest ? ' data-chat-phone="' + esc(t.guest_phone || '') + '" data-chat-code="' + esc(t.guest_code || '') + '"' : '') + '>' +
           '<div class="ct-main"><div class="ct-name">' + nameHtml + '</div>' +
           '<div class="ct-last">' + esc(String(t.last_body || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)) + '</div></div>' +
           '<div class="ct-right"><div class="ct-time">' + sgt(t.last_msg_at).slice(5) + '</div>' + unread + '</div></div>';
@@ -2989,7 +2996,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         acApplyDeletions(res.deleted_ids);
         if ($('convSearch') && $('convSearch').value.trim()) acFilterConv();
         if ((res.messages || []).length) el.scrollTop = el.scrollHeight;
-        api('/api/admin/chat/threads', { q: '' }).then(function (r) { if (r.ok) setChatBadge(r.unread_total || 0); }).catch(function () {});
+        api('/api/admin/chat/threads', { q: '' }).then(function (r) { if (r.ok) setChatBadge(r.waiting_total != null ? r.waiting_total : (r.unread_total || 0)); }).catch(function () {});
       }).catch(function () { /* session expired / offline — logout() already ran */ });
     }
     poll(true);
@@ -5018,10 +5025,10 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     api('/api/admin/overview').then(function (res) {
       if (!res.ok) return;
       setPayoutBadge(res.pending_payouts || 0);
-      setChatBadge(res.chat_unread || 0);
+      setChatBadge((res.chat_waiting != null ? res.chat_waiting : (res.chat_unread || 0)));
       setWithdrawBadge(res.pending_withdrawals || 0);
       setDepReqBadge(res.pending_deposit_requests || 0);
-      setMobileBadge((res.pending_payouts || 0) + (res.chat_unread || 0) + (res.pending_withdrawals || 0));
+      setMobileBadge((res.pending_payouts || 0) + (res.chat_waiting != null ? res.chat_waiting : (res.chat_unread || 0)) + (res.pending_withdrawals || 0));
       if (admAlarm) { admAlarm.setCounts(res.pending_payouts || 0, res.chat_unread || 0); admAlarm.tick(); }
     }).catch(function () {});
     // refresh whichever list page is on screen
