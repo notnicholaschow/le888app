@@ -2041,6 +2041,12 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
           '<p class="muted" style="margin:0 0 10px">Rules: each friend who deposits = <b>' + Number(c.per || 0) + ' PTS</b>; every <b>' + every + '</b> friends = extra <b>' + Number(c.bonus || 0) + ' PTS</b>' +
             (c.min_deposit ? '; friend needs at least <b>SGD ' + c.min_deposit + '</b> deposited' : '') +
             '. Only deposits keyed in under <b>Manage &rarr; Deposits</b> count. Change the amounts in <b>Settings &rarr; Referral program</b>.</p>' +
+          (function () { var k = res.clicks || {}; var n = function (x) { return Number(x || 0).toLocaleString('en-SG'); };
+            return '<div class="ref-stats">' +
+              '<div><small>Invite link clicks</small><b>' + n(k.total) + '</b></div>' +
+              '<div><small>Unique people</small><b>' + n(k.unique) + '</b></div>' +
+              '<div><small>Signed up via link</small><b>' + n(k.signups) + '</b></div>' +
+            '</div><p class="muted" style="margin:0 0 10px">Link clicks today: <b>' + n(k.today) + '</b> &middot; last 7 days: <b>' + n(k.last7) + '</b>. Link previews (WhatsApp/Telegram), bots and the player opening their own link are not counted.</p>'; })() +
           (res.referred_by ? '<p class="muted" style="margin:0 0 10px">This player was referred by <b>@' + esc(U(res.referred_by.username)) + '</b>.</p>' : '') +
           '<label for="refFriend">Add a friend this player referred (friend&rsquo;s Player ID)</label>' +
           '<div class="row" style="align-items:center"><input id="refFriend" autocapitalize="none" placeholder="e.g. LE2810" style="flex:1"><button class="btn small" id="refAdd">Add referral</button></div>' +
