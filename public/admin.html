@@ -121,9 +121,15 @@ label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; 
 /* WhatsApp-web style two-pane messages */
 .chat-wrap { display: flex; height: calc(100vh - 110px); min-height: 460px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
 .chat-list { flex: 0 0 300px; display: flex; flex-direction: column; border-right: 1px solid var(--line-soft); min-width: 0; }
-.chat-list-head { flex: none; padding: 10px; border-bottom: 1px solid var(--line-soft); display: flex; gap: 8px; }
+.chat-list-head { flex: none; padding: 10px; display: flex; gap: 8px; }
 .chat-list-head input { flex: 1; }
 .chat-list-scroll { flex: 1; overflow-y: auto; }
+.chat-filter { flex: none; display: flex; gap: 8px; padding: 0 10px 10px; border-bottom: 1px solid var(--line-soft); }
+.cf-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border-radius: 999px; border: 1px solid var(--line-soft); background: transparent; color: #cfcfd4; font: 600 13px 'Inter', sans-serif; cursor: pointer; }
+.cf-btn.on { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); }
+.cf-btn i { width: 7px; height: 7px; border-radius: 50%; background: #ff4d5e; }
+.cf-btn b { min-width: 18px; padding: 0 6px; border-radius: 999px; background: #ff4d5e; color: #fff; font-size: 11px; line-height: 18px; }
+.cf-btn b:empty { display: none; }
 .chat-thread { display: flex; gap: 10px; align-items: center; padding: 11px 12px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
 .chat-thread:hover { background: rgba(255,255,255,.025); }
 .chat-thread.active { background: rgba(217,180,81,.09); }
@@ -697,6 +703,10 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
           <div class="chat-list-head">
             <input id="chatQ" placeholder="Search username or name">
             <button class="btn small" id="chatNewBtn">+ New</button>
+          </div>
+          <div class="chat-filter" role="tablist" aria-label="Filter chats">
+            <button type="button" class="cf-btn on" data-chat-filter="all" role="tab" aria-selected="true">All</button>
+            <button type="button" class="cf-btn" data-chat-filter="needs_reply" role="tab" aria-selected="false"><i></i>Needs reply <b id="chatNeedCount"></b></button>
           </div>
           <div class="chat-list-scroll" id="chatThreads"><p class="muted" style="padding:14px">Loading&hellip;</p></div>
         </div>
@@ -2684,10 +2694,24 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
   $('chatQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadChats(); });
   $('chatBack') && ($('chatBack').onclick = function () { $('chatWrap').classList.remove('viewing'); });
 
+  // All / Needs reply filter (remembered while the admin page stays open).
+  var chatFilter = 'all';
+  Array.prototype.forEach.call(document.querySelectorAll('[data-chat-filter]'), function (b) {
+    b.onclick = function () {
+      chatFilter = b.getAttribute('data-chat-filter');
+      Array.prototype.forEach.call(document.querySelectorAll('[data-chat-filter]'), function (x) {
+        var on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-selected', String(on));
+      });
+      $('chatThreads').scrollTop = 0;
+      loadChats();
+    };
+  });
+
   function loadChats() {
-    api('/api/admin/chat/threads', { q: $('chatQ').value.trim() }).then(function (res) {
+    api('/api/admin/chat/threads', { q: $('chatQ').value.trim(), filter: chatFilter }).then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load messages.', true); return; }
       setChatBadge(res.waiting_total != null ? res.waiting_total : (res.unread_total || 0));
+      var nc = $('chatNeedCount'); if (nc) nc.textContent = res.waiting_total ? String(res.waiting_total) : '';
       var el = $('chatThreads');
       el.innerHTML = (res.threads || []).map(function (t) {
         // Unread count, or a red "waiting" tag when the newest message is still from the player
@@ -2704,7 +2728,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
           '<div class="ct-main"><div class="ct-name">' + nameHtml + '</div>' +
           '<div class="ct-last">' + esc(String(t.last_body || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40)) + '</div></div>' +
           '<div class="ct-right"><div class="ct-time">' + sgt(t.last_msg_at).slice(5) + '</div>' + unread + '</div></div>';
-      }).join('') || '<p class="muted" style="padding:14px">No conversations yet.</p>';
+      }).join('') || '<p class="muted" style="padding:14px">' + (chatFilter === 'needs_reply' ? '✅ All caught up — no chats waiting for a reply.' : 'No conversations yet.') + '</p>';
       Array.prototype.forEach.call(el.querySelectorAll('[data-chat-open]'), function (b) {
         b.onclick = function () { openConv(Number(b.getAttribute('data-chat-open')), b.getAttribute('data-chat-user'), b.getAttribute('data-chat-tag'), b.getAttribute('data-chat-phone') || '', b.getAttribute('data-chat-code') || ''); };
       });
