@@ -2384,6 +2384,19 @@ async function refClickStats(env: Env, referrerId: number): Promise<{ total: num
   return out;
 }
 
+// ---- Live Chat "waiting for reply" -------------------------------------------
+// A chat waits for a reply while its newest message (ignoring automatic "System"
+// messages and deleted ones) is from the player. Opening the chat does NOT clear
+// it; only a real staff reply does.
+const LAST_REAL_SENDER_SQL = "(SELECT m.sender FROM chat_messages m WHERE m.player_id = cs.player_id AND m.deleted_at IS NULL AND NOT (m.sender = 'admin' AND COALESCE(m.admin_username, '') = 'System') ORDER BY m.id DESC LIMIT 1)";
+async function chatWaitingCount(env: Env): Promise<number> {
+  try {
+    await ensureGuestChat(env);
+    const r = await env.DB.prepare('SELECT COUNT(*) AS c FROM chat_state cs LEFT JOIN chat_guests g ON cs.player_id < 0 AND g.id = -cs.player_id WHERE (cs.player_id > 0 OR g.linked_player_id IS NULL) AND ' + LAST_REAL_SENDER_SQL + " = 'player'").first<{ c: number }>();
+    return Number(r?.c) || 0;
+  } catch { return 0; }
+}
+
 async function ensureReferralTables(env: Env): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', points_added INTEGER NOT NULL DEFAULT 0, added_by TEXT, rewarded_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))"),
@@ -4942,7 +4955,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const chatUnread = await env.DB.prepare('SELECT COALESCE(SUM(admin_unread), 0) AS s FROM chat_state').first<{ s: number }>().catch(() => null);
       const pendingWithdrawals = await env.DB.prepare("SELECT COUNT(*) AS c FROM withdrawals WHERE status = 'pending'").first<{ c: number }>().catch(() => null);
       const pendingDepReq = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE status = 'pending'").first<{ c: number }>().catch(() => null);
-      return json({ ok: true, role: auth.role, perms: isManager ? GRANTABLE_PERMS.slice() : auth.perms, players: players?.c ?? 0, active_today: activeToday?.c ?? 0, points_total: pointsTotal?.s ?? 0, tasks: tasks?.c ?? 0, pending_deposit_requests: pendingDepReq?.c ?? 0, pending_payouts: pendingPayouts?.c ?? 0, pending_withdrawals: pendingWithdrawals?.c ?? 0, chat_unread: chatUnread?.s ?? 0 }, 200, rid);
+      return json({ ok: true, role: auth.role, perms: isManager ? GRANTABLE_PERMS.slice() : auth.perms, players: players?.c ?? 0, active_today: activeToday?.c ?? 0, points_total: pointsTotal?.s ?? 0, tasks: tasks?.c ?? 0, pending_deposit_requests: pendingDepReq?.c ?? 0, pending_payouts: pendingPayouts?.c ?? 0, pending_withdrawals: pendingWithdrawals?.c ?? 0, chat_unread: chatUnread?.s ?? 0, chat_waiting: await chatWaitingCount(env) }, 200, rid);
     }
 
     case '/api/admin/player/verify': {
@@ -6102,6 +6115,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       await ensureGuestChat(env);
       const buildSql = (tagCol: boolean) => `SELECT cs.player_id, cs.last_msg_at, cs.admin_unread, p.username, p.display_name${tagCol ? ', p.tag' : ''},
           g.name AS guest_name, g.phone AS guest_phone, g.player_code AS guest_code,
+          (${LAST_REAL_SENDER_SQL} = 'player') AS needs_reply,
           (SELECT COALESCE(m.body, '[image]') FROM chat_messages m WHERE m.player_id = cs.player_id ORDER BY m.id DESC LIMIT 1) AS last_body
         FROM chat_state cs LEFT JOIN players p ON p.id = cs.player_id LEFT JOIN chat_guests g ON cs.player_id < 0 AND g.id = -cs.player_id
         WHERE (cs.player_id > 0 OR g.linked_player_id IS NULL)${q ? ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ? OR lower(g.name) LIKE ? OR g.phone LIKE ? OR lower(g.player_code) LIKE ?)' : ''} ORDER BY cs.last_msg_at DESC LIMIT 50 OFFSET ?`;
@@ -6113,7 +6127,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         ({ results } = await env.DB.prepare(buildSql(false)).bind(...binds).all());
       }
       const unread = await env.DB.prepare('SELECT COALESCE(SUM(admin_unread), 0) AS s FROM chat_state').first<{ s: number }>();
-      return json({ ok: true, threads: results || [], unread_total: unread?.s ?? 0 }, 200, rid);
+      return json({ ok: true, threads: results || [], unread_total: unread?.s ?? 0, waiting_total: await chatWaitingCount(env) }, 200, rid);
     }
 
     case '/api/admin/chat/list': {
@@ -6260,7 +6274,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       }
       await env.DB.prepare(
         'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime(\'now\'), 0, 1) ' +
-        'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1',
+        'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1, admin_unread = 0', // staff replied = staff has read it
       ).bind(pid).run();
       if (pid > 0) { try { await pushToPlayer(env, pid, { title: 'LE888 Support', body: 'You have a new message.' }, { title: 'LE888 客服', body: '你有一条新消息。' }); } catch { /* best-effort */ } }
       await pruneChat(env, pid);
@@ -6286,7 +6300,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const ins = await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, admin_username, body, image_url) VALUES (?, ?, ?, ?, ?)').bind(pid, 'admin', admin, text || null, imageUrl || null).run();
       await env.DB.prepare(
         'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime(\'now\'), 0, 1) ' +
-        'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1',
+        'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1, admin_unread = 0', // staff replied = staff has read it
       ).bind(pid).run();
       // Best-effort push so the player sees the reply even with the app closed.
       try {
