@@ -1,5 +1,5 @@
 // ============================================================================
-// TR666 Points - Cloudflare Worker backend (hardened)
+// LE888 Points - Cloudflare Worker backend (hardened)
 // One Worker handles: player page, admin page, player APIs, admin APIs,
 // and static assets. No Telegram. Players sign in with username + password.
 //
@@ -31,9 +31,9 @@ export interface Env {
   // Optional R2 bucket for chat image uploads. If not bound, image uploads
   // are disabled but text chat still works.
   CHAT_IMAGES?: R2BucketLite;
-  // Google Sheet link (TR666 customer sheet). Both set as Cloudflare Secrets.
+  // Google Sheet link (LE888 CUSTOMER DATA). Both set as Cloudflare Secrets.
   // SHEET_URL = the Apps Script web-app link; SHEET_SECRET = same secret as in
-  // the script. If either is missing, everything still works (sheet sync is off).
+  // the script. If either is missing, sign-up still works (sheet sync is off).
   SHEET_URL?: string;
   SHEET_SECRET?: string;
 }
@@ -65,16 +65,20 @@ interface PlayerRow {
 
 const ADMIN_SESSION_SECONDS = 24 * 60 * 60; // 24 hours
 const PLAYER_SESSION_SECONDS = 30 * 24 * 60 * 60; // 30 days
-const ALLOWED_GAMES = ['wheel', 'plinko', 'egg', 'scratch'] as const;
+const ALLOWED_GAMES = ['wheel', 'plinko', 'scratch', 'cross', 'crown'] as const;
+// Lucky Crossing: a cash-out ladder. Its `prizes` are LANES — cents = the lane's prize, w = survive % (0-100].
+const CROSS_MAX_LANES = 6;
 const MAX_PRIZES = 10;          // per game, enforced server-side on save
 const TOTAL_WEIGHT = 100;       // prize weights must add up to exactly this
 const MAX_BODY_BYTES = 192 * 1024; // 192 KB request body cap (templates can embed images)
 
 const GAME_LABELS: Record<string, string> = {
-  wheel: 'Lucky Wheel',
-  plinko: 'Plinko',
-  egg: 'Smash the Egg',
-  scratch: 'Scratch Card',
+  wheel: 'LE888 Spin',
+  plinko: 'Orange Drop',
+  egg: 'Lucky Vault', // removed game: kept only so old play history still reads correctly
+  scratch: 'LE888 Flip',
+  cross: 'Lucky Crossing',
+  crown: 'Crown Pick',
 };
 
 // GC77-exact game economy. DO NOT CHANGE these values or weights.
@@ -333,6 +337,15 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   if (rawPrizes.length > MAX_PRIZES) {
     return { ok: false, code: 'TOO_MANY_PRIZES', msg: `A game can have at most ${MAX_PRIZES} prizes.` };
   }
+  if (game === 'crown') {
+    const paying = rawPrizes.filter((p) => Math.round(Number((p as any)?.cents)) > 0).length;
+    const zeros = rawPrizes.length - paying;
+    if (paying > 4) return { ok: false, code: 'TOO_MANY_JACKPOTS', msg: 'Crown Pick has 4 jackpots (Grand, Major, Minor, Mini) — add at most 4 paying prizes.' };
+    if (zeros > 1) return { ok: false, code: 'TOO_MANY_ZEROS', msg: 'Crown Pick can have only one 0.00 (no win) prize.' };
+  }
+  if (game === 'cross' && rawPrizes.length > CROSS_MAX_LANES) {
+    return { ok: false, code: 'TOO_MANY_LANES', msg: `Lucky Crossing has ${CROSS_MAX_LANES} lanes — add at most ${CROSS_MAX_LANES} prizes.` };
+  }
 
   const prizes: Prize[] = [];
   let weightSum = 0;
@@ -347,6 +360,9 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
     if (!Number.isFinite(w) || w <= 0) {
       return { ok: false, code: 'BAD_WEIGHT', msg: 'Every prize needs a chance greater than 0.' };
     }
+    if (game === 'cross' && w > 100) {
+      return { ok: false, code: 'BAD_SURVIVE', msg: 'Survive chance cannot be more than 100%.' };
+    }
     if (cents > 0) anyPaying = true;
     weightSum += w;
     prizes.push({ cents, w });
@@ -354,6 +370,8 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   if (!anyPaying) {
     return { ok: false, code: 'NO_PAYING_PRIZE', msg: 'At least one prize must pay more than 0.00.' };
   }
+  // Lucky Crossing: each lane's w is its own survive %, so there is no total to check.
+  if (game === 'cross') return { ok: true, cost, prizes };
   // Exactly 100, allowing for the tiny error you get with decimals like 33.33.
   if (Math.abs(weightSum - TOTAL_WEIGHT) > 0.001) {
     return { ok: false, code: 'BAD_WEIGHT_SUM', msg: `Chances must add up to 100%. They currently add up to ${(Math.round(weightSum * 1000) / 1000)}%.` };
@@ -361,6 +379,12 @@ function validateGameInput(game: string, rawCost: unknown, rawPrizes: unknown): 
   return { ok: true, cost, prizes };
 }
 
+// Lucky Crossing: value of the best stopping strategy (prize of lane k x chance of surviving lanes 1..k).
+function crossBestValueCents(lanes: Prize[]): number {
+  let p = 1, best = 0;
+  for (const l of lanes) { p *= Math.max(0, Math.min(100, l.w)) / 100; best = Math.max(best, l.cents * p); }
+  return best;
+}
 // Expected payout in cents for one play.
 function expectedPayoutCents(prizes: Prize[]): number {
   const total = prizes.reduce((s, p) => s + p.w, 0) || 1;
@@ -455,6 +479,8 @@ const POINT_TYPES = {
   VIP_UPGRADE: 'vip_upgrade',
   ADMIN_CORRECTION: 'admin_correction',
   SYSTEM_ADJUSTMENT: 'system_adjustment',
+  REFERRAL: 'referral',
+  REFERRAL_BONUS: 'referral_bonus',
 } as const;
 
 // Daily check-in reward schedule (points for day 1..7 of the streak). DO NOT
@@ -472,20 +498,22 @@ function checkinPointsForStreak(streak: number, rewards: number[] = CHECKIN_REWA
 }
 // Default minimum qualifying deposit (SGD) to unlock a day's check-in.
 const CHECKIN_MIN_DEPOSIT_DEFAULT = 10;
+// How far back staff may date a deposit in Manage -> Deposits.
+const DEPOSIT_BACKDATE_DAYS = 90;
 
 // VIP ranks. DO NOT CHANGE. Rank is based on total deposits recorded in the
 // current month (Singapore time).
 const VIP_RANKS = [
-  { name: 'Bronze', deposit: 500, weekly: 5, upgrade: 2 },
+  { name: 'Member', deposit: 500, weekly: 5, upgrade: 2 },
   { name: 'Silver', deposit: 1500, weekly: 12, upgrade: 4 },
   { name: 'Gold', deposit: 3000, weekly: 35, upgrade: 11 },
-  { name: 'Ruby', deposit: 6000, weekly: 60, upgrade: 18 },
+  { name: 'Platinum', deposit: 6000, weekly: 60, upgrade: 18 },
   { name: 'Diamond', deposit: 12000, weekly: 100, upgrade: 30 },
   { name: 'Royal', deposit: 25000, weekly: 160, upgrade: 48 },
-  { name: 'TR666 King', deposit: 50000, weekly: 250, upgrade: 75 },
+  { name: 'Legend', deposit: 50000, weekly: 250, upgrade: 75 },
 ] as const;
-// Badge image key per rank (same order as VIP_RANKS). Served at /img/<key>.webp.
-const VIP_RANK_KEYS = ['bronze', 'silver', 'gold', 'ruby', 'diamond', 'royal', 'king'] as const;
+// Badge image key per rank (same order as VIP_RANKS). The app shows /assets/vip-<key>.webp.
+const VIP_RANK_KEYS = ['member', 'silver', 'gold', 'platinum', 'diamond', 'royal', 'legend'] as const;
 
 // VIP weekly + tier-upgrade bonus AMOUNTS are editable by a manager in the admin
 // (stored in `vip_rewards`, one row per rank). Rank names and deposit thresholds
@@ -579,7 +607,7 @@ const CSP = [
   "base-uri 'none'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "img-src 'self' data:",
+  "img-src 'self' data: blob: https:",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   // The player/admin apps ship a single inline <script>. 'unsafe-inline' is
@@ -614,7 +642,7 @@ const INSTALL_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a0a0f">
-<title>Install TR666</title>
+<title>Install LE888</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -698,8 +726,8 @@ const INSTALL_HTML = `<!doctype html>
 <body>
   <div class="wrap">
     <div class="card">
-      <img class="crest" src="/icon-192.png" alt="TR666">
-      <h1>TR666</h1>
+      <img class="crest" src="/icon-192.png" alt="LE888">
+      <h1>LE888</h1>
       <div class="rule"></div>
       <p class="sub">Install the app on your phone</p>
 
@@ -728,7 +756,7 @@ const INSTALL_HTML = `<!doctype html>
         <p class="hint">On Android, please use <b style="color:#e7c56b">Chrome</b>.</p>
         <div class="step"><div class="num">1</div><p>Tap the <b>menu</b> (the three dots at the top right of Chrome).</p></div>
         <div class="step"><div class="num">2</div><p>Tap <b>Install and create shortcut</b> (may also say <b>Add to Home screen</b> or <b>Install app</b>).</p></div>
-        <div class="step"><div class="num">3</div><p>Tap <b>Install</b> (or <b>Add</b>). The TR666 icon appears on your home screen.</p></div>
+        <div class="step"><div class="num">3</div><p>Tap <b>Install</b> (or <b>Add</b>). The LE888 icon appears on your home screen.</p></div>
         <a class="cta" href="/">Open the app now</a>
         <div id="vidbox-a">
           <div class="vidlabel">Watch: install guide</div>
@@ -745,7 +773,7 @@ const INSTALL_HTML = `<!doctype html>
         <div class="step"><div class="num">1</div><p>Open <b class="hostname">this website</b> in Safari.</p></div>
         <div class="step"><div class="num">2</div><p>Tap the <b>Share</b> button (a square with an arrow pointing up).</p></div>
         <div class="step"><div class="num">3</div><p>Scroll down and tap <b>Add to Home Screen</b>.</p></div>
-        <div class="step"><div class="num">4</div><p>Tap <b>Add</b>. The TR666 icon appears on your home screen.</p></div>
+        <div class="step"><div class="num">4</div><p>Tap <b>Add</b>. The LE888 icon appears on your home screen.</p></div>
         <a class="cta" href="/">Open in Safari now</a>
         <div id="vidbox">
           <div class="vidlabel">Watch: 30-second guide</div>
@@ -799,24 +827,860 @@ const INSTALL_HTML = `<!doctype html>
 // Entry point
 // ---------------------------------------------------------------------------
 
+// ===== Member API bridge (step 2) — new frontend (cookie session) -> your real
+// players backend. Verifies the real password, stores your signed player token in
+// an HttpOnly cookie, and returns real points + points-ledger. Reward credits stay
+// separate (not shown here). Games/deposits/withdrawals remain their own flows.
+// Lucky Crossing rounds. Created on first use so no manual migration is needed
+// (also listed in schema.sql for reference).
+let crossTableReady = false;
+async function ensureCrossTable(env: Env): Promise<void> {
+  if (crossTableReady) return;
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS cross_rounds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player_id INTEGER NOT NULL,
+      round_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      lane INTEGER NOT NULL DEFAULT 0,
+      cost INTEGER NOT NULL,
+      win_cents INTEGER NOT NULL DEFAULT 0,
+      ladder_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(player_id, round_id)
+    )`,
+  ).run();
+  try { await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_cross_rounds_player_status ON cross_rounds (player_id, status)').run(); } catch { /* ignore */ }
+  crossTableReady = true;
+}
+
+async function handleMember(request: Request, env: Env, url: URL, ctx: ExecutionContext, rid: string): Promise<Response> {
+  const p = url.pathname;
+  const method = request.method.toUpperCase();
+  const COOKIE = 'le888sid';
+  const ip = clientIp(request);
+  function j(data: unknown, status: number, cookie?: string): Response {
+    const r = new Response(JSON.stringify(data), {
+      status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+    // Staff "View app" tab: never touch the browser's own player cookie.
+    if (cookie !== undefined && !impToken()) {
+      const maxAge = cookie ? PLAYER_SESSION_SECONDS : 0;
+      r.headers.append('Set-Cookie', COOKIE + '=' + cookie + '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=' + maxAge);
+    }
+    return r;
+  }
+  // "View app" (staff acting as a player) sends the short-lived player token
+  // in this header, from ONE browser tab only. It wins over the cookie so the
+  // staff see the chosen player, not whoever is logged in on this browser.
+  function impToken(): string {
+    const t = (request.headers.get('X-LE888-Imp') || '').trim();
+    return /^[A-Za-z0-9._~+\/=-]{20,2000}$/.test(t) ? t : '';
+  }
+  function cookieToken(): string {
+    const imp = impToken();
+    if (imp) return imp;
+    const c = request.headers.get('Cookie') || '';
+    for (const part of c.split(/;\s*/)) {
+      if (part.indexOf(COOKIE + '=') === 0) return part.slice(COOKIE.length + 1);
+    }
+    return '';
+  }
+  async function currentPlayer(): Promise<PlayerRow | null> {
+    const tok = cookieToken();
+    if (!tok) return null;
+    const claim = await verifyToken(env, tok, 'player');
+    if (!claim) return null;
+    const row = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(Number(claim.sub)).first<PlayerRow>();
+    if (!row || (row.session_version || 1) !== claim.ver) return null;
+    return row;
+  }
+  function isoDate(s: unknown): string {
+    const v = String(s || '');
+    if (!v) return new Date().toISOString();
+    if (v.indexOf('Z') !== -1 || v.indexOf('T') !== -1) return v;
+    return v.replace(' ', 'T') + 'Z';
+  }
+
+  // ---- SELF SIGN-UP (player creates their own account) ----
+  // Player ID = next free LE number (system + Google Sheet). One account per
+  // phone number. Bank details are saved + locked (staff can still edit).
+  if (p === '/api/member/register' && method === 'POST') {
+    const st = await getSettings(env);
+    if (String(st.signup_enabled ?? '1') === '0') return j({ error: 'Sign-up is closed right now. Please contact customer service.' }, 403);
+    if (!(await rateLimit(env, 'signup:ip:' + ip, 30, 3600))) return j({ error: 'Too many attempts. Please try again later or contact customer service.' }, 429);
+    let b: any = {};
+    try { b = await request.json(); } catch (e) { /* ignore */ }
+    const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const phone = normalizePhone(b.phone);
+    const paynowRaw = String(b.paynow || '').replace(/[\s-]+/g, '').trim().slice(0, 30);
+    const paynow = /^\+?\d{8,15}$/.test(paynowRaw) ? normalizePhone(paynowRaw) : paynowRaw.toUpperCase();
+    const holder = String(b.bank_holder || '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 60);
+    const account = String(b.bank_account || '').trim().slice(0, 40);
+    const bankType = String(b.bank_type || '').trim().toUpperCase();
+    const password = String(b.password || '');
+    if (name.length < 2) return j({ error: 'Please enter your name.' }, 400);
+    if (!validPhone(phone)) return j({ error: 'Please enter a valid phone number, e.g. 91234567.' }, 400);
+    if (!paynow || paynow.replace(/[^0-9A-Za-z]/g, '').length < 8) return j({ error: 'Please enter your PayNow number (mobile number or UEN).' }, 400);
+    if (!holder) return j({ error: 'Please enter the name on your bank account.' }, 400);
+    if (!/^[0-9A-Za-z#\-\s./]{5,40}$/.test(account)) return j({ error: 'Please enter a valid bank account number (numbers and letters only).' }, 400);
+    if (SIGNUP_BANKS.indexOf(bankType) === -1) return j({ error: 'Please choose your bank.' }, 400);
+    if (password.length < 8) return j({ error: 'Password must be at least 8 characters.' }, 400);
+    // One account per phone number (compare digits only).
+    const dup = await env.DB.prepare("SELECT id FROM players WHERE replace(replace(replace(replace(COALESCE(whatsapp,''),' ',''),'+',''),'-',''),'.','') IN (?, ?) LIMIT 1")
+      .bind(phone, phone.replace(/^65(?=[89]\d{7}$)/, '')).first();
+    if (dup) return j({ error: 'This phone number is already registered. Please log in, or contact customer service if you forgot your Player ID.' }, 409);
+    // Referral link: le888ref cookie (set by /r/<id>) or the ?ref= the page sends.
+    let refRow: { id: number; username: string } | null = null;
+    {
+      const ck = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)le888ref=([^;]+)/);
+      let ckVal = ''; try { ckVal = ck ? decodeURIComponent(ck[1]) : ''; } catch { ckVal = ''; }
+      // Same order as the sign-up page shows: the link's ?ref= first, then the remembered cookie.
+      const refCode = normalizeUsername(b.ref || ckVal || '');
+      if (refCode) { try { refRow = await env.DB.prepare("SELECT id, username FROM players WHERE username = ? AND status = 'active'").bind(refCode).first<{ id: number; username: string }>(); } catch { refRow = null; } }
+    }
+    // Only checked (valid, new-phone) sign-ups count here: max 10 new accounts / hour / network.
+    if (!(await rateLimit(env, 'signup-ok:ip:' + ip, 10, 3600))) return j({ error: 'Too many new accounts from this network. Please try again later or contact customer service.' }, 429);
+    const hash = await hashPassword(password);
+    await ensureVerifyCols(env);
+    let created: { id: number; username: string };
+    try {
+      created = await insertPlayerWithNextId(env, async (username) => {
+        const ins = await env.DB.prepare("INSERT INTO players (username, password, display_name, whatsapp, tag, bank_name, bank_account, bank_holder, paynow_number, bank_locked, bank_verified) VALUES (?, ?, ?, ?, 'SELF SIGNUP', ?, ?, ?, ?, 1, 0)")
+          .bind(username, hash, name, phone, bankType, account, holder, paynow).run();
+        return Number(ins.meta.last_row_id);
+      });
+    } catch (e) {
+      return j({ error: 'Could not create your account right now. Please try again.' }, 500);
+    }
+    let referredBy = '';
+    if (refRow && refRow.id !== created.id) {
+      try { const err = await linkReferral(env, refRow.id, created.id, 'signup link'); if (!err) referredBy = refRow.username.toUpperCase(); } catch { /* best-effort */ }
+    }
+    const row: SheetRow = { code: created.username.toUpperCase(), contact: phone, paynow, holder, account, bankType, referral: referredBy || undefined };
+    ctx.waitUntil(sheetPushRow(env, created.id, row).then(() => flushSheetQueue(env, 10)).catch(() => {}));
+    const token = await signToken(env, 'player', String(created.id), 1, PLAYER_SESSION_SECONDS);
+    const resp = j({ ok: true, username: created.username.toUpperCase(), referred_by: referredBy || null }, 200, token);
+    resp.headers.append('Set-Cookie', 'le888ref=; Path=/; SameSite=Lax; Secure; Max-Age=0');
+    return resp;
+  }
+
+  // ---- GUEST LIVE CHAT (login page, no account) ----
+  if (p.indexOf('/api/member/guest-chat/') === 0 && method === 'POST') {
+    const st = await getSettings(env);
+    if (!guestChatOn(st)) return j({ error: 'Live chat is not available right now.' }, 403);
+    let b: any = {};
+    try { b = await request.json(); } catch (e) { /* ignore */ }
+    await ensureGuestChat(env);
+
+    if (p === '/api/member/guest-chat/start') {
+      const name = String(b.name || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      // Two kinds of guest: "Forgot password?" gives their Player ID; everyone else gives a phone number.
+      const forgot = b.player_id !== undefined;
+      const code = forgot ? normalizeUsername(String(b.player_id || '').trim()) : null;
+      const phone = forgot ? '' : normalizePhone(b.phone);
+      if (name.length < 2) return j({ error: 'Please enter your full name.' }, 400);
+      if (forgot && !code) return j({ error: 'Please enter your LE888 Player ID, e.g. LE10695.' }, 400);
+      if (!forgot && !validPhone(phone)) return j({ error: 'Please enter your phone number with country code, e.g. 6591234567.' }, 400);
+      if (!(await rateLimit(env, 'guestchat-start:ip:' + ip, 10, 3600))) return j({ error: 'Too many chats started. Please try again later.' }, 429);
+      const token = b64urlEncode(crypto.getRandomValues(new Uint8Array(24)));
+      const ins = await env.DB.prepare("INSERT INTO chat_guests (name, phone, token_hash, ip, last_seen_at, player_code) VALUES (?, ?, ?, ?, datetime('now'), ?)")
+        .bind(name, phone, await sha256HexStr(token), ip.slice(0, 64), code ? code.toUpperCase() : null).run();
+      // First message = the details they typed, so staff (and the guest) see them in the chat itself.
+      const gNew = -Number(ins.meta.last_row_id);
+      const intro = (b.topic === 'forgot' ? '🔑 Forgot password\n' : '') +
+        (forgot ? '👤 Existing LE888 player\nName: ' + name + '\nPlayer ID: ' + String(code).toUpperCase()
+                : '✨ New player\nName: ' + name + '\nPhone: +' + phone);
+      try {
+        await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, body) VALUES (?, ?, ?)').bind(gNew, 'player', intro).run();
+        await env.DB.prepare("INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime('now'), 1, 0) ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime('now'), admin_unread = admin_unread + 1").bind(gNew).run();
+      } catch { /* chat still works without the intro */ }
+      return j({ ok: true, token, name, guest_id: Number(ins.meta.last_row_id) }, 200);
+    }
+
+    const guest = await guestFromToken(env, request.headers.get('X-LE888-Guest') || b.token || '');
+    if (!guest) return j({ error: 'Chat not found. Please start a new chat.', reset: true }, 401);
+    if (guest.linked_player_id) return j({ ok: true, linked: true, messages: [] }, 200);
+    const gid = -guest.id;
+
+    if (p === '/api/member/guest-chat/list') {
+      const afterId = Number(b.after_id) || 0;
+      const r = afterId > 0
+        ? await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND id > ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').bind(gid, afterId).all()
+        : await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 100').bind(gid).all();
+      const messages = afterId > 0 ? (r.results || []) : (r.results || []).reverse();
+      const d = await env.DB.prepare("SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NOT NULL AND deleted_at > datetime('now','-1 day')").bind(gid).all<{ id: number }>();
+      if (b.mark_read !== false) await env.DB.prepare('UPDATE chat_state SET player_unread = 0 WHERE player_id = ?').bind(gid).run();
+      return j({ ok: true, name: guest.name, messages, deleted_ids: (d.results || []).map((x) => x.id) }, 200);
+    }
+
+    if (p === '/api/member/guest-chat/send') {
+      const text = String(b.body || '').trim().slice(0, 1000);
+      if (!text) return j({ error: 'Message is empty.' }, 400);
+      if (!(await rateLimit(env, 'guestchat:' + guest.id, 20, 300))) return j({ error: 'Too many messages. Please slow down.' }, 429);
+      if (!(await rateLimit(env, 'guestchat-ip:' + ip, 60, 3600))) return j({ error: 'Too many messages. Please try again later.' }, 429);
+      const ins = await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, body) VALUES (?, ?, ?)').bind(gid, 'player', text).run();
+      await env.DB.prepare(
+        "INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime('now'), 1, 0) " +
+        "ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime('now'), admin_unread = admin_unread + 1",
+      ).bind(gid).run();
+      await env.DB.prepare("UPDATE chat_guests SET last_seen_at = datetime('now') WHERE id = ?").bind(guest.id).run();
+      await pruneChat(env, gid);
+      return j({ ok: true, id: ins.meta.last_row_id }, 200);
+    }
+    return j({ error: 'Not found' }, 404);
+  }
+
+  // ---- RED NUMBER BADGES (things waiting for the player) ----
+  // "Claim" counts stay until claimed; "done" counts (deposit / withdrawal /
+  // free credit decided) clear when the player opens that page (badges/seen).
+  if (p === '/api/member/badges' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const pid = player.id;
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS badge_seen (player_id INTEGER NOT NULL, kind TEXT NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY (player_id, kind))').run();
+    const seenRows = await env.DB.prepare('SELECT kind, seen_at FROM badge_seen WHERE player_id = ?').bind(pid).all<{ kind: string; seen_at: string }>();
+    const seen: Record<string, string> = {};
+    for (const r of seenRows.results || []) seen[r.kind] = r.seen_at;
+    // First time: start counting from now, so old history doesn't light up.
+    for (const k of ['deposit', 'withdraw', 'wallet']) {
+      if (!seen[k]) { await env.DB.prepare("INSERT OR IGNORE INTO badge_seen (player_id, kind, seen_at) VALUES (?, ?, datetime('now'))").bind(pid, k).run(); seen[k] = '9999'; }
+    }
+    const safe = async <T>(fn: () => Promise<T>, d: T): Promise<T> => { try { return await fn(); } catch { return d; } };
+    const settings = await getSettings(env);
+    const [checkin, vipWeekly, bonus, promos, submit, depDone, wdDone, fcDone] = await Promise.all([
+      safe(async () => ((await checkinStatus(env, pid, settings)).can_check_in ? 1 : 0), 0),
+      safe(async () => {
+        const vip = await getVipStatus(env, pid);
+        if (vip.rank_idx < 0) return 0;
+        const rank = (await getRanks(env))[vip.rank_idx];
+        if (!rank || !(Number(rank.weekly) > 0)) return 0;
+        const c = await env.DB.prepare('SELECT 1 AS x FROM vip_weekly_claims WHERE player_id = ? AND week_key = ?').bind(pid, vip.week_key).first();
+        return c ? 0 : 1;
+      }, 0),
+      safe(async () => (await depositBonusStatus(env, pid)).tiers.filter((t: any) => t.reached && !t.claimed).length, 0),
+      safe(async () => {
+        const today = sgtDateKey();
+        const { results } = await env.DB.prepare('SELECT id, access, limit_type, limit_count FROM promos WHERE active = 1').all<any>();
+        let n = 0;
+        for (const pr of results || []) {
+          if (pr.access === 'gated') {
+            const a = await env.DB.prepare("SELECT COUNT(*) AS c FROM promo_unlocks WHERE player_id = ? AND promo_id = ? AND status = 'available'").bind(pid, pr.id).first<{ c: number }>();
+            n += Number(a?.c || 0) > 0 ? 1 : 0;
+          } else {
+            const c = pr.limit_type === 'day'
+              ? await env.DB.prepare('SELECT COUNT(*) AS c FROM promo_claims WHERE player_id = ? AND promo_id = ? AND day_key = ?').bind(pid, pr.id, today).first<{ c: number }>()
+              : await env.DB.prepare('SELECT COUNT(*) AS c FROM promo_claims WHERE player_id = ? AND promo_id = ?').bind(pid, pr.id).first<{ c: number }>();
+            if (Number(c?.c || 0) < Math.max(1, Number(pr.limit_count) || 1)) n++;
+          }
+        }
+        return n;
+      }, 0),
+      safe(async () => {
+        if (!(Number(player.reward_cents) > 0)) return 0;
+        const pend = await env.DB.prepare("SELECT 1 AS x FROM payout_requests WHERE player_id = ? AND status = 'pending' LIMIT 1").bind(pid).first();
+        return pend ? 0 : 1;
+      }, 0),
+      safe(async () => Number((await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE player_id = ? AND status IN ('approved','rejected') AND decided_at > ?").bind(pid, seen.deposit).first<{ c: number }>())?.c || 0), 0),
+      safe(async () => Number((await env.DB.prepare("SELECT COUNT(*) AS c FROM withdrawals WHERE player_id = ? AND status IN ('approved','rejected') AND decided_at > ?").bind(pid, seen.withdraw).first<{ c: number }>())?.c || 0), 0),
+      safe(async () => Number((await env.DB.prepare("SELECT COUNT(*) AS c FROM payout_requests WHERE player_id = ? AND status IN ('approved','rejected') AND decided_at > ?").bind(pid, seen.wallet).first<{ c: number }>())?.c || 0), 0),
+    ]);
+    // Everything claimable lives on the Rewards page (check-in, VIP weekly, deposit bonus, promos).
+    const rewards = checkin + vipWeekly + bonus + promos;
+    const out = {
+      rewards, vip: 0, wallet: submit + fcDone, deposit: depDone, withdraw: wdDone,
+      detail: { checkin, vip_weekly: vipWeekly, deposit_bonus: bonus, promos, reward_submit: submit, deposit_done: depDone, withdraw_done: wdDone, free_credit_done: fcDone },
+      total: rewards + submit + fcDone + depDone + wdDone,
+    };
+    return j({ ok: true, ...out }, 200);
+  }
+  if (p === '/api/member/badges/seen' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (impToken()) return j({ ok: true, skipped: 'staff view' }, 200); // staff "View app" never clears the player's dots
+    let b: any = {};
+    try { b = await request.json(); } catch (e) { /* ignore */ }
+    const kind = String(b.kind || '');
+    if (['deposit', 'withdraw', 'wallet'].indexOf(kind) === -1) return j({ error: 'Bad kind' }, 400);
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS badge_seen (player_id INTEGER NOT NULL, kind TEXT NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY (player_id, kind))').run();
+    await env.DB.prepare("INSERT INTO badge_seen (player_id, kind, seen_at) VALUES (?, ?, datetime('now')) ON CONFLICT(player_id, kind) DO UPDATE SET seen_at = excluded.seen_at").bind(player.id, kind).run();
+    return j({ ok: true }, 200);
+  }
+
+  // ---- LOGIN (real password check; token goes into an HttpOnly cookie) ----
+  if (p === '/api/member/login' && method === 'POST') {
+    let body: { username?: unknown; password?: unknown } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const username = normalizeUsername(body.username);
+    const password = String((body && body.password) || '');
+    if (!username || !password) return j({ error: 'Invalid username or password.' }, 401);
+    const lockKey = 'login:player:' + username;
+    if ((await isLockedOut(env, lockKey)) || !(await rateLimit(env, 'login:ip:' + ip, 30, 300))) {
+      return j({ error: 'Too many attempts. Please try again later.' }, 429);
+    }
+    const row = await env.DB.prepare('SELECT * FROM players WHERE username = ?').bind(username).first<PlayerRow>();
+    if (!row || !(await verifyPassword(password, row.password))) {
+      await recordAuthFail(env, lockKey, 8, 900);
+      return j({ error: 'Invalid username or password.' }, 401);
+    }
+    if (row.status !== 'active') return j({ error: 'This account is not active. Please contact support.' }, 403);
+    await clearAuthFail(env, lockKey);
+    const token = await signToken(env, 'player', String(row.id), row.session_version || 1, PLAYER_SESSION_SECONDS);
+    return j({ ok: true }, 200, token);
+  }
+
+  // ---- ME (real points + points-ledger) ----
+  // ---- GUEST BROWSING: same shape as /me, but no account (nothing private) ----
+  if (p === '/api/member/guest' && method === 'GET') {
+    const games: Record<string, { cost: number; prizes: string[]; enabled: boolean }> = {};
+    try {
+      const pg = await publicGames(env);
+      for (const g of Object.keys(pg.game_prizes)) games[g] = { cost: pg.game_costs[g], prizes: pg.game_prizes[g], enabled: !!pg.game_enabled[g] };
+    } catch { /* none */ }
+    let vip: Record<string, unknown> | null = null;
+    try {
+      const ranks = await getRanks(env);
+      vip = { rank_idx: -1, rank_name: null, deposit_total: 0, month_key: '', next_name: ranks[0] ? ranks[0].name : null, next_deposit: ranks[0] ? ranks[0].deposit : null,
+        ranks: ranks.map((r, i) => ({ name: r.name, key: VIP_RANK_KEYS[i] || 'member', deposit: r.deposit, weekly: r.weekly, upgrade: r.upgrade })) };
+    } catch { vip = null; }
+    const st = await getSettings(env);
+    let noticeLatest = 0;
+    try { const nr = await env.DB.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM broadcasts').first<{ m: number }>(); noticeLatest = Number(nr?.m) || 0; } catch { noticeLatest = 0; }
+    return j({
+      guest: true,
+      member: { username: 'Guest', id: 'GUEST', points: 0, avatar: 0, reward: '0.00', verify_required: false, verify_bank: null },
+      ledger: [], games, vip, chat_unread: 0, notice_latest: noticeLatest,
+      settings: { contact_url: st.contact_url || '', contact_whatsapp: st.contact_whatsapp || '', contact_telegram: st.contact_telegram || '', announcement_text: st.announcement_text || '', terms_text: st.terms_text || '', chat_keep: chatKeepFrom(st), tasks_enabled: st.tasks_enabled === '1', images: false, signup_enabled: String(st.signup_enabled ?? '1') !== '0', guest_chat_enabled: guestChatOn(st) },
+      bank: { bank_name: '', bank_account: '', bank_holder: '', paynow_number: '', locked: true },
+      game_ids: [], free_ids: [],
+      game_platforms: GAME_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+      free_platforms: FREE_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+    }, 200);
+  }
+
+  if (p === '/api/member/me' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if ((player as any).bank_verified === undefined || (player as any).bank_verified === null) {
+      try { await ensureVerifyCols(env); const v = await env.DB.prepare('SELECT bank_verified FROM players WHERE id = ?').bind(player.id).first<{ bank_verified: number | null }>(); (player as any).bank_verified = v ? v.bank_verified : null; } catch { /* ignore */ }
+    }
+    const { results } = await env.DB
+      .prepare('SELECT type, amount, note, created_at FROM point_activity WHERE player_id = ? ORDER BY id DESC LIMIT 100')
+      .bind(player.id)
+      .all<{ type: string; amount: number; note: string | null; created_at: string }>();
+    const ledger = (results || []).map((r) => ({
+      delta: Number(r.amount) || 0,
+      created_at: isoDate(r.created_at),
+      type: r.type,
+      note: r.note || '',
+    }));
+    // Profile shows the DISPLAY NAME (what the player/staff set) as the name, and
+    // the player's USERNAME as the Player ID — matching the admin panel, where the
+    // username IS the Player ID (e.g. le2805). The frontend upper-cases it for display.
+    const displayName = (player.display_name && String(player.display_name).trim()) ? String(player.display_name).trim() : player.username;
+    // Game settings come from the admin-managed `game_configs` table
+    // (Admin -> Games): cost in PTS, prize labels (reward credit, SGD) and
+    // whether the game is switched on. Prize labels are the SAME strings the
+    // play response returns in `win`, so the app can map a result to a pocket.
+    const games: Record<string, { cost: number; prizes: string[]; enabled: boolean }> = {};
+    try {
+      const pg = await publicGames(env);
+      for (const g of Object.keys(pg.game_prizes)) {
+        games[g] = { cost: pg.game_costs[g], prizes: pg.game_prizes[g], enabled: !!pg.game_enabled[g] };
+      }
+    } catch (e) { /* games stay empty -> app shows them as unavailable */ }
+    // VIP rank for the VIP Club page: this month's deposit total decides the rank
+    // (same rule as /api/vip). Names, thresholds and bonuses come from VIP_RANKS
+    // plus the admin-editable bonus amounts, so the app never hard-codes them.
+    let vip: Record<string, unknown> | null = null;
+    try {
+      const vs = await getVipStatus(env, player.id);
+      const ranks = await getRanks(env);
+      const next = vs.rank_idx + 1 < ranks.length ? ranks[vs.rank_idx + 1] : null;
+      vip = {
+        rank_idx: vs.rank_idx,
+        rank_name: vs.rank_idx >= 0 ? ranks[vs.rank_idx].name : null,
+        deposit_total: vs.deposit_total,
+        month_key: vs.month_key,
+        next_name: next ? next.name : null,
+        next_deposit: next ? next.deposit : null,
+        ranks: ranks.map((r, i) => ({ name: r.name, key: VIP_RANK_KEYS[i] || 'member', deposit: r.deposit, weekly: r.weekly, upgrade: r.upgrade })),
+      };
+    } catch (e) { vip = null; }
+    let chatUnread = 0;
+    try { const cs = await env.DB.prepare('SELECT player_unread FROM chat_state WHERE player_id = ?').bind(player.id).first<{ player_unread: number }>(); chatUnread = Number(cs?.player_unread) || 0; } catch { chatUnread = 0; }
+    const appSettings = await getSettings(env);
+    let noticeLatest = 0;
+    try { const nr = await env.DB.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM broadcasts').first<{ m: number }>(); noticeLatest = Number(nr?.m) || 0; } catch { noticeLatest = 0; }
+    return j({
+      member: {
+        username: displayName,
+        id: player.username,
+        points: Number(player.points) || 0,
+        avatar: Math.max(0, Math.min(9, Number((player as any).avatar) || 0)),
+        reward: centsToStr(Number(player.reward_cents) || 0),
+        // Self sign-ups wait for CS to check their bank statement before free credit.
+        verify_required: (player as any).bank_verified === 0,
+        verify_bank: (player as any).bank_verified === 0 ? {
+          bank: String((player as any).bank_name || ''),
+          holder: String((player as any).bank_holder || ''),
+          account_end: String((player as any).bank_account || '').replace(/\s+/g, '').slice(-4),
+        } : null,
+      },
+      ledger,
+      games,
+      vip,
+      chat_unread: chatUnread,
+      notice_latest: noticeLatest,
+      settings: {
+        contact_url: appSettings.contact_url || '',
+        contact_whatsapp: appSettings.contact_whatsapp || '',
+        contact_telegram: appSettings.contact_telegram || '',
+        announcement_text: appSettings.announcement_text || '',
+        terms_text: appSettings.terms_text || '',
+        chat_keep: chatKeepFrom(appSettings),
+        tasks_enabled: appSettings.tasks_enabled === '1',
+        images: !!env.CHAT_IMAGES,
+      },
+      // Bank details for withdrawals. Saved ONCE by the player (first login
+      // gate in the app); afterwards only staff can change them.
+      bank: { bank_name: (player as any).bank_name || '', bank_account: (player as any).bank_account || '', bank_holder: (player as any).bank_holder || '', paynow_number: (player as any).paynow_number || '', locked: !!(player as any).bank_locked },
+      // The player's game accounts (set by staff in Admin -> Players). The home
+      // screen shows the platform names; the profile lists the IDs.
+      game_ids: (await loadGameIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id })),
+      free_ids: (await loadFreeIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id })),
+      game_platforms: GAME_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+      free_platforms: FREE_PLATFORMS.map((k) => ({ key: k, label: GAME_PLATFORM_LABELS[k] })),
+    }, 200);
+  }
+
+  // ---- WITHDRAW (request only; staff pay out manually). Two sources: the
+  // player's open Free Credit ID (amount fixed by the rules locked at approval)
+  // or a Deposit ID (player enters the amount). Bank details are saved once. ----
+  const bridge = async (toPath: string) => {
+    const raw = await request.text();
+    const fwd = new Request(new URL(toPath, request.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip, 'X-LE888-App': request.headers.get('X-LE888-App') || '' },
+      body: raw || '{}',
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  };
+  // Cookie-session bridges to the existing player API. Each one keeps the
+  // original endpoint's rules (rate limits, cooldowns, credit locks).
+  const BRIDGE: Record<string, string> = {
+    '/api/member/chat/list': '/api/chat/list', '/api/member/chat/send': '/api/chat/send',
+    '/api/member/profile': '/api/profile', '/api/member/checkin': '/api/checkin',
+    '/api/member/tasks': '/api/tasks', '/api/member/task/complete': '/api/task/complete',
+    '/api/member/promos': '/api/promos', '/api/member/promos/claim': '/api/promos/claim',
+    '/api/member/deposit-bonus/claim': '/api/deposit-bonus/claim',
+    '/api/member/vip': '/api/vip', '/api/member/vip/claim-weekly': '/api/vip/claim-weekly',
+    '/api/member/reward/submit': '/api/reward/submit', '/api/member/reward/cancel': '/api/reward/cancel',
+    '/api/member/history': '/api/history',
+  };
+  if (BRIDGE[p] && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    return bridge(BRIDGE[p]);
+  }
+  // Chat image: raw bytes passthrough (the old endpoint reads the body itself).
+  if (p === '/api/member/chat/upload' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const bytes = await request.arrayBuffer();
+    const fwd = new Request(new URL('/api/chat/upload', request.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': request.headers.get('content-type') || 'application/octet-stream', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip },
+      body: bytes,
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  // Profile avatar: 0 = default icon, 1..9 = /assets/avatar/avatar-N.webp
+  if (p === '/api/member/avatar' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    let body: any = {};
+    try { body = await request.json(); } catch { body = {}; }
+    const n = Math.floor(Number(body.avatar));
+    if (!Number.isFinite(n) || n < 0 || n > 9) return j({ error: 'Choose an avatar from the list.' }, 400);
+    const save = () => env.DB.prepare("UPDATE players SET avatar = ?, updated_at = datetime('now') WHERE id = ?").bind(n, player.id).run();
+    try { await save(); }
+    catch {
+      try { await env.DB.prepare('ALTER TABLE players ADD COLUMN avatar INTEGER NOT NULL DEFAULT 0').run(); } catch { /* already there */ }
+      try { await save(); } catch { return j({ error: 'Could not save your avatar. Please try again.' }, 500); }
+    }
+    return j({ ok: true, avatar: n }, 200);
+  }
+  if (p === '/api/member/withdraw' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const pl = player as any;
+    const bank = { bank_name: pl.bank_name || '', bank_account: pl.bank_account || '', bank_holder: pl.bank_holder || '', paynow_number: pl.paynow_number || '', locked: !!pl.bank_locked };
+    const depositIds = (await loadGameIds(env, player.id)).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id }));
+    let freeCredit: Record<string, unknown> | null = null;
+    try {
+      const fc = await getOpenFreeCredit(env, player.id);
+      if (fc) {
+        let winover = fc.fc_winover_x, hitC = fc.fc_hit_cents, capC = fc.fc_cap_cents;
+        if (capC == null || capC <= 0) {
+          const t = freeCreditTerms(await freeCreditRule(env, fc.amount_cents), fc.amount_cents);
+          winover = t.winover; hitC = t.hit_cents; capC = t.cap_cents;
+        }
+        let used = false;
+        try { used = !!(await env.DB.prepare("SELECT 1 AS x FROM withdrawals WHERE source_payout_id = ? AND status IN ('pending','approved') LIMIT 1").bind(fc.id).first()); } catch { used = false; }
+        freeCredit = { game: fc.game, game_id: fc.game_id, amount: centsToStr(fc.amount_cents), winover: winover ?? 0, hit: centsToStr(hitC ?? 0), payout: centsToStr(capC ?? 0), used };
+      }
+    } catch { freeCredit = null; }
+    let withdrawals: unknown[] = [];
+    let pending: Record<string, unknown> | null = null;
+    try {
+      const r = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>()
+        .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>());
+      withdrawals = (r.results || []).map((w: any) => ({ id: w.id, amount: centsToStr(w.amount_cents), status: w.status, created_at: isoDate(w.created_at), decided_at: w.decided_at ? isoDate(w.decided_at) : null, note: w.note || '', source_type: w.source_type || null, source_game: w.source_game || null, source_game_id: w.source_game_id || null }));
+      const pw = (withdrawals as any[]).find((w) => w.status === 'pending');
+      if (pw) pending = pw;
+    } catch { withdrawals = []; }
+    return j({ ok: true, bank, deposit_ids: depositIds, free_credit: freeCredit, pending, withdrawals }, 200);
+  }
+  if (p === '/api/member/withdraw' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    return bridge('/api/withdraw');
+  }
+  if (p === '/api/member/bank' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    return bridge('/api/me/details/save');
+  }
+
+  // ---- DEPOSIT (reference info + receipt submission; no payments happen in the app) ----
+  if (p === '/api/member/deposit' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const s = await getSettings(env);
+    let submissions: unknown[] = [];
+    try {
+      await ensureDepositSubmissionsTable(env);
+      const r = await env.DB.prepare('SELECT id, amount, method, receipt_url, reference, status, admin_note, created_at, decided_at FROM deposit_submissions WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>();
+      submissions = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount), method: x.method, receipt_url: x.receipt_url || '', reference: x.reference || '', status: x.status, note: x.admin_note || '', created_at: isoDate(x.created_at), decided_at: x.decided_at ? isoDate(x.decided_at) : null }));
+    } catch { submissions = []; }
+    return j({
+      ok: true,
+      info: {
+        paynow: s.deposit_paynow || '', name: s.deposit_name || '', qr: s.deposit_qr || '',
+        bank_name: s.deposit_bank_name || '', bank_account: s.deposit_bank_account || '', bank_holder: s.deposit_bank_holder || '',
+        rate: Math.max(0, Math.floor(Number(s.deposit_point_rate ?? '10'))),
+        receipts: !!env.CHAT_IMAGES,
+      },
+      submissions,
+      deposit_ids: (await loadGameIds(env, player.id)).filter((g) => g && g.game_id).map((g) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id })),
+    }, 200);
+  }
+  if (p === '/api/member/notifications' && method === 'GET') {
+    const player = await currentPlayer(); // optional: guests see the same public notices
+    try {
+      await ensureBroadcasts(env);
+      const zh = !!player && (player as any).lang === 'zh';
+      const r = await env.DB.prepare('SELECT id, message, message_zh, created_at FROM broadcasts ORDER BY id DESC LIMIT 30').all<any>();
+      const items = (r.results || []).map((x: any) => ({ id: x.id, message: zh && x.message_zh ? x.message_zh : x.message, created_at: isoDate(x.created_at) }));
+      return j({ ok: true, notifications: items }, 200);
+    } catch { return j({ ok: true, notifications: [] }, 200); }
+  }
+  if (p === '/api/member/promotions' && method === 'GET') {
+    // Public: guests can browse promotions too.
+    try {
+      await ensurePromoPages(env);
+      const r = await env.DB.prepare("SELECT id, title, image_url, LENGTH(COALESCE(details_html, '')) AS dl FROM promo_pages WHERE active = 1 ORDER BY sort_order ASC, id DESC LIMIT 100").all<any>();
+      return j({ ok: true, promotions: (r.results || []).map((x: any) => ({ id: x.id, title: x.title, image_url: x.image_url || null, has_details: Number(x.dl) > 0 })) }, 200);
+    } catch { return j({ ok: true, promotions: [] }, 200); }
+  }
+  if (p === '/api/member/promotions/view' && method === 'GET') {
+    const id = Number(url.searchParams.get('id')) || 0;
+    if (!id) return j({ error: 'Promotion not found.' }, 404);
+    await ensurePromoPages(env);
+    const row = await env.DB.prepare('SELECT id, title, image_url, details_html FROM promo_pages WHERE id = ? AND active = 1').bind(id).first<any>();
+    if (!row) return j({ error: 'This promotion has ended.' }, 404);
+    return j({ ok: true, promotion: { id: row.id, title: row.title, image_url: row.image_url || null, details_html: row.details_html || '' } }, 200);
+  }
+  if (p === '/api/member/referrals' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const cfg = referralConfig(await getSettings(env));
+    let friends: unknown[] = [];
+    let success = 0;
+    let earned = 0;
+    try {
+      await ensureReferralTables(env);
+      const r = await env.DB.prepare('SELECT r.status, r.points_added, r.created_at, r.rewarded_at, p.username FROM referrals r LEFT JOIN players p ON p.id = r.referred_id WHERE r.referrer_id = ? ORDER BY r.id DESC LIMIT 200').bind(player.id).all<any>();
+      friends = (r.results || []).map((x: any) => ({ name: maskId(x.username || ''), status: x.status === 'rewarded' ? 'rewarded' : 'pending', points: Number(x.points_added) || 0, created_at: isoDate(x.created_at), rewarded_at: x.rewarded_at ? isoDate(x.rewarded_at) : null }));
+      success = (r.results || []).filter((x: any) => x.status === 'rewarded').length;
+      const e = await env.DB.prepare("SELECT COALESCE(SUM(amount), 0) AS t FROM point_activity WHERE player_id = ? AND type IN ('referral', 'referral_bonus')").bind(player.id).first<{ t: number }>();
+      earned = Number(e?.t) || 0;
+    } catch { friends = []; }
+    return j({
+      ok: true, code: player.username,
+      per: cfg.per, every: cfg.every, bonus: cfg.bonus, min_deposit: cfg.min_deposit,
+      success, pending: friends.length - success, earned,
+      next_bonus_in: cfg.every - (success % cfg.every),
+      clicks: await refClickStats(env, player.id),
+      friends,
+    }, 200);
+  }
+  if (p === '/api/member/deposits' && method === 'GET') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    let recorded: unknown[] = [];
+    let requests: unknown[] = [];
+    try {
+      const r = await env.DB.prepare('SELECT id, amount, created_at FROM deposits WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all<any>();
+      recorded = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount) || 0, created_at: isoDate(x.created_at) }));
+    } catch { recorded = []; }
+    try {
+      await ensureDepositSubmissionsTable(env);
+      const r = await env.DB.prepare('SELECT id, amount, method, status, admin_note, game, game_id, created_at FROM deposit_submissions WHERE player_id = ? ORDER BY id DESC LIMIT 50').bind(player.id).all<any>();
+      requests = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount) || 0, method: x.method, status: x.status, note: x.admin_note || '', game: x.game || '', game_id: x.game_id || '', created_at: isoDate(x.created_at) }));
+    } catch { requests = []; }
+    return j({ ok: true, deposits: recorded, requests }, 200);
+  }
+  if (p === '/api/member/deposit/receipt' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (!env.CHAT_IMAGES) return j({ error: 'Receipt uploads are not set up yet. Please send your receipt in Chat.' }, 503);
+    if (!(await rateLimit(env, 'deprcpt:' + player.id, 20, 3600))) return j({ error: 'Please slow down.' }, 429);
+    const ct = request.headers.get('content-type') || '';
+    const ext = ct === 'image/webp' ? 'webp' : ct === 'image/jpeg' ? 'jpg' : ct === 'image/png' ? 'png' : null;
+    if (!ext) return j({ error: 'Only JPG, PNG or WebP images are allowed.' }, 400);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength < 100 || bytes.byteLength > 3_000_000) return j({ error: 'Image must be under 3 MB.' }, 400);
+    const key = 'rcpt-' + crypto.randomUUID().replace(/-/g, '') + '.' + ext;
+    await env.CHAT_IMAGES.put(key, bytes, { httpMetadata: { contentType: ct } });
+    return j({ ok: true, url: '/api/chat/img/' + key }, 200);
+  }
+  if (p === '/api/member/deposit/submit' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (player.status !== 'active') return j({ error: 'This account is not active. Please contact support.' }, 403);
+    if (!(await rateLimit(env, 'depsub:' + player.id, 10, 3600))) return j({ error: 'Please slow down.' }, 429);
+    let body: any = {};
+    try { body = await request.json(); } catch { body = {}; }
+    const amount = Math.round(Number(body.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100000) return j({ error: 'Enter the amount you transferred (SGD 1 - 100,000).' }, 400);
+    const methodKey = String(body.method || 'paynow') === 'bank' ? 'bank' : 'paynow';
+    const receipt = String(body.receipt_url || '').trim();
+    if (receipt && !/^\/api\/chat\/img\/rcpt-[a-f0-9]{32}\.(webp|jpg|png)$/.test(receipt)) return j({ error: 'Invalid receipt.' }, 400);
+    if (!receipt && env.CHAT_IMAGES) return j({ error: 'Please attach your transfer receipt.' }, 400);
+    const reference = String(body.reference || '').trim().slice(0, 80);
+    // Which Deposit ID (game account) this transfer is for. Must be one of the
+    // player's own deposit accounts when they have any.
+    const myIds = (await loadGameIds(env, player.id)).filter((g) => g && g.game_id);
+    let depGame: string | null = null, depGameId: string | null = null;
+    if (myIds.length) {
+      const wantPlat = String(body.platform || '').trim(); const wantId = String(body.game_id || '').trim();
+      const pick = myIds.find((g) => g.platform === wantPlat && String(g.game_id) === wantId) || (myIds.length === 1 && !wantPlat ? myIds[0] : null);
+      if (!pick) return j({ error: 'Choose which game account (Deposit ID) this deposit is for.' }, 400);
+      depGame = GAME_PLATFORM_LABELS[pick.platform] || pick.platform; depGameId = String(pick.game_id);
+    }
+    await ensureDepositSubmissionsTable(env);
+    const pend = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE player_id = ? AND status = 'pending'").bind(player.id).first<{ c: number }>();
+    if ((pend?.c ?? 0) >= 3) return j({ error: 'You already have 3 requests waiting. Please wait for staff to review them.' }, 429);
+    const ins = await env.DB.prepare('INSERT INTO deposit_submissions (player_id, amount, method, receipt_url, reference, game, game_id) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(player.id, amount, methodKey, receipt || null, reference || null, depGame, depGameId).run();
+    return j({ ok: true, submission: { id: ins.meta.last_row_id, amount, method: methodKey, receipt_url: receipt, reference, status: 'pending', note: '', created_at: new Date().toISOString(), decided_at: null } }, 200);
+  }
+
+  // ---- LUCKY CROSSING (real, cookie session) ----
+  // A round = one entry fee, then lane by lane: each step is rolled HERE
+  // against the lane's survive %, and the player can collect the current
+  // lane's prize at any time. The ladder is snapshotted into the round so an
+  // admin edit mid-round never changes a running game.
+  if (p.indexOf('/api/member/cross/') === 0 && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (player.status !== 'active') return j({ error: 'This account is not active. Please contact support.' }, 403);
+    if (await hasCustomCreditLock(env, player.id)) return j({ error: CREDIT_LOCK_MSG }, 409);
+    if (!(await rateLimit(env, 'cross:' + player.id, 90, 60))) return j({ error: 'Please slow down.' }, 429);
+    let body: { round_id?: unknown; lane?: unknown } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const action = p.slice('/api/member/cross/'.length);
+    const roundId = String(body.round_id || '');
+    if (!isValidPlayId(roundId)) return j({ error: 'Invalid round id.' }, 400);
+    const conf = await getGameConf(env, 'cross');
+    if (!conf) return j({ error: 'Lucky Crossing is being set up. Please try again shortly.' }, 503);
+    await ensureCrossTable(env);
+    type CrossRow = { id: number; player_id: number; round_id: string; status: string; lane: number; cost: number; win_cents: number; ladder_json: string };
+    const getRound = () => env.DB.prepare('SELECT * FROM cross_rounds WHERE player_id = ? AND round_id = ?').bind(player.id, roundId).first<CrossRow>();
+    const balances = async () => {
+      const b = await env.DB.prepare('SELECT points, reward_cents FROM players WHERE id = ?').bind(player.id).first<{ points: number; reward_cents: number }>();
+      return { points: b?.points ?? player.points, reward: centsToStr(b?.reward_cents ?? 0) };
+    };
+    const ladderOf = (r: CrossRow): Prize[] => { const l = parsePrizes(r.ladder_json); return l.length ? l : conf.prizes; };
+    const view = async (r: CrossRow, extra: Record<string, unknown> = {}) => {
+      const lad = ladderOf(r);
+      return j({
+        ok: true, round_id: r.round_id, status: r.status, lane: r.lane, lanes: lad.length, cost: r.cost,
+        prize: r.lane > 0 ? centsToStr(lad[Math.min(r.lane, lad.length) - 1].cents) : '0.00',
+        win: centsToStr(r.win_cents || 0),
+        ...(await balances()), ...extra,
+      }, 200);
+    };
+    // Finish a round exactly once: the status guard makes a double collect / double hit a no-op.
+    const finish = async (r: CrossRow, status: 'hit' | 'collected', lane: number, winCents: number): Promise<boolean> => {
+      const u = await env.DB.prepare("UPDATE cross_rounds SET status = ?, lane = ?, win_cents = ?, updated_at = datetime('now') WHERE id = ? AND status = 'active'").bind(status, lane, winCents, r.id).run();
+      if (!u.meta.changes) return false;
+      const stmts = [env.DB.prepare('UPDATE arcade_activity SET win_cents = ?, result_label = ? WHERE player_id = ? AND play_id = ?').bind(winCents, winCents > 0 ? 'win' : 'no_win', player.id, r.round_id)];
+      if (winCents > 0) stmts.push(env.DB.prepare("UPDATE players SET reward_cents = reward_cents + ?, updated_at = datetime('now') WHERE id = ?").bind(winCents, player.id));
+      await env.DB.batch(stmts);
+      if (winCents >= 1000) { try { await sendAutoMessage(env, player.id, 'big_win', { win_amount: centsToStr(winCents), game: GAME_LABELS.cross }); } catch (e) { /* best-effort */ } }
+      return true;
+    };
+
+    if (action === 'start') {
+      if (!conf.enabled) return j({ error: 'Lucky Crossing is not available right now.' }, 403);
+      // An unfinished round continues (no second charge).
+      const active = await env.DB.prepare("SELECT * FROM cross_rounds WHERE player_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").bind(player.id).first<CrossRow>();
+      if (active) return view(active, { resumed: true });
+      const ins = await env.DB.prepare("INSERT OR IGNORE INTO cross_rounds (player_id, round_id, status, lane, cost, win_cents, ladder_json) VALUES (?, ?, 'pending', 0, ?, 0, ?)").bind(player.id, roundId, conf.cost, JSON.stringify(conf.prizes)).run();
+      if (!ins.meta.changes) { const r = await getRound(); if (r) return view(r); return j({ error: 'Could not start the round.' }, 500); }
+      const rowId = ins.meta.last_row_id as number;
+      const ded = await env.DB.prepare("UPDATE players SET points = points - ?, updated_at = datetime('now') WHERE id = ? AND points >= ? RETURNING points").bind(conf.cost, player.id, conf.cost).first<{ points: number }>();
+      if (!ded) { await env.DB.prepare('DELETE FROM cross_rounds WHERE id = ?').bind(rowId).run(); return j({ error: 'Not enough points.' }, 402); }
+      try {
+        await env.DB.batch([
+          env.DB.prepare("UPDATE cross_rounds SET status = 'active', updated_at = datetime('now') WHERE id = ?").bind(rowId),
+          env.DB.prepare("INSERT OR IGNORE INTO arcade_activity (player_id, play_id, game, activity_date, points_added, win_cents, result_label) VALUES (?, ?, 'cross', ?, ?, 0, 'pending')").bind(player.id, roundId, sgtDateKey(), -conf.cost),
+          env.DB.prepare('INSERT INTO point_activity (player_id, type, amount, points_after, note) VALUES (?, ?, ?, ?, ?)').bind(player.id, POINT_TYPES.ARCADE_PLAY, -conf.cost, ded.points, 'Played Lucky Crossing'),
+        ]);
+      } catch (e) {
+        try { await env.DB.batch([env.DB.prepare("UPDATE players SET points = points + ?, updated_at = datetime('now') WHERE id = ?").bind(conf.cost, player.id), env.DB.prepare('DELETE FROM cross_rounds WHERE id = ?').bind(rowId)]); } catch (e2) { console.error(JSON.stringify({ rid, msg: 'cross_refund_failed', player: player.id, err: String((e2 as any)?.message || e2) })); }
+        return j({ error: 'That round could not be started. Your points have been returned — please try again.' }, 500);
+      }
+      const r = await getRound();
+      if (!r) return j({ error: 'Could not start the round.' }, 500);
+      return view(r);
+    }
+
+    const r = await getRound();
+    if (!r) return j({ error: 'Round not found.' }, 404);
+    if (r.status !== 'active') return view(r);
+    const lad = ladderOf(r);
+
+    if (action === 'step') {
+      // The client says which lane it thinks it is on; a stale retry gets the current state back instead of a second roll.
+      const expect = Number(body.lane);
+      if (Number.isFinite(expect) && expect !== r.lane) return view(r);
+      const next = r.lane + 1;
+      if (next > lad.length) return view(r);
+      const survive = Math.max(0, Math.min(100, lad[next - 1].w)) / 100;
+      const roll = crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+      if (roll < survive) {
+        if (next === lad.length) {
+          // Made it all the way across: the last lane pays out automatically.
+          await finish(r, 'collected', next, lad[next - 1].cents);
+          const done = await getRound();
+          return view(done || r, { safe: true, auto: true });
+        }
+        const u = await env.DB.prepare("UPDATE cross_rounds SET lane = ?, updated_at = datetime('now') WHERE id = ? AND status = 'active' AND lane = ?").bind(next, r.id, r.lane).run();
+        if (!u.meta.changes) { const cur = await getRound(); return view(cur || r); }
+        return view({ ...r, lane: next }, { safe: true });
+      }
+      await finish(r, 'hit', r.lane, 0);
+      const done = await getRound();
+      return view(done || { ...r, status: 'hit' }, { hit_lane: next });
+    }
+
+    if (action === 'collect') {
+      if (r.lane < 1) return j({ error: 'Cross at least one lane first.' }, 400);
+      await finish(r, 'collected', r.lane, lad[r.lane - 1].cents);
+      const done = await getRound();
+      return view(done || r);
+    }
+    return j({ error: 'Unknown action.' }, 404);
+  }
+
+  // ---- PLAY (real, cookie session) ----
+  // Bridges the new app to the existing, battle-tested /api/arcade/play:
+  // same idempotent play_id, same atomic PTS deduction, same server-side
+  // prize pick from the admin's prize table. The cookie's signed token is
+  // handed over as a Bearer token so no second auth path exists.
+  if (p === '/api/member/play' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    const raw = await request.text();
+    const fwd = new Request(new URL('/api/arcade/play', request.url).toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + cookieToken(),
+        'CF-Connecting-IP': ip,
+      },
+      body: raw,
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+
+  // ---- PUSH NOTIFICATIONS (Settings -> Notifications switch) ----
+  // Same player session, handed to the existing /api/push/* handlers.
+  if ((p === '/api/member/push/key' && method === 'GET') || ((p === '/api/member/push/subscribe' || p === '/api/member/push/unsubscribe') && method === 'POST')) {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (impToken() && p !== '/api/member/push/key') return j({ error: 'Not available in Staff View.' }, 403);
+    const raw = method === 'POST' ? await request.text() : '{}';
+    const fwd = new Request(new URL(p.replace('/api/member/push/', '/api/push/'), request.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cookieToken(), 'CF-Connecting-IP': ip },
+      body: raw,
+    });
+    const res = await handleApi(fwd, env, ctx, rid);
+    const text = await res.text();
+    // Turning notifications on sends one confirmation to THIS phone so the
+    // player (and you) can see straight away that it works.
+    if (p === '/api/member/push/subscribe' && res.ok) {
+      try {
+        const b = JSON.parse(raw || '{}');
+        const zh = String(b.lang || '') === 'zh';
+        ctx.waitUntil(sendWebPush(env, { endpoint: String(b.endpoint || ''), p256dh: String(b.p256dh || ''), auth: String(b.auth || '') },
+          JSON.stringify(zh ? { title: 'LE888 通知已开启 ✓', body: '存款、提款、客服回复和奖励都会在这里通知你。' } : { title: 'LE888 notifications are on ✓', body: 'We\'ll let you know about deposits, withdrawals, chat replies and rewards.' })));
+      } catch { /* the switch still works without the test message */ }
+    }
+    return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+
+  // ---- LOGOUT ----
+  if (p === '/api/member/logout' && method === 'POST') {
+    return j({ ok: true }, 200, '');
+  }
+
+  // ---- PASSWORD (real; bumps session_version, clears cookie) ----
+  if (p === '/api/member/password' && method === 'POST') {
+    const player = await currentPlayer();
+    if (!player) return j({ error: 'Please sign in.' }, 401);
+    if (!(await rateLimit(env, 'pwd:' + player.id, 6, 300))) return j({ error: 'Too many attempts. Please try again later.' }, 429);
+    let body: { currentPassword?: unknown; newPassword?: unknown } = {};
+    try { body = await request.json(); } catch (e) { /* ignore */ }
+    const current = String((body && body.currentPassword) || '');
+    const next = String((body && body.newPassword) || '');
+    if (next.length < 8) return j({ error: 'New password must be at least 8 characters.' }, 400);
+    if (!(await verifyPassword(current, player.password))) return j({ error: 'Current password is incorrect.' }, 401);
+    const hash = await hashPassword(next);
+    await env.DB.prepare("UPDATE players SET password = ?, session_version = session_version + 1, updated_at = datetime('now') WHERE id = ?").bind(hash, player.id).run();
+    return j({ ok: true }, 200, '');
+  }
+
+  return j({ error: 'Not found' }, 404);
+}
+// ===== end member API bridge ================================================
+
 export default {
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runScheduledPushes(env));
     ctx.waitUntil(flushSheetQueue(env, 100).catch(() => {}));
-    // Guest chats: remove guests that never wrote (after 1 day) and all guests after 60 days.
-    ctx.waitUntil((async () => {
-      try {
-        await env.DB.prepare("DELETE FROM players WHERE tag = 'GUEST' AND created_at < datetime('now', '-1 day') AND id NOT IN (SELECT DISTINCT player_id FROM chat_messages)").run();
-        const old = await env.DB.prepare("SELECT id FROM players WHERE tag = 'GUEST' AND created_at < datetime('now', '-60 days') LIMIT 200").all<{ id: number }>();
-        for (const g of old.results || []) {
-          await env.DB.batch([
-            env.DB.prepare('DELETE FROM chat_messages WHERE player_id = ?').bind(g.id),
-            env.DB.prepare('DELETE FROM chat_state WHERE player_id = ?').bind(g.id),
-            env.DB.prepare('DELETE FROM players WHERE id = ?').bind(g.id),
-          ]);
-        }
-      } catch { /* best-effort */ }
-    })());
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -824,28 +1688,50 @@ export default {
     const rid = crypto.randomUUID();
 
     try {
-      if (url.pathname.startsWith('/api/')) {
-        return await handleApi(request, env, ctx, rid);
+      // ===== Member API + /login gate =======================================
+      // The new frontend talks to /api/member/* (cookie session). handleMember
+      // verifies the real password, keeps your signed player token in an
+      // HttpOnly cookie, and returns real points + points-ledger from D1.
+      if (url.pathname.startsWith('/api/member/')) {
+        return await handleMember(request, env, url, ctx, rid);
       }
-      // Referral link: remember who invited this visitor (30 days), then open sign-up.
       if (request.method === 'GET' && /^\/r\/[^/]+\/?$/.test(url.pathname)) {
+        // Referral link: remember who invited this visitor (30 days), then open sign-up.
         let rawCode = ''; try { rawCode = decodeURIComponent(url.pathname.slice(3).replace(/\/$/, '')); } catch { rawCode = ''; }
         const code = normalizeUsername(rawCode);
         let valid = '';
         if (code) {
-          try { const rp = await env.DB.prepare("SELECT id, username FROM players WHERE username = ? AND status = 'active'").bind(code).first<{ id: number; username: string }>(); if (rp) { valid = rp.username;
-            // Count the click (one row per inviter per SGT day). Best-effort, never blocks the redirect.
-            ctx.waitUntil((async () => { try { await ensureReferralTables(env); await env.DB.prepare("INSERT INTO referral_clicks (referrer_id, day, clicks) VALUES (?, ?, 1) ON CONFLICT(referrer_id, day) DO UPDATE SET clicks = clicks + 1").bind(rp.id, sgtDateKey()).run(); } catch { /* ignore */ } })());
-          } } catch { valid = ''; }
+          try {
+            const rp = await env.DB.prepare("SELECT id, username FROM players WHERE username = ? AND status = 'active'").bind(code).first<{ id: number; username: string }>();
+            if (rp) { valid = rp.username; ctx.waitUntil(recordRefClick(env, request, rp.id).catch(() => {})); }
+          } catch { /* ignore */ }
         }
-        const dest = '/' + (valid ? '?ref=' + encodeURIComponent(valid.toUpperCase()) : '') + '#signup';
-        const r = new Response(null, { status: 302, headers: { Location: dest, 'Cache-Control': 'no-store' } });
-        if (valid) r.headers.append('Set-Cookie', 'tr666ref=' + valid.toUpperCase() + '; Path=/; SameSite=Lax; Secure; Max-Age=' + (30 * 86400));
+        const dest = new URL('/login', request.url);
+        if (valid) dest.searchParams.set('ref', valid.toUpperCase());
+        dest.hash = 'signup';
+        const r = new Response(null, { status: 302, headers: { Location: dest.pathname + dest.search + dest.hash, 'Cache-Control': 'no-store' } });
+        if (valid) r.headers.append('Set-Cookie', 'le888ref=' + valid.toUpperCase() + '; Path=/; SameSite=Lax; Secure; Max-Age=' + (30 * 86400));
         return r;
       }
-      // One-tap login link from staff (24h).
       if (request.method === 'GET' && url.pathname.startsWith('/go/')) {
-        return await handleLoginLink(request, env, url.pathname.slice(4));
+        return await handleLoginLink(request, env, url.pathname.slice(4).replace(/\/+$/, ''));
+      }
+      if (request.method === 'GET' && (url.pathname === '/login' || url.pathname === '/login.html')) {
+        const res = await env.ASSETS.fetch(new Request(new URL('/login.html', request.url).toString(), request));
+        return decorateAsset(res, true);
+      }
+      if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+        // ?view=1 is the staff "View app" tab: its login token lives in the tab
+        // (URL #fragment -> sessionStorage), not in a cookie. Serving the static
+        // page is harmless; every API call is still checked.
+        // Guest browsing: people who are not logged in also get the app (homepage,
+        // promotions, VIP levels, slot platforms). Anything that needs an account
+        // asks them to log in, and every API call is still checked on the server.
+      }
+      // ===== end step-1 preview block =======================================
+
+      if (url.pathname.startsWith('/api/')) {
+        return await handleApi(request, env, ctx, rid);
       }
 
       // ---- Install landing page -----------------------------------------
@@ -860,11 +1746,11 @@ export default {
       // Optional iPhone tutorial video, played inline on the install page.
       // Served from R2 or /public/ios-install.mp4.
       if (request.method === 'GET' && url.pathname === '/media/ios-install.mp4') {
-        return await serveDownload(request, env, IOS_VIDEO_R2_KEY, 'ios-install.mp4', 'TR666-install.mp4', 'video/mp4', false);
+        return await serveDownload(request, env, IOS_VIDEO_R2_KEY, 'ios-install.mp4', 'LE888-install.mp4', 'video/mp4', false);
       }
       // Optional Android tutorial video, played inline on the install page.
       if (request.method === 'GET' && url.pathname === '/media/android-install.mp4') {
-        return await serveDownload(request, env, ANDROID_VIDEO_R2_KEY, 'android-install.mp4', 'TR666-install.mp4', 'video/mp4', false);
+        return await serveDownload(request, env, ANDROID_VIDEO_R2_KEY, 'android-install.mp4', 'LE888-install.mp4', 'video/mp4', false);
       }
 
       if (request.method === 'GET' && (url.pathname === '/admin' || url.pathname === '/admin/')) {
@@ -873,13 +1759,16 @@ export default {
       }
 
       const assetRes = await env.ASSETS.fetch(request);
-      return decorateAsset(assetRes, (assetRes.headers.get('content-type') || '').includes('text/html'));
+      const assetIsHtml = (assetRes.headers.get('content-type') || '').includes('text/html');
+      // A missing file under /assets/ must be a real 404 (never the app page),
+      // otherwise browsers and the service worker cache HTML as an "image".
+      if (assetIsHtml && /^\/assets\//.test(url.pathname)) {
+        return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+      }
+      return decorateAsset(assetRes, assetIsHtml);
     } catch (err) {
-      const emsg = String((err && (err as Error).message) || err);
-      console.error(JSON.stringify({ rid, level: 'error', msg: 'unhandled', error: emsg, path: url.pathname }));
-      // Staff pages get the real reason (players only see "Internal error").
-      const detail = url.pathname.startsWith('/api/admin/') ? 'Internal error: ' + emsg.slice(0, 200) : 'Internal error';
-      return json({ ok: false, error: detail, code: 'INTERNAL_ERROR' }, 500, rid);
+      console.error(JSON.stringify({ rid, level: 'error', msg: 'unhandled', error: String((err && (err as Error).message) || err) }));
+      return json({ ok: false, error: 'Internal error', code: 'INTERNAL_ERROR' }, 500, rid);
     }
   },
 };
@@ -915,7 +1804,7 @@ async function serveDownload(request: Request, env: Env, key: string, assetPath:
     }
   }
 
-  // 2) Static asset committed to /public (e.g. /public/TR666.apk).
+  // 2) Static asset committed to /public (e.g. /public/LE888.apk).
   try {
     const a = await env.ASSETS.fetch(new Request(new URL('/' + assetPath, request.url).toString(), request));
     if (a.ok) {
@@ -958,14 +1847,14 @@ function clientIp(request: Request): string {
 // True when a request comes from the installed app rather than a plain browser.
 // - Android APK (TWA) sends X-Requested-With with our package name automatically.
 // - The PWA (iPhone home-screen app / installed Android PWA) reports standalone
-//   mode via the X-TR666-App header our own client sets.
+//   mode via the X-LE888-App header our own client sets.
 // This is a CLIENT-PROVIDED signal, so it can be spoofed by a technical user. It
 // only ever decides whether an app-only promo may be claimed — it can never move
 // points or money — so the money invariants are unaffected either way.
 function isAppRequest(request: Request): boolean {
   const xrw = (request.headers.get('X-Requested-With') || '').toLowerCase();
   if (xrw.indexOf('com.tr666app.official') !== -1) return true;
-  if ((request.headers.get('X-TR666-App') || '') === '1') return true;
+  if ((request.headers.get('X-LE888-App') || '') === '1') return true;
   return false;
 }
 
@@ -985,11 +1874,6 @@ function sgtDateKey(d: Date = sgtNow()): string {
 function sgtYesterdayKey(): string {
   return new Date(sgtNow().getTime() - 86400000).toISOString().slice(0, 10);
 }
-function shiftSgtDay(day: string, n: number): string {
-  return new Date(Date.parse(day + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
-}
-// Staff may back-date a deposit they forgot to key in, at most this many days.
-const DEPOSIT_BACKDATE_DAYS = 90;
 function monthKeySGT(): string {
   return sgtNow().toISOString().slice(0, 7); // YYYY-MM (SGT)
 }
@@ -1125,7 +2009,7 @@ async function runScheduledPushes(env: Env): Promise<void> {
           const ins = await env.DB.prepare('INSERT OR IGNORE INTO push_log (kind, key) VALUES (?, ?)').bind('checkin', pid + ':' + today).run();
           if (ins.meta.changes) {
             await pushToPlayer(env, pid,
-              { title: 'Daily check-in', body: 'Deposit today and check in to grow your streak reward.' },
+              { title: 'Daily check-in', body: 'Deposit today to keep your check-in streak going.' },
               { title: '\u6bcf\u65e5\u7b7e\u5230', body: '\u4eca\u5929\u5b58\u6b3e\u5e76\u7b7e\u5230\uff0c\u8fde\u7eed\u7b7e\u5230\u5956\u52b1\u66f4\u4e30\u539a\u3002' });
           }
         }
@@ -1171,6 +2055,44 @@ async function autoPurgeChat(env: Env): Promise<void> {
     }
     // 2) delete old text-only rows in one sweep
     await env.DB.prepare('DELETE FROM chat_messages WHERE created_at < ? AND image_url IS NULL').bind(cutoff).run();
+    // 3) enforce the per-thread message cap for any thread above it
+    const keep = await chatKeepLimit(env);
+    const big = await env.DB.prepare('SELECT player_id FROM chat_messages GROUP BY player_id HAVING COUNT(*) > ? LIMIT 200').bind(keep).all<{ player_id: number }>();
+    for (const r of big.results || []) await pruneChat(env, r.player_id, keep);
+  } catch { /* best-effort housekeeping */ }
+}
+
+// Chat history cap: each player's thread keeps only the newest N messages
+// (Admin -> Settings -> "Chat history per player", default 100). Older rows AND
+// their R2 image files are deleted right after every new message, so a thread
+// can never grow past the cap. The daily cron also sweeps any thread that
+// slipped past it (e.g. after the cap was lowered in Settings).
+const CHAT_KEEP_DEFAULT = 100;
+function chatKeepFrom(s: Record<string, string>): number {
+  const n = Math.floor(Number(s.chat_keep_messages));
+  return Number.isFinite(n) && n >= 10 ? Math.min(1000, n) : CHAT_KEEP_DEFAULT;
+}
+async function chatKeepLimit(env: Env): Promise<number> {
+  try { return chatKeepFrom(await getSettings(env)); } catch { return CHAT_KEEP_DEFAULT; }
+}
+async function pruneChat(env: Env, playerId: number, keepOverride?: number): Promise<void> {
+  try {
+    const keep = keepOverride || (await chatKeepLimit(env));
+    // id of the Nth newest visible message; everything older than it goes.
+    let cut: { id: number } | null = null;
+    try {
+      cut = await env.DB.prepare('SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1 OFFSET ?').bind(playerId, keep - 1).first<{ id: number }>();
+    } catch {
+      cut = await env.DB.prepare('SELECT id FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?').bind(playerId, keep - 1).first<{ id: number }>();
+    }
+    if (!cut) return;
+    const { results } = await env.DB.prepare('SELECT id, image_url FROM chat_messages WHERE player_id = ? AND id < ? AND image_url IS NOT NULL LIMIT 200').bind(playerId, cut.id).all<{ id: number; image_url: string }>();
+    for (const r of results || []) {
+      const url = String(r.image_url || '');
+      const key = url.split('/').pop() || '';
+      if (env.CHAT_IMAGES && key && url.startsWith('/api/chat/img/')) { try { await env.CHAT_IMAGES.delete(key); } catch { /* already gone */ } }
+    }
+    await env.DB.prepare('DELETE FROM chat_messages WHERE player_id = ? AND id < ?').bind(playerId, cut.id).run();
   } catch { /* best-effort housekeeping */ }
 }
 
@@ -1224,6 +2146,19 @@ async function clearAuthFail(env: Env, key: string): Promise<void> {
 // URL validation (tasks + contact link)
 // ---------------------------------------------------------------------------
 
+// Staff can type a plain phone number / @username; turn it into a proper link.
+// Returns '' for empty, 'BAD' for something unusable.
+function normalizeContactLink(key: string, raw: string): string {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (/^https:\/\//i.test(v)) return isSafeExternalUrl(v) ? v : 'BAD';
+  if (key === 'contact_whatsapp') {
+    const digits = v.replace(/[\s+\-()]/g, '');
+    return /^\d{6,15}$/.test(digits) ? 'https://wa.me/' + digits : 'BAD';
+  }
+  const user = v.replace(/^@/, '').replace(/^(t\.me\/|telegram\.me\/)/i, '');
+  return /^[A-Za-z0-9_]{4,32}$/.test(user) ? 'https://t.me/' + user : 'BAD';
+}
 function isSafeExternalUrl(raw: unknown): boolean {
   const s = String(raw || '').trim();
   if (!s || s.length > 500) return false;
@@ -1381,10 +2316,214 @@ function bearerToken(request: Request): string {
 
 // The staff-grantable sections ("empowerment"). Managers always have all of
 // these implicitly; a staff account only has the ones a manager ticked.
-const GRANTABLE_PERMS = ['players', 'earn', 'activity', 'credits', 'deposits', 'games', 'rules', 'vip', 'templates', 'domains', 'rtp', 'settings', 'view_app'];
+const GRANTABLE_PERMS = ['players', 'earn', 'promopages', 'activity', 'credits', 'deposits', 'depreq', 'games', 'rules', 'vip', 'templates', 'domains', 'rtp', 'settings', 'view_app'];
 
 // A game/platform image is allowed if it is either an uploaded R2 image
 // (/api/chat/img/...) or a static asset we ship in /public/gameicons/<folder>/.
+// Every table/column/index the app needs (same as schema.sql).
+// Used by Admin -> Settings -> Database check / Repair.
+const DB_SCHEMA: Array<{ t: string; c: string; cols: Array<[string, string]> }> = [{"t": "players", "c": "CREATE TABLE players ( id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE, password TEXT NOT NULL, display_name TEXT, points INTEGER NOT NULL DEFAULT 0, reward_cents INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', note TEXT, session_version INTEGER NOT NULL DEFAULT 1, tag TEXT, telegram TEXT, whatsapp TEXT, lang TEXT, bank_name TEXT, bank_account TEXT, bank_holder TEXT, paynow_number TEXT, bank_locked INTEGER NOT NULL DEFAULT 0, birthday TEXT, birthday_locked INTEGER NOT NULL DEFAULT 0, mc_status TEXT, mc_amount_cents INTEGER NOT NULL DEFAULT 0, mc_winover REAL, mc_cap_cents INTEGER, mc_payout_id INTEGER, avatar INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["username", "TEXT"], ["password", "TEXT"], ["display_name", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["reward_cents", "INTEGER NOT NULL DEFAULT 0"], ["status", "TEXT NOT NULL DEFAULT 'active'"], ["note", "TEXT"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["tag", "TEXT"], ["telegram", "TEXT"], ["whatsapp", "TEXT"], ["lang", "TEXT"], ["bank_name", "TEXT"], ["bank_account", "TEXT"], ["bank_holder", "TEXT"], ["paynow_number", "TEXT"], ["bank_locked", "INTEGER NOT NULL DEFAULT 0"], ["birthday", "TEXT"], ["birthday_locked", "INTEGER NOT NULL DEFAULT 0"], ["mc_status", "TEXT"], ["mc_amount_cents", "INTEGER NOT NULL DEFAULT 0"], ["mc_winover", "REAL"], ["mc_cap_cents", "INTEGER"], ["mc_payout_id", "INTEGER"], ["avatar", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "admins", "c": "CREATE TABLE admins ( id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, role TEXT NOT NULL DEFAULT 'manager', permissions TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["username", "TEXT"], ["password", "TEXT"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["role", "TEXT NOT NULL DEFAULT 'manager'"], ["permissions", "TEXT"], ["created_at", "TEXT"]]}, {"t": "settings", "c": "CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL )", "cols": [["key", "TEXT"], ["value", "TEXT"]]}, {"t": "point_activity", "c": "CREATE TABLE point_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, points_after INTEGER NOT NULL, note TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["type", "TEXT"], ["amount", "INTEGER"], ["points_after", "INTEGER"], ["note", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT"]]}, {"t": "credit_activity", "c": "CREATE TABLE credit_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, reward_after_cents INTEGER, reason TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount_cents", "INTEGER"], ["reward_after_cents", "INTEGER"], ["reason", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT"]]}, {"t": "tasks", "c": "CREATE TABLE tasks ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT, points INTEGER NOT NULL DEFAULT 0, url TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["description", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["url", "TEXT"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "task_completions", "c": "CREATE TABLE task_completions ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, task_id INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, task_id) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["task_id", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "daily_checkins", "c": "CREATE TABLE daily_checkins ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, checkin_date TEXT NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, streak INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, checkin_date) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["checkin_date", "TEXT"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["streak", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"]]}, {"t": "game_configs", "c": "CREATE TABLE game_configs ( game TEXT PRIMARY KEY, cost INTEGER NOT NULL DEFAULT 0, prizes_json TEXT NOT NULL DEFAULT '[]', enabled INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1, updated_at TEXT, updated_by TEXT )", "cols": [["game", "TEXT"], ["cost", "INTEGER NOT NULL DEFAULT 0"], ["prizes_json", "TEXT NOT NULL DEFAULT '[]'"], ["enabled", "INTEGER NOT NULL DEFAULT 0"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "game_config_changes", "c": "CREATE TABLE game_config_changes ( id INTEGER PRIMARY KEY AUTOINCREMENT, game TEXT NOT NULL, before_json TEXT, after_json TEXT, changed_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["game", "TEXT"], ["before_json", "TEXT"], ["after_json", "TEXT"], ["changed_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "arcade_activity", "c": "CREATE TABLE arcade_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, game TEXT NOT NULL, activity_date TEXT NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, result_label TEXT, win_cents INTEGER NOT NULL DEFAULT 0, play_id TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["game", "TEXT"], ["activity_date", "TEXT"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["result_label", "TEXT"], ["win_cents", "INTEGER NOT NULL DEFAULT 0"], ["play_id", "TEXT"], ["created_at", "TEXT"]]}, {"t": "arcade_daily_rewards", "c": "CREATE TABLE arcade_daily_rewards ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, reward_date TEXT NOT NULL, seq INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, reward_date, seq) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["reward_date", "TEXT"], ["seq", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "cross_rounds", "c": "CREATE TABLE cross_rounds ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, round_id TEXT NOT NULL, status TEXT NOT NULL, lane INTEGER NOT NULL DEFAULT 0, cost INTEGER NOT NULL, win_cents INTEGER NOT NULL DEFAULT 0, ladder_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, round_id) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["round_id", "TEXT"], ["status", "TEXT"], ["lane", "INTEGER NOT NULL DEFAULT 0"], ["cost", "INTEGER"], ["win_cents", "INTEGER NOT NULL DEFAULT 0"], ["ladder_json", "TEXT"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "payout_requests", "c": "CREATE TABLE payout_requests ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', admin_username TEXT, decision_note TEXT, game TEXT, game_id TEXT, fc_status TEXT, fc_winover_x REAL, fc_hit_cents INTEGER, fc_cap_cents INTEGER, fc_custom INTEGER NOT NULL DEFAULT 0, fc_cleared_at TEXT, fc_cleared_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount_cents", "INTEGER"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["admin_username", "TEXT"], ["decision_note", "TEXT"], ["game", "TEXT"], ["game_id", "TEXT"], ["fc_status", "TEXT"], ["fc_winover_x", "REAL"], ["fc_hit_cents", "INTEGER"], ["fc_cap_cents", "INTEGER"], ["fc_custom", "INTEGER NOT NULL DEFAULT 0"], ["fc_cleared_at", "TEXT"], ["fc_cleared_by", "TEXT"], ["created_at", "TEXT"], ["decided_at", "TEXT"]]}, {"t": "withdraw_rules", "c": "CREATE TABLE withdraw_rules ( up_to_cents INTEGER NOT NULL, winover_x REAL NOT NULL, cap_cents INTEGER NOT NULL, updated_at TEXT, updated_by TEXT )", "cols": [["up_to_cents", "INTEGER"], ["winover_x", "REAL"], ["cap_cents", "INTEGER"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "withdraw_rule_changes", "c": "CREATE TABLE withdraw_rule_changes ( id INTEGER PRIMARY KEY AUTOINCREMENT, before_json TEXT, after_json TEXT, changed_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["before_json", "TEXT"], ["after_json", "TEXT"], ["changed_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "withdrawals", "c": "CREATE TABLE withdrawals ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, bank_name TEXT, bank_account TEXT, bank_holder TEXT, paynow_number TEXT, status TEXT NOT NULL DEFAULT 'pending', source_type TEXT, source_game TEXT, source_game_id TEXT, free_credit_cents INTEGER, winover_x REAL, rule_cap_cents INTEGER, source_payout_id INTEGER, note TEXT, decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount_cents", "INTEGER"], ["bank_name", "TEXT"], ["bank_account", "TEXT"], ["bank_holder", "TEXT"], ["paynow_number", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["source_type", "TEXT"], ["source_game", "TEXT"], ["source_game_id", "TEXT"], ["free_credit_cents", "INTEGER"], ["winover_x", "REAL"], ["rule_cap_cents", "INTEGER"], ["source_payout_id", "INTEGER"], ["note", "TEXT"], ["decided_by", "TEXT"], ["decided_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "deposits", "c": "CREATE TABLE deposits ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount REAL NOT NULL, month_key TEXT NOT NULL, note TEXT, admin_username TEXT, reference TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount", "REAL"], ["month_key", "TEXT"], ["note", "TEXT"], ["admin_username", "TEXT"], ["reference", "TEXT"], ["created_at", "TEXT"]]}, {"t": "deposit_submissions", "c": "CREATE TABLE deposit_submissions ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT NOT NULL DEFAULT 'paynow', receipt_url TEXT, reference TEXT, status TEXT NOT NULL DEFAULT 'pending', admin_username TEXT, admin_note TEXT, game TEXT, game_id TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["amount", "REAL"], ["method", "TEXT NOT NULL DEFAULT 'paynow'"], ["receipt_url", "TEXT"], ["reference", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["admin_username", "TEXT"], ["admin_note", "TEXT"], ["game", "TEXT"], ["game_id", "TEXT"], ["created_at", "TEXT"], ["decided_at", "TEXT"]]}, {"t": "deposit_bonus_tiers", "c": "CREATE TABLE deposit_bonus_tiers ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, min_deposit REAL NOT NULL DEFAULT 0, period TEXT NOT NULL DEFAULT 'once', reward_type TEXT NOT NULL DEFAULT 'points', amount REAL NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, start_date TEXT, end_date TEXT, image_url TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["min_deposit", "REAL NOT NULL DEFAULT 0"], ["period", "TEXT NOT NULL DEFAULT 'once'"], ["reward_type", "TEXT NOT NULL DEFAULT 'points'"], ["amount", "REAL NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["start_date", "TEXT"], ["end_date", "TEXT"], ["image_url", "TEXT"], ["created_at", "TEXT"]]}, {"t": "deposit_bonus_claims", "c": "CREATE TABLE deposit_bonus_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, tier_id INTEGER NOT NULL, period_key TEXT NOT NULL, reward_type TEXT, amount REAL, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, tier_id, period_key) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["tier_id", "INTEGER"], ["period_key", "TEXT"], ["reward_type", "TEXT"], ["amount", "REAL"], ["created_at", "TEXT"]]}, {"t": "vip_rewards", "c": "CREATE TABLE vip_rewards ( rank_idx INTEGER PRIMARY KEY, weekly INTEGER NOT NULL DEFAULT 0, upgrade INTEGER NOT NULL DEFAULT 0, updated_at TEXT, updated_by TEXT )", "cols": [["rank_idx", "INTEGER"], ["weekly", "INTEGER NOT NULL DEFAULT 0"], ["upgrade", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "vip_upgrade_grants", "c": "CREATE TABLE vip_upgrade_grants ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, month_key TEXT NOT NULL, rank_idx INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, month_key, rank_idx) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["month_key", "TEXT"], ["rank_idx", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "vip_weekly_claims", "c": "CREATE TABLE vip_weekly_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, week_key TEXT NOT NULL, rank_idx INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, week_key) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["week_key", "TEXT"], ["rank_idx", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "player_game_ids", "c": "CREATE TABLE player_game_ids ( player_id INTEGER NOT NULL, platform TEXT NOT NULL, game_id TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (player_id, platform) )", "cols": [["player_id", "INTEGER"], ["platform", "TEXT"], ["game_id", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "player_free_ids", "c": "CREATE TABLE player_free_ids ( player_id INTEGER NOT NULL, platform TEXT NOT NULL, game_id TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (player_id, platform) )", "cols": [["player_id", "INTEGER"], ["platform", "TEXT"], ["game_id", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "promos", "c": "CREATE TABLE promos ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, title_zh TEXT, tnc TEXT, tnc_zh TEXT, points INTEGER NOT NULL DEFAULT 0, access TEXT NOT NULL DEFAULT 'open', limit_type TEXT NOT NULL DEFAULT 'total', limit_count INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, image_url TEXT, reward_type TEXT NOT NULL DEFAULT 'points', app_only INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["title_zh", "TEXT"], ["tnc", "TEXT"], ["tnc_zh", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["access", "TEXT NOT NULL DEFAULT 'open'"], ["limit_type", "TEXT NOT NULL DEFAULT 'total'"], ["limit_count", "INTEGER NOT NULL DEFAULT 1"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["image_url", "TEXT"], ["reward_type", "TEXT NOT NULL DEFAULT 'points'"], ["app_only", "INTEGER NOT NULL DEFAULT 0"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "promo_claims", "c": "CREATE TABLE promo_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, promo_id INTEGER NOT NULL, player_id INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, day_key TEXT, unlock_id INTEGER, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["promo_id", "INTEGER"], ["player_id", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["day_key", "TEXT"], ["unlock_id", "INTEGER"], ["created_at", "TEXT"]]}, {"t": "promo_unlocks", "c": "CREATE TABLE promo_unlocks ( id INTEGER PRIMARY KEY AUTOINCREMENT, promo_id INTEGER NOT NULL, player_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'available', granted_by TEXT, claimed_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["promo_id", "INTEGER"], ["player_id", "INTEGER"], ["status", "TEXT NOT NULL DEFAULT 'available'"], ["granted_by", "TEXT"], ["claimed_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "chat_messages", "c": "CREATE TABLE chat_messages ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, sender TEXT NOT NULL, admin_username TEXT, body TEXT, image_url TEXT, is_html INTEGER NOT NULL DEFAULT 0, deleted_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["sender", "TEXT"], ["admin_username", "TEXT"], ["body", "TEXT"], ["image_url", "TEXT"], ["is_html", "INTEGER NOT NULL DEFAULT 0"], ["deleted_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "chat_state", "c": "CREATE TABLE chat_state ( player_id INTEGER PRIMARY KEY, last_msg_at TEXT, admin_unread INTEGER NOT NULL DEFAULT 0, player_unread INTEGER NOT NULL DEFAULT 0 )", "cols": [["player_id", "INTEGER"], ["last_msg_at", "TEXT"], ["admin_unread", "INTEGER NOT NULL DEFAULT 0"], ["player_unread", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "chat_templates", "c": "CREATE TABLE chat_templates ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, content TEXT NOT NULL, trigger_key TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, updated_at TEXT, updated_by TEXT )", "cols": [["id", "INTEGER"], ["name", "TEXT"], ["content", "TEXT"], ["trigger_key", "TEXT NOT NULL DEFAULT ''"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "push_subs", "c": "CREATE TABLE push_subs ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, lang TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["endpoint", "TEXT"], ["p256dh", "TEXT"], ["auth", "TEXT"], ["lang", "TEXT"], ["created_at", "TEXT"]]}, {"t": "push_log", "c": "CREATE TABLE push_log ( kind TEXT NOT NULL, key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (kind, key) )", "cols": [["kind", "TEXT"], ["key", "TEXT"], ["created_at", "TEXT"]]}, {"t": "broadcasts", "c": "CREATE TABLE broadcasts ( id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, message_zh TEXT, created_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["message", "TEXT"], ["message_zh", "TEXT"], ["created_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "referrals", "c": "CREATE TABLE referrals ( id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', points_added INTEGER NOT NULL DEFAULT 0, added_by TEXT, rewarded_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["referrer_id", "INTEGER"], ["referred_id", "INTEGER"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["added_by", "TEXT"], ["rewarded_at", "TEXT"], ["created_at", "TEXT"]]}, {"t": "referral_milestones", "c": "CREATE TABLE referral_milestones ( referrer_id INTEGER NOT NULL, milestone INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (referrer_id, milestone) )", "cols": [["referrer_id", "INTEGER"], ["milestone", "INTEGER"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT"]]}, {"t": "promo_pages", "c": "CREATE TABLE promo_pages ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, image_url TEXT, details_html TEXT, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, updated_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["image_url", "TEXT"], ["details_html", "TEXT"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["updated_by", "TEXT"], ["created_at", "TEXT"], ["updated_at", "TEXT"]]}, {"t": "banners", "c": "CREATE TABLE banners ( id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, link_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["image_url", "TEXT"], ["link_url", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"]]}, {"t": "slot_platforms", "c": "CREATE TABLE slot_platforms ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, logo_url TEXT, kind TEXT NOT NULL DEFAULT 'app', play_url TEXT, android_package TEXT, links_json TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["name", "TEXT"], ["logo_url", "TEXT"], ["kind", "TEXT NOT NULL DEFAULT 'app'"], ["play_url", "TEXT"], ["android_package", "TEXT"], ["links_json", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT"]]}, {"t": "app_domains", "c": "CREATE TABLE app_domains ( id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, label TEXT, is_primary INTEGER NOT NULL DEFAULT 0, updated_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["url", "TEXT"], ["label", "TEXT"], ["is_primary", "INTEGER NOT NULL DEFAULT 0"], ["updated_by", "TEXT"], ["created_at", "TEXT"]]}, {"t": "rate_limits", "c": "CREATE TABLE rate_limits ( bucket TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL DEFAULT 0 )", "cols": [["bucket", "TEXT"], ["window_start", "INTEGER"], ["count", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "auth_throttle", "c": "CREATE TABLE auth_throttle ( id TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT )", "cols": [["id", "TEXT"], ["fails", "INTEGER NOT NULL DEFAULT 0"], ["locked_until", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"]]}, {"t": "chat_guests", "c": "CREATE TABLE chat_guests ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, ip TEXT, linked_player_id INTEGER, linked_by TEXT, linked_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), last_seen_at TEXT, player_code TEXT )", "cols": [["id", "INTEGER"], ["name", "TEXT"], ["phone", "TEXT"], ["token_hash", "TEXT"], ["ip", "TEXT"], ["linked_player_id", "INTEGER"], ["linked_by", "TEXT"], ["linked_at", "TEXT"], ["created_at", "TEXT"], ["last_seen_at", "TEXT"], ["player_code", "TEXT"]]}, {"t": "referral_clicks", "c": "CREATE TABLE referral_clicks ( referrer_id INTEGER NOT NULL, day TEXT NOT NULL, visitor TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 1, last_at TEXT, PRIMARY KEY (referrer_id, day, visitor) )", "cols": [["referrer_id", "INTEGER"], ["day", "TEXT"], ["visitor", "TEXT"], ["n", "INTEGER NOT NULL DEFAULT 1"], ["last_at", "TEXT"]]}];
+const DB_INDEXES: string[] = ["CREATE INDEX IF NOT EXISTS idx_activity_player ON point_activity (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_credit_player ON credit_activity (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_checkins_player ON daily_checkins (player_id, checkin_date)", "CREATE INDEX IF NOT EXISTS idx_arcade_player ON arcade_activity (player_id, activity_date)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_arcade_playid ON arcade_activity (player_id, play_id) WHERE play_id IS NOT NULL", "CREATE INDEX IF NOT EXISTS idx_cross_rounds_player_status ON cross_rounds (player_id, status)", "CREATE INDEX IF NOT EXISTS idx_payouts_status ON payout_requests (status, id)", "CREATE INDEX IF NOT EXISTS idx_payouts_player ON payout_requests (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_payouts_created ON payout_requests (status, created_at)", "CREATE INDEX IF NOT EXISTS idx_withdrawals_player ON withdrawals (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals (status, id)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_withdrawal_one_pending ON withdrawals (player_id) WHERE status = 'pending'", "CREATE INDEX IF NOT EXISTS idx_deposits_player ON deposits (player_id, month_key)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_deposit_reference ON deposits (reference) WHERE reference IS NOT NULL AND reference != ''", "CREATE INDEX IF NOT EXISTS idx_depsub_status ON deposit_submissions (status, id)", "CREATE INDEX IF NOT EXISTS idx_depsub_player ON deposit_submissions (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_promo_claims ON promo_claims (player_id, promo_id, day_key)", "CREATE INDEX IF NOT EXISTS idx_promo_unlocks ON promo_unlocks (player_id, promo_id, status)", "CREATE INDEX IF NOT EXISTS idx_chat_player ON chat_messages (player_id, id)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_template_trigger ON chat_templates (trigger_key) WHERE trigger_key != ''", "CREATE INDEX IF NOT EXISTS idx_push_player ON push_subs (player_id)", "CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals (referrer_id, id)"];
+
+// ---------------------------------------------------------------------------
+// Referral program. Staff link a friend to the player who invited them. When
+// that friend has deposits KEYED IN by staff (Manage -> Deposits) the inviter
+// gets PTS once per friend, plus a bonus every N successful friends. Deposit
+// REQUESTS (receipt checks) never count. Amounts are manager settings.
+// ---------------------------------------------------------------------------
+// Promotions page: view-only promo cards. Staff write the details as HTML/CSS/JS;
+// the app shows it inside a sandboxed iframe (no access to the player's session).
+// Reward submit cooldown: 10 minutes counted from when staff APPROVED the
+// player's last submission. Cancelled and rejected submissions never cause a wait.
+const REWARD_COOLDOWN_SECONDS = 600;
+async function rewardCooldownSeconds(env: Env, playerId: number): Promise<number> {
+  const r = await env.DB.prepare(
+    "SELECT CAST(? - (julianday('now') - julianday(MAX(decided_at))) * 86400 AS INTEGER) AS s FROM payout_requests WHERE player_id = ? AND status = 'approved' AND decided_at > datetime('now', ?)",
+  ).bind(REWARD_COOLDOWN_SECONDS, playerId, `-${REWARD_COOLDOWN_SECONDS} seconds`).first<{ s: number | null }>();
+  return Math.max(0, Number(r?.s ?? 0));
+}
+
+async function ensurePromoPages(env: Env): Promise<void> {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS promo_pages (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, image_url TEXT, details_html TEXT, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, updated_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+}
+const PROMO_DETAILS_MAX = 200000;
+
+// ---- Referral link clicks (/r/CODE). One row per visitor per day; n = how many times. ----
+let refClicksReady = false;
+async function ensureRefClicks(env: Env): Promise<void> {
+  if (refClicksReady) return;
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS referral_clicks (referrer_id INTEGER NOT NULL, day TEXT NOT NULL, visitor TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 1, last_at TEXT, PRIMARY KEY (referrer_id, day, visitor))").run();
+  refClicksReady = true;
+}
+// Link previews (WhatsApp/Telegram/Facebook load the link once to draw the card) and bots are not people.
+const REF_BOT_UA = /^WhatsApp\/|TelegramBot|facebookexternalhit|Facebot|Twitterbot|Slackbot|Discordbot|LinkedInBot|SkypeUriPreview|Googlebot|bingbot|bot\b|crawler|spider|HeadlessChrome|curl\/|wget|python-requests|okhttp/i;
+async function recordRefClick(env: Env, request: Request, referrerId: number): Promise<void> {
+  const ua = request.headers.get('User-Agent') || '';
+  if (!ua || REF_BOT_UA.test(ua)) return;
+  // The player opening their own link doesn't count.
+  const ck = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)le888sid=([^;]+)/);
+  if (ck) { try { const c = await verifyToken(env, ck[1], 'player'); if (c && Number(c.sub) === referrerId) return; } catch { /* not logged in */ } }
+  const visitor = (await sha256HexStr(clientIp(request) + '|' + ua)).slice(0, 24);
+  await ensureRefClicks(env);
+  await env.DB.prepare("INSERT INTO referral_clicks (referrer_id, day, visitor, n, last_at) VALUES (?, ?, ?, 1, datetime('now')) ON CONFLICT(referrer_id, day, visitor) DO UPDATE SET n = n + 1, last_at = datetime('now')")
+    .bind(referrerId, sgtDateKey(), visitor).run();
+}
+async function refClickStats(env: Env, referrerId: number): Promise<{ total: number; unique: number; today: number; last7: number; signups: number }> {
+  const out = { total: 0, unique: 0, today: 0, last7: 0, signups: 0 };
+  try {
+    await ensureRefClicks(env);
+    const today = sgtDateKey();
+    const d7 = sgtDateKey(new Date(sgtNow().getTime() - 6 * 86400000));
+    const r = await env.DB.prepare('SELECT COALESCE(SUM(n),0) AS t, COUNT(DISTINCT visitor) AS u, COALESCE(SUM(CASE WHEN day = ? THEN n ELSE 0 END),0) AS td, COALESCE(SUM(CASE WHEN day >= ? THEN n ELSE 0 END),0) AS w FROM referral_clicks WHERE referrer_id = ?')
+      .bind(today, d7, referrerId).first<any>();
+    out.total = Number(r?.t) || 0; out.unique = Number(r?.u) || 0; out.today = Number(r?.td) || 0; out.last7 = Number(r?.w) || 0;
+    await ensureReferralTables(env);
+    const sg = await env.DB.prepare("SELECT COUNT(*) AS c FROM referrals WHERE referrer_id = ? AND added_by = 'signup link'").bind(referrerId).first<any>();
+    out.signups = Number(sg?.c) || 0;
+  } catch { /* stats are optional */ }
+  return out;
+}
+
+async function ensureReferralTables(env: Env): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', points_added INTEGER NOT NULL DEFAULT 0, added_by TEXT, rewarded_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))"),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals (referrer_id, id)'),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS referral_milestones (referrer_id INTEGER NOT NULL, milestone INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (referrer_id, milestone))"),
+  ]);
+}
+function referralConfig(s: Record<string, string>): { per: number; every: number; bonus: number; min_deposit: number } {
+  const n = (k: string, d: number, max: number) => Math.max(0, Math.min(max, Math.floor(Number(s[k] ?? d) || 0)));
+  return {
+    per: n('referral_points', 0, 1000000),
+    every: Math.max(1, n('referral_bonus_every', 10, 1000) || 10),
+    bonus: n('referral_bonus_points', 0, 1000000),
+    min_deposit: n('referral_min_deposit', 0, 1000000),
+  };
+}
+// "le2810" -> "le**10" so friends' login IDs aren't shown in full.
+function maskId(u: string): string {
+  const x = String(u || '');
+  if (x.length <= 3) return x.slice(0, 1) + '**';
+  if (x.length <= 5) return x.slice(0, 2) + '*'.repeat(x.length - 2);
+  return x.slice(0, 2) + '*'.repeat(Math.min(4, x.length - 4)) + x.slice(-2);
+}
+// Called after a deposit is keyed in AND right after staff link a referral (so a
+// friend who deposited BEFORE being linked is still detected). Safe to call any
+// number of times: a friend pays out once (status flip is atomic) and each
+// milestone once (primary key).
+async function checkReferral(env: Env, referredId: number, admin: string | null): Promise<{ rewarded: boolean; points: number; bonus: number }> {
+  const out = { rewarded: false, points: 0, bonus: 0 };
+  await ensureReferralTables(env);
+  const ref = await env.DB.prepare("SELECT id, referrer_id FROM referrals WHERE referred_id = ? AND status = 'pending'").bind(referredId).first<{ id: number; referrer_id: number }>();
+  if (!ref) return out;
+  const dep = await env.DB.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(amount), 0) AS t FROM deposits WHERE player_id = ?').bind(referredId).first<{ c: number; t: number }>();
+  const cfg = referralConfig(await getSettings(env));
+  if (!dep || Number(dep.c) < 1 || Number(dep.t) < Math.max(cfg.min_deposit, 0.01)) return out;
+  const upd = await env.DB.prepare("UPDATE referrals SET status = 'rewarded', points_added = ?, rewarded_at = datetime('now') WHERE id = ? AND status = 'pending'").bind(cfg.per, ref.id).run();
+  if (!upd.meta || !Number(upd.meta.changes)) return out; // already paid by a parallel request
+  out.rewarded = true;
+  const friend = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(referredId).first<{ username: string }>();
+  const fname = maskId(friend?.username || '');
+  if (cfg.per > 0) {
+    await awardPoints(env, ref.referrer_id, POINT_TYPES.REFERRAL, cfg.per, `Referral: ${friend?.username || referredId} deposited`, admin);
+    out.points = cfg.per;
+  }
+  const cnt = await env.DB.prepare("SELECT COUNT(*) AS c FROM referrals WHERE referrer_id = ? AND status = 'rewarded'").bind(ref.referrer_id).first<{ c: number }>();
+  const success = Number(cnt?.c) || 0;
+  if (cfg.per > 0) {
+    try { await sendAutoMessage(env, ref.referrer_id, 'referral_reward', { friend_id: fname, referral_points: String(cfg.per), referral_count: String(success) }); } catch { /* best-effort */ }
+  }
+  // Bonus each time the count lands on a multiple of N (10, 20, 30 ...).
+  if (cfg.bonus > 0 && success > 0 && success % cfg.every === 0) {
+    const ins = await env.DB.prepare('INSERT OR IGNORE INTO referral_milestones (referrer_id, milestone, points_added) VALUES (?, ?, ?)').bind(ref.referrer_id, success, cfg.bonus).run();
+    if (ins.meta && Number(ins.meta.changes)) {
+      await awardPoints(env, ref.referrer_id, POINT_TYPES.REFERRAL_BONUS, cfg.bonus, `Referral bonus: ${success} friends deposited`, admin);
+      out.bonus = cfg.bonus;
+      try { await sendAutoMessage(env, ref.referrer_id, 'referral_milestone', { referral_count: String(success), referral_bonus: String(cfg.bonus) }); } catch { /* best-effort */ }
+    }
+  }
+  return out;
+}
+// Link friend -> inviter. Returns an error message or null.
+async function linkReferral(env: Env, referrerId: number, friendId: number, admin: string): Promise<string | null> {
+  if (referrerId === friendId) return 'A player cannot refer themselves.';
+  await ensureReferralTables(env);
+  const had = await env.DB.prepare('SELECT r.referrer_id, p.username FROM referrals r LEFT JOIN players p ON p.id = r.referrer_id WHERE r.referred_id = ?').bind(friendId).first<{ referrer_id: number; username: string }>();
+  if (had) return had.referrer_id === referrerId ? 'This friend is already on the list.' : `This friend was already referred by @${had.username || had.referrer_id}.`;
+  const loop = await env.DB.prepare('SELECT 1 AS x FROM referrals WHERE referrer_id = ? AND referred_id = ?').bind(friendId, referrerId).first();
+  if (loop) return 'These two are the other way round already (this friend referred this player).';
+  try {
+    await env.DB.prepare('INSERT INTO referrals (referrer_id, referred_id, added_by) VALUES (?, ?, ?)').bind(referrerId, friendId, admin).run();
+  } catch { return 'This friend was already referred.'; }
+  return null;
+}
+
+async function ensureBroadcasts(env: Env): Promise<void> {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, message_zh TEXT, created_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+}
+type DbReport = {
+  ok: boolean;
+  missing_tables: string[];
+  missing_columns: Array<{ table: string; column: string }>;
+  missing_indexes: string[];
+  extra_tables: string[];
+  tables: number;
+  r2: boolean;
+};
+async function dbCheck(env: Env): Promise<DbReport> {
+  const have = new Map<string, Set<string>>();
+  const rows = await env.DB.prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all<{ name: string; type: string }>();
+  const idxHave = new Set<string>();
+  for (const r of rows.results || []) {
+    if (r.type === 'table') have.set(r.name, new Set());
+    else if (r.type === 'index') idxHave.add(r.name);
+  }
+  const missing_tables: string[] = [];
+  const missing_columns: Array<{ table: string; column: string }> = [];
+  for (const t of DB_SCHEMA) {
+    if (!have.has(t.t)) { missing_tables.push(t.t); continue; }
+    const info = await env.DB.prepare(`PRAGMA table_info(${t.t})`).all<{ name: string }>();
+    const cols = new Set((info.results || []).map((c) => c.name));
+    for (const [c] of t.cols) if (!cols.has(c)) missing_columns.push({ table: t.t, column: c });
+  }
+  const missing_indexes = DB_INDEXES
+    .map((i) => (i.match(/IF NOT EXISTS (\w+)/) || [])[1] || '')
+    .filter((n) => n && !idxHave.has(n));
+  const known = new Set(DB_SCHEMA.map((t) => t.t));
+  const extra_tables = [...have.keys()].filter((n) => !known.has(n) && n !== 'd1_migrations').sort();
+  return {
+    ok: !missing_tables.length && !missing_columns.length,
+    missing_tables, missing_columns, missing_indexes, extra_tables,
+    tables: have.size, r2: !!env.CHAT_IMAGES,
+  };
+}
+// Additive only: creates missing tables, adds missing columns, creates missing
+// indexes. Never drops, renames or rewrites anything. Each step is separate so
+// one failure (e.g. duplicate data blocking a unique index) can't stop the rest.
+async function dbRepair(env: Env): Promise<{ done: string[]; failed: Array<{ step: string; error: string }> }> {
+  const before = await dbCheck(env);
+  const done: string[] = [];
+  const failed: Array<{ step: string; error: string }> = [];
+  const run = async (label: string, q: string) => {
+    try { await env.DB.prepare(q).run(); done.push(label); }
+    catch (e) { failed.push({ step: label, error: String((e as Error)?.message || e).slice(0, 200) }); }
+  };
+  for (const name of before.missing_tables) {
+    const t = DB_SCHEMA.find((x) => x.t === name);
+    if (t) await run('create table ' + name, t.c.replace(/^CREATE TABLE /, 'CREATE TABLE IF NOT EXISTS '));
+  }
+  for (const mc of before.missing_columns) {
+    const t = DB_SCHEMA.find((x) => x.t === mc.table);
+    const def = t && t.cols.find((c) => c[0] === mc.column);
+    if (def) await run(`add column ${mc.table}.${mc.column}`, `ALTER TABLE ${mc.table} ADD COLUMN ${mc.column} ${def[1]}`);
+  }
+  for (const i of DB_INDEXES) {
+    const n = (i.match(/IF NOT EXISTS (\w+)/) || [])[1] || i;
+    if (before.missing_indexes.indexOf(n) !== -1) await run('index ' + n, i);
+  }
+  return { done, failed };
+}
+
 function isRtpImage(u: string): boolean {
   return /^\/api\/chat\/img\/[a-zA-Z0-9._-]{10,80}$/.test(u)
     || /^\/gameicons\/[a-z0-9_-]{1,40}\/[a-zA-Z0-9._-]{1,80}\.(webp|png|jpg|jpeg)$/.test(u);
@@ -1467,16 +2606,20 @@ function publicSettings(s: Record<string, string>) {
     tasks_enabled: s.tasks_enabled === '1',
     announcement_text: s.announcement_text || '',
     contact_url: s.contact_url || '',
+    contact_whatsapp: s.contact_whatsapp || '',
+    contact_telegram: s.contact_telegram || '',
     // Dollars a player deposits to earn 1 point (shown on the Play page).
     deposit_point_rate: Math.max(0, Math.floor(Number(s.deposit_point_rate ?? '10'))),
     deposit_paynow: s.deposit_paynow || '',
     deposit_name: s.deposit_name || '',
     deposit_qr: s.deposit_qr || '',
+    deposit_bank_name: s.deposit_bank_name || '',
+    deposit_bank_account: s.deposit_bank_account || '',
+    deposit_bank_holder: s.deposit_bank_holder || '',
+    terms_text: s.terms_text || '',
     // Bumped whenever staff change the deposit account; the app shows a red dot
     // on the Deposit button until the player opens it.
     deposit_updated_at: s.deposit_updated_at || '',
-    // Referral program (Invite friends card on the Earn page).
-    referral: (() => { const c = referralConfig(s); return { enabled: c.enabled, reward: c.per, every: c.every, bonus: c.bonus, min_deposit: c.min_deposit }; })(),
   };
 }
 
@@ -1632,44 +2775,6 @@ async function listPlayerTasks(env: Env, playerId: number, settings: Record<stri
 // Total deposits (SGD) recorded for a player on a given Singapore calendar day.
 // Deposits store created_at in UTC, so the day is bounded by the SGT-day UTC
 // window. Staff key the customer's daily total once, so a sum is the natural gate.
-// Auto check-in: once a qualifying deposit (>= Settings minimum) is keyed in for
-// a day, that day is checked in for the player automatically (same points and
-// streak rules as tapping the button). If later days were already checked in,
-// their streak numbers are re-counted. Returns null when nothing changed.
-async function depositCheckin(env: Env, playerId: number, day: string): Promise<{ day: number; points: number; fixed: number } | null> {
-  const s = await getSettings(env);
-  const min = Math.max(0, Number(s.checkin_min_deposit || String(CHECKIN_MIN_DEPOSIT_DEFAULT)));
-  const total = await depositTotalForSgtDay(env, playerId, day);
-  if (total <= 0 || total < min) return null;
-  const have = await env.DB.prepare('SELECT 1 AS x FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, day).first();
-  if (have) return null;
-  const rewards = checkinRewards(s);
-  const prev = await env.DB.prepare('SELECT streak FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, shiftSgtDay(day, -1)).first<{ streak: number }>();
-  const streak = (prev?.streak ?? 0) + 1;
-  const points = checkinPointsForStreak(streak, rewards);
-  const dayNo = Math.min(streak, rewards.length);
-  try {
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO daily_checkins (player_id, checkin_date, points_added, streak) VALUES (?, ?, ?, ?)').bind(playerId, day, points, streak),
-      ...pointRewardStmts(env, playerId, POINT_TYPES.CHECKIN, points, `Daily check-in (day ${dayNo}) · ${day}`),
-    ]);
-  } catch { return null; } // already checked in (race) - nothing to do
-  // Re-number the following consecutive days, if any were already checked in.
-  let d = day, st = streak, fixed = 0;
-  for (let i = 0; i < 400; i++) {
-    d = shiftSgtDay(d, 1); st += 1;
-    const row = await env.DB.prepare('SELECT id, streak, points_added FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, d).first<{ id: number; streak: number; points_added: number }>();
-    if (!row || row.streak === st) break;
-    const newPts = checkinPointsForStreak(st, rewards);
-    const diff = newPts - Number(row.points_added || 0);
-    const stmts: any[] = [env.DB.prepare('UPDATE daily_checkins SET streak = ?, points_added = ? WHERE id = ?').bind(st, newPts, row.id)];
-    if (diff !== 0) stmts.push(...pointRewardStmts(env, playerId, POINT_TYPES.CHECKIN, diff, `Check-in streak fix: ${d} is now day ${Math.min(st, rewards.length)}`));
-    await env.DB.batch(stmts);
-    fixed++;
-  }
-  return { day: dayNo, points, fixed };
-}
-
 async function depositTotalForSgtDay(env: Env, playerId: number, day: string): Promise<number> {
   const r = await env.DB.prepare(
     'SELECT COALESCE(SUM(amount), 0) AS s FROM deposits WHERE player_id = ? AND created_at >= ? AND created_at <= ?',
@@ -1722,6 +2827,189 @@ async function getVipStatus(env: Env, playerId: number): Promise<VipStatus> {
   for (let i = 0; i < VIP_RANKS.length; i++) if (total >= VIP_RANKS[i].deposit) rankIdx = i;
   return { month_key: monthKey, week_key: weekKeySGT(), deposit_total: total, rank_idx: rankIdx };
 }
+// Record a verified deposit for a player: deposit row, deposit bonus points,
+// VIP upgrade bonuses and the auto messages. Used by Admin -> Players (manual
+// entry) and by approving a player's deposit request from the app.
+type RecordDepositResult = { ok: true; deposit_total: number; rank_name: string | null; upgrade_points_granted: number; deposit_points_granted: number; checkin?: { day: number; points: number; fixed: number } | null } | { ok: false; code: string; msg: string; status: number };
+// ---- Deposit-driven check-in -------------------------------------------------
+// Check-in follows DEPOSITS, not app visits: when staff record a deposit and
+// that Singapore day's deposits reach the check-in minimum, the day is checked
+// in automatically (points + streak). Works for back-dated deposits too: the
+// missed day is filled in and every later consecutive day is re-numbered
+// (e.g. a "Day 1" becomes "Day 2"), with the point difference paid out.
+function shiftSgtDay(day: string, n: number): string {
+  return new Date(Date.parse(day + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+}
+async function depositCheckin(env: Env, playerId: number, day: string): Promise<{ day: number; points: number; fixed: number } | null> {
+  const s = await getSettings(env);
+  const min = Math.max(0, Number(s.checkin_min_deposit || String(CHECKIN_MIN_DEPOSIT_DEFAULT)));
+  const total = await depositTotalForSgtDay(env, playerId, day);
+  if (total <= 0 || total < min) return null;
+  const have = await env.DB.prepare('SELECT 1 AS x FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, day).first();
+  if (have) return null;
+  const rewards = checkinRewards(s);
+  const prev = await env.DB.prepare('SELECT streak FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, shiftSgtDay(day, -1)).first<{ streak: number }>();
+  const streak = (prev?.streak ?? 0) + 1;
+  const points = checkinPointsForStreak(streak, rewards);
+  const dayNo = Math.min(streak, rewards.length);
+  try {
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO daily_checkins (player_id, checkin_date, points_added, streak) VALUES (?, ?, ?, ?)').bind(playerId, day, points, streak),
+      ...pointRewardStmts(env, playerId, POINT_TYPES.CHECKIN, points, `Daily check-in (day ${dayNo}) · ${day}`),
+    ]);
+  } catch { return null; } // already checked in (race) - nothing to do
+  // Re-number the following consecutive days, if any were already checked in.
+  let d = day, st = streak, fixed = 0;
+  for (let i = 0; i < 400; i++) {
+    d = shiftSgtDay(d, 1); st += 1;
+    const row = await env.DB.prepare('SELECT id, streak, points_added FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(playerId, d).first<{ id: number; streak: number; points_added: number }>();
+    if (!row || row.streak === st) break;
+    const newPts = checkinPointsForStreak(st, rewards);
+    const diff = newPts - Number(row.points_added || 0);
+    const stmts: any[] = [env.DB.prepare('UPDATE daily_checkins SET streak = ?, points_added = ? WHERE id = ?').bind(st, newPts, row.id)];
+    if (diff !== 0) stmts.push(...pointRewardStmts(env, playerId, POINT_TYPES.CHECKIN, diff, `Check-in streak fix: ${d} is now day ${Math.min(st, rewards.length)}`));
+    await env.DB.batch(stmts);
+    fixed++;
+  }
+  return { day: dayNo, points, fixed };
+}
+async function recordDeposit(env: Env, id: number, amount: number, note: string, reference: string, admin: string, dateKey = ''): Promise<RecordDepositResult> {
+  if (!id || !Number.isFinite(amount) || amount <= 0) return { ok: false, code: 'BAD_REQUEST', msg: 'A player id and a positive deposit amount are required.', status: 400 };
+  if (amount > 100000000) return { ok: false, code: 'AMOUNT_RANGE', msg: 'Deposit amount is too large.', status: 400 };
+  const exists = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(id).first();
+  if (!exists) return { ok: false, code: 'PLAYER_NOT_FOUND', msg: 'Player not found.', status: 404 };
+  // Deposit date (Singapore). Staff may back-date a deposit they forgot to key
+  // in: not in the future, and at most DEPOSIT_BACKDATE_DAYS back. A back-dated
+  // deposit is stamped 12:00 noon SGT on that day, so it counts for that day's
+  // check-in and that month's VIP rank. Today = the normal "now" time.
+  const todayKey = sgtDateKey();
+  let createdAt: string | null = null;
+  if (dateKey && dateKey !== todayKey) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || isNaN(Date.parse(dateKey + 'T00:00:00Z'))) return { ok: false, code: 'BAD_DATE', msg: 'Invalid deposit date.', status: 400 };
+    if (dateKey > todayKey) return { ok: false, code: 'BAD_DATE', msg: 'The deposit date cannot be in the future.', status: 400 };
+    const oldest = new Date(sgtNow().getTime() - DEPOSIT_BACKDATE_DAYS * 86400000).toISOString().slice(0, 10);
+    if (dateKey < oldest) return { ok: false, code: 'BAD_DATE', msg: `The deposit date can be at most ${DEPOSIT_BACKDATE_DAYS} days ago.`, status: 400 };
+    createdAt = dateKey + ' 04:00:00'; // 12:00 SGT = 04:00 UTC
+  }
+  const monthKey = createdAt ? dateKey.slice(0, 7) : monthKeySGT();
+  // Rank BEFORE this deposit, so we can detect a rank-up afterwards.
+  const rankBefore = (await getVipStatus(env, id)).rank_idx;
+  // Duplicate-reference guard: if staff paste the bank/receipt reference, the
+  // same deposit can't be recorded twice (also enforced by a unique index).
+  if (reference) {
+    try {
+      const dup = await env.DB.prepare('SELECT id FROM deposits WHERE reference = ?').bind(reference).first();
+      if (dup) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
+    } catch { /* reference column not migrated yet */ }
+  }
+  try {
+    await env.DB.prepare("INSERT INTO deposits (player_id, amount, month_key, note, admin_username, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))").bind(id, amount, monthKey, note || null, admin, reference || null, createdAt).run();
+  } catch (e) {
+    const msg = String((e as any)?.message || e);
+    if (/UNIQUE/i.test(msg)) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
+    // Pre-migration fallback: record without the reference column.
+    await env.DB.prepare("INSERT INTO deposits (player_id, amount, month_key, note, admin_username, created_at) VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))").bind(id, amount, monthKey, note || null, admin, createdAt).run();
+  }
+  // Deposit bonus points: $rate deposited = 1 point (Settings, default $10;
+  // 0 disables). Logged like every other point movement, with the staff name.
+  const depSettings = await getSettings(env);
+  const rate = Math.max(0, Math.floor(Number(depSettings.deposit_point_rate ?? '10')));
+  let depositPoints = 0;
+  if (rate > 0) {
+    depositPoints = Math.floor(amount / rate);
+    if (depositPoints > 0) await awardPoints(env, id, POINT_TYPES.DEPOSIT_BONUS, depositPoints, `Deposit bonus: $${amount}`, admin);
+  }
+  // Check-in follows deposits: this day may now count as checked in.
+  let checkin: { day: number; points: number; fixed: number } | null = null;
+  try { checkin = await depositCheckin(env, id, createdAt ? dateKey : todayKey); } catch { /* best-effort */ }
+  const vip = await getVipStatus(env, id);
+  const granted = await grantUpgradeBonuses(env, id, vip);
+  // Auto-messages (best-effort): first deposit vs later, and a rank-up note.
+  try {
+    const cnt = await env.DB.prepare('SELECT COUNT(*) AS c FROM deposits WHERE player_id = ?').bind(id).first<{ c: number }>();
+    const isFirst = (cnt?.c ?? 0) <= 1;
+    const dvars = { deposit_amount: String(amount), points_added: String(depositPoints) };
+    await sendAutoMessage(env, id, isFirst ? 'first_deposit' : 'deposit_received', dvars);
+    if (vip.rank_idx > rankBefore) await sendAutoMessage(env, id, 'vip_rank_up', {});
+  } catch { /* best-effort */ }
+  // Referral: this player's deposit may complete their inviter's referral.
+  try { await checkReferral(env, id, admin); } catch { /* best-effort */ }
+  return { ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints, checkin };
+}
+
+// Game platforms shown on the app's Game Platforms page (Admin -> Slot Games).
+// Creates the table if missing and seeds the 8 games once, with their logos;
+// staff then paste each game's download / play link in Admin.
+const SLOT_SEED: Array<[string, string]> = [
+  ['918Kiss', '918kiss'], ['Mega888', 'mega888'], ['Pussy888', 'pussy888'], ['918Kaya', '918kaya'],
+  ['Live22', 'live22'], ['ACE333', 'ace333'], ['EVO888', 'evo888'], ['KING855', 'king855'],
+];
+type SlotLink = { label: string; url: string };
+const SLOT_LINKS_MAX = 8;
+// Links a slot game shows as buttons. Falls back to the old single play_url.
+function slotLinksOf(row: Record<string, unknown>): SlotLink[] {
+  let links: SlotLink[] = [];
+  try {
+    const a = JSON.parse(String(row.links_json || '[]'));
+    if (Array.isArray(a)) {
+      links = a
+        .filter((l) => l && typeof l.url === 'string' && /^https?:\/\//i.test(l.url))
+        .map((l) => ({ label: String(l.label || '').trim().slice(0, 24), url: String(l.url).trim().slice(0, 500) }));
+    }
+  } catch { links = []; }
+  if (!links.length && row.play_url) links = [{ label: row.kind === 'web' ? 'Play now' : 'Download', url: String(row.play_url) }];
+  return links.slice(0, SLOT_LINKS_MAX);
+}
+async function ensureSlotPlatforms(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS slot_platforms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      logo_url TEXT,
+      kind TEXT NOT NULL DEFAULT 'app',
+      play_url TEXT,
+      android_package TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1
+    )`).run();
+    // Several links per game (Android / iOS / Web ...). Added lazily; the
+    // ALTER fails harmlessly once the column exists.
+    try { await env.DB.prepare('ALTER TABLE slot_platforms ADD COLUMN links_json TEXT').run(); } catch { /* column exists */ }
+    const r = await env.DB.prepare('SELECT LOWER(name) AS n FROM slot_platforms').all<{ n: string }>();
+    const have = new Set((r.results || []).map((x) => String(x.n).replace(/[^a-z0-9]/g, '')));
+    let order = (r.results || []).length;
+    for (const [name, key] of SLOT_SEED) {
+      if (have.has(key)) continue;
+      order += 1;
+      await env.DB.prepare('INSERT INTO slot_platforms (name, logo_url, kind, play_url, android_package, sort_order, active) VALUES (?, ?, ?, NULL, NULL, ?, 1)')
+        .bind(name, '/assets/logos/' + key + '.webp', 'app', order).run();
+    }
+  } catch { /* ignore */ }
+}
+
+// Deposit requests from the app: the player transfers money outside the app,
+// then submits the amount + a receipt photo here. Staff verify and approve
+// (which records the deposit above) or reject. Created lazily.
+async function ensureDepositSubmissionsTable(env: Env): Promise<void> {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS deposit_submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    method TEXT NOT NULL DEFAULT 'paynow',
+    receipt_url TEXT,
+    reference TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    admin_username TEXT,
+    admin_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at TEXT
+  )`).run();
+  try { await env.DB.prepare('ALTER TABLE deposit_submissions ADD COLUMN game TEXT').run(); } catch { /* exists */ }
+  try { await env.DB.prepare('ALTER TABLE deposit_submissions ADD COLUMN game_id TEXT').run(); } catch { /* exists */ }
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_depsub_status ON deposit_submissions(status, id)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_depsub_player ON deposit_submissions(player_id, id)').run();
+}
+
 // Past monthly ranks, derived live from the player's own deposit records (no
 // snapshots needed - every deposit is already tagged with its month). The
 // current month is excluded (it is shown live above) and months that never
@@ -1801,7 +3089,7 @@ async function renderChatTemplate(env: Env, content: string, player: PlayerRow, 
   const p = player as any;
   const vars: Record<string, string> = {
     name: p.display_name || p.username,
-    player_id: String(p.username || '').toUpperCase(), // shown in capitals, e.g. TR8904
+    player_id: String(p.username || '').toUpperCase(), // shown in capitals, e.g. LE8904
     points: String(p.points ?? 0),
     credits: centsToStr(p.reward_cents ?? 0),
     tag: p.tag || '',
@@ -1839,31 +3127,7 @@ const AUTO_TEMPLATES: Record<string, { name: string; content: string }> = {
   },
   withdrawal_approved: {
     name: 'Auto · Withdrawal approved',
-    content: '🎉 Congratulations! Your withdrawal of SGD {amount} has been approved. ✅<br><br>Thank you for choosing TR666 🐻 — we hope you play here with us again! 🎰<br><br>🎉 恭喜！您 SGD {amount} 的提款申请已批准。✅<br><br>感谢您选择 TR666 🐻，期待您再次光临游玩！🎰',
-  },
-  welcome_signup: {
-    name: 'Auto · Welcome (self sign-up)',
-    content: '👋 Welcome to TR666, {name}! Your Player ID is <b>{player_id}</b> — please save it, you need it to log in.<br>To unlock <b>free credit</b>, send a screenshot of your bank statement here in Live Chat and our team will verify your account. 🎰<br><br>👋 欢迎加入 TR666，{name}！你的玩家编号是 <b>{player_id}</b>，请妥善保存，登录时需要用到。<br>如需解锁<b>免费额度</b>，请在在线客服发送你的银行对账单截图，我们的团队会为你验证账户。🎰',
-  },
-  deposit_request_approved: {
-    name: 'Auto · Deposit request approved',
-    content: '✅ Your deposit of <b>SGD {deposit_amount}</b> has been approved!<br>Game: <b>{deposit_game}</b><br>ID: <b>{deposit_game_id}</b><br><br>✅ 你的 <b>SGD {deposit_amount}</b> 充值已批准！<br>游戏：<b>{deposit_game}</b><br>ID：<b>{deposit_game_id}</b>',
-  },
-  deposit_rejected: {
-    name: 'Auto · Deposit request rejected',
-    content: '⚠️ We could not verify your deposit request of SGD {deposit_amount}. Reason: {reason}<br>Please check your receipt and submit again, or contact support in this chat.<br><br>⚠️ 我们无法核实你 SGD {deposit_amount} 的充值申请。原因：{reason}<br>请检查收据后重新提交，或在此聊天联系客服。',
-  },
-  referral_reward: {
-    name: 'Auto · Referral reward',
-    content: '🎉 Your friend <b>{friend_id}</b> has made their first deposit! <b>SGD {referral_credits}</b> reward credits added to your account.<br>Successful referrals: <b>{referral_count}</b><br><br>🎉 你的朋友 <b>{friend_id}</b> 已完成首次充值！已为你添加 <b>SGD {referral_credits}</b> 奖励额度。<br>成功推荐：<b>{referral_count}</b>',
-  },
-  referral_milestone: {
-    name: 'Auto · Referral bonus (every N friends)',
-    content: '🏆 Amazing! You have reached <b>{referral_count}</b> successful referrals. Bonus <b>SGD {referral_bonus}</b> reward credits added!<br><br>🏆 太棒了！你已成功推荐 <b>{referral_count}</b> 位朋友。额外奖励 <b>SGD {referral_bonus}</b> 奖励额度已添加！',
-  },
-  bank_verified: {
-    name: 'Auto · Bank verified',
-    content: '✅ Your bank account has been verified, {name}! You can now submit your reward credits to free credit. 🎉<br><br>✅ {name}，你的银行账户已验证成功！现在可以提交奖励额度到免费额度了。🎉',
+    content: '🎉 Congratulations! Your withdrawal of SGD {amount} has been approved. ✅<br><br>Thank you for choosing LE888 🐻 — we hope you play here with us again! 🎰<br><br>🎉 恭喜！您 SGD {amount} 的提款申请已批准。✅<br><br>感谢您选择 LE888 🐻，期待您再次光临游玩！🎰',
   },
   game_id_changed: {
     name: 'Auto · Game ID changed',
@@ -1871,7 +3135,7 @@ const AUTO_TEMPLATES: Record<string, { name: string; content: string }> = {
   },
   welcome: {
     name: 'Auto · Welcome (new player)',
-    content: '👋 Welcome to TR666, {name}! 🐻<br>Your Player ID is <b>{player_id}</b>. Deposit and play to earn points and rewards. Good luck! 🎰<br><br>👋 欢迎加入 TR666，{name}！🐻<br>你的玩家编号是 <b>{player_id}</b>。充值并游玩即可赚取积分和奖励。祝你好运！🎰',
+    content: '👋 Welcome to LE888, {name}! 🐻<br>Your Player ID is <b>{player_id}</b>. Deposit and play to earn points and rewards. Good luck! 🎰<br><br>👋 欢迎加入 LE888，{name}！🐻<br>你的玩家编号是 <b>{player_id}</b>。充值并游玩即可赚取积分和奖励。祝你好运！🎰',
   },
   first_deposit: {
     name: 'Auto · First deposit',
@@ -1880,6 +3144,22 @@ const AUTO_TEMPLATES: Record<string, { name: string; content: string }> = {
   deposit_received: {
     name: 'Auto · Deposit received',
     content: '✅ Deposit received: SGD {deposit_amount}. <b>{points_added}</b> points have been added to your account. Have fun! 🎮<br><br>✅ 已收到充值：SGD {deposit_amount}。已为你的账户添加 <b>{points_added}</b> 积分。祝你玩得开心！🎮',
+  },
+  referral_reward: {
+    name: 'Auto · Referral reward',
+    content: '🎉 Your friend <b>{friend_id}</b> has made a deposit! You earned <b>{referral_points} PTS</b>.<br>Successful referrals: <b>{referral_count}</b><br><br>🎉 你的朋友 <b>{friend_id}</b> 已充值！你获得 <b>{referral_points} 积分</b>。<br>成功推荐：<b>{referral_count}</b>',
+  },
+  referral_milestone: {
+    name: 'Auto · Referral bonus (every N friends)',
+    content: '🏆 Amazing! You have reached <b>{referral_count}</b> successful referrals. Bonus <b>{referral_bonus} PTS</b> added!<br><br>🏆 太棒了！你已成功推荐 <b>{referral_count}</b> 位朋友。额外奖励 <b>{referral_bonus} 积分</b> 已添加！',
+  },
+  deposit_request_approved: {
+    name: 'Auto · Deposit request approved',
+    content: '✅ Your deposit of <b>SGD {deposit_amount}</b> has been approved!<br>Game: <b>{deposit_game}</b><br>ID: <b>{deposit_game_id}</b><br><br>✅ 你的 <b>SGD {deposit_amount}</b> 充值已批准！<br>游戏：<b>{deposit_game}</b><br>ID：<b>{deposit_game_id}</b>',
+  },
+  deposit_rejected: {
+    name: 'Auto · Deposit request rejected',
+    content: '⚠️ We could not verify your deposit request of SGD {deposit_amount}. Reason: {reason}<br>Please check your receipt and submit again, or contact support in this chat.<br><br>⚠️ 我们无法核实你 SGD {deposit_amount} 的充值申请。原因：{reason}<br>请检查收据后重新提交，或在此聊天联系客服。',
   },
   withdrawal_rejected: {
     name: 'Auto · Withdrawal rejected',
@@ -1919,6 +3199,7 @@ async function sendAutoMessage(env: Env, playerId: number, triggerKey: string, e
     await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, admin_username, body, image_url) VALUES (?, ?, ?, ?, ?)').bind(playerId, 'admin', 'System', rendered, img).run();
   }
   await env.DB.prepare("INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime('now'), 0, 1) ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime('now'), player_unread = player_unread + 1").bind(playerId).run();
+  await pruneChat(env, playerId);
 }
 
 // Create the 3 automatic templates once, so a manager can edit their wording.
@@ -1935,288 +3216,14 @@ async function ensureAutoTemplates(env: Env): Promise<void> {
 // API router
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
-// Player ID counter + Google Sheet sync (TR666 customer sheet)
-// The system hands out every new TR number. Each time it also asks the sheet
-// for its highest TR number, so an ID typed into the sheet by hand can never
+// Player ID counter + Google Sheet sync ("LE888 CUSTOMER DATA")
+// The system hands out every new LE number. Each time it also asks the sheet
+// for its highest LE number, so an ID typed into the sheet by hand can never
 // be given out twice. New rows are pushed to the sheet; if Google is down
-// they wait in sheet_queue and are retried (next change / Settings check / daily job).
-// Copied from LE888, adapted to TR ids.
+// they wait in sheet_queue and are retried (next sign-up / daily job).
 // ---------------------------------------------------------------------------
-const PLAYER_ID_PREFIX = 'tr';
-// Phone -> digits; 8-digit Singapore mobiles get the 65 prefix.
-function normalizePhone(v: unknown): string {
-  let d = String(v || '').replace(/\D/g, '');
-  if (/^[89]\d{7}$/.test(d)) d = '65' + d;
-  return d;
-}
-// Singapore numbers must be 65 + 8 digits (3/6/8/9...). Other countries: 8-15 digits.
-function validPhone(d: string): boolean {
-  if (/^65/.test(d)) return /^65[3689]\d{7}$/.test(d);
-  return /^\d{8,15}$/.test(d);
-}
-const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
-
-// Records a deposit for a player (same rules as Manage -> Deposits): optional
-// back-date, duplicate-reference guard, deposit points, auto check-in, VIP
-// upgrade bonuses and the auto-messages. Used by the admin route AND by
-// "Approve + record" on deposit requests.
-type RecordDepositResult = { ok: false; code: string; msg: string; status: number } | { ok: true; deposit_total: number; rank_name: string | null; upgrade_points_granted: number; deposit_points_granted: number; checkin: { day: number; points: number; fixed: number } | null };
-async function recordDeposit(env: Env, id: number, amount: number, note: string, reference: string, admin: string, dateIn = ''): Promise<RecordDepositResult> {
-  if (!id || !Number.isFinite(amount) || amount <= 0) return { ok: false, code: 'BAD_REQUEST', msg: 'A player id and a positive deposit amount are required.', status: 400 };
-  if (amount > 100000000) return { ok: false, code: 'AMOUNT_RANGE', msg: 'Deposit amount is too large.', status: 400 };
-  const exists = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(id).first();
-  if (!exists) return { ok: false, code: 'PLAYER_NOT_FOUND', msg: 'Player not found.', status: 404 };
-  // Deposit date (Singapore). Staff may back-date a deposit they forgot to key
-  // in: not in the future, and at most DEPOSIT_BACKDATE_DAYS back. A back-dated
-  // deposit is stamped 12:00 noon SGT on that day, so it counts for that day's
-  // check-in and that month's VIP rank. Today = the normal "now" time.
-  const dateKey = String(dateIn || '').trim();
-  const todayKey = sgtDateKey();
-  let createdAt: string | null = null;
-  if (dateKey && dateKey !== todayKey) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || isNaN(Date.parse(dateKey + 'T00:00:00Z'))) return { ok: false, code: 'BAD_DATE', msg: 'Invalid deposit date.', status: 400 };
-    if (dateKey > todayKey) return { ok: false, code: 'BAD_DATE', msg: 'The deposit date cannot be in the future.', status: 400 };
-    const oldest = new Date(sgtNow().getTime() - DEPOSIT_BACKDATE_DAYS * 86400000).toISOString().slice(0, 10);
-    if (dateKey < oldest) return { ok: false, code: 'BAD_DATE', msg: `The deposit date can be at most ${DEPOSIT_BACKDATE_DAYS} days ago.`, status: 400 };
-    createdAt = dateKey + ' 04:00:00'; // 12:00 SGT = 04:00 UTC
-  }
-  const monthKey = createdAt ? dateKey.slice(0, 7) : monthKeySGT();
-  // Rank BEFORE this deposit, so we can detect a rank-up afterwards.
-  const rankBefore = (await getVipStatus(env, id)).rank_idx;
-  // Duplicate-reference guard: if staff paste the bank/receipt reference, the
-  // same deposit can't be recorded twice (also enforced by a unique index).
-  if (reference) {
-    try {
-      const dup = await env.DB.prepare('SELECT id FROM deposits WHERE reference = ?').bind(reference).first();
-      if (dup) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
-    } catch { /* reference column not migrated yet */ }
-  }
-  try {
-    await env.DB.prepare("INSERT INTO deposits (player_id, amount, month_key, note, admin_username, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))").bind(id, amount, monthKey, note || null, admin, reference || null, createdAt).run();
-  } catch (e) {
-    const msg = String((e as any)?.message || e);
-    if (/UNIQUE/i.test(msg)) return { ok: false, code: 'DUP_REFERENCE', msg: 'A deposit with this reference was already recorded.', status: 409 };
-    // Pre-migration fallback: record without the reference column.
-    await env.DB.prepare("INSERT INTO deposits (player_id, amount, month_key, note, admin_username, created_at) VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))").bind(id, amount, monthKey, note || null, admin, createdAt).run();
-  }
-  // Deposit bonus points: $rate deposited = 1 point (Settings, default $10;
-  // 0 disables). Logged like every other point movement, with the staff name.
-  const depSettings = await getSettings(env);
-  const rate = Math.max(0, Math.floor(Number(depSettings.deposit_point_rate ?? '10')));
-  let depositPoints = 0;
-  if (rate > 0) {
-    depositPoints = Math.floor(amount / rate);
-    if (depositPoints > 0) await awardPoints(env, id, POINT_TYPES.DEPOSIT_BONUS, depositPoints, `Deposit bonus: $${amount}`, admin);
-  }
-  // Check-in follows deposits: this day may now count as checked in.
-  let checkin: { day: number; points: number; fixed: number } | null = null;
-  try { checkin = await depositCheckin(env, id, createdAt ? dateKey : todayKey); } catch { /* best-effort */ }
-  const vip = await getVipStatus(env, id);
-  const granted = await grantUpgradeBonuses(env, id, vip);
-  // Auto-messages (best-effort): first deposit vs later, and a rank-up note.
-  try {
-    const cnt = await env.DB.prepare('SELECT COUNT(*) AS c FROM deposits WHERE player_id = ?').bind(id).first<{ c: number }>();
-    const isFirst = (cnt?.c ?? 0) <= 1;
-    const dvars = { deposit_amount: String(amount), points_added: String(depositPoints) };
-    await sendAutoMessage(env, id, isFirst ? 'first_deposit' : 'deposit_received', dvars);
-    if (vip.rank_idx > rankBefore) await sendAutoMessage(env, id, 'vip_rank_up', {});
-  } catch { /* best-effort */ }
-  // Referral: this player's deposit may complete their inviter's referral.
-  try { await checkReferral(env, id, admin); } catch { /* best-effort */ }
-  return { ok: true, deposit_total: vip.deposit_total, rank_name: vip.rank_idx >= 0 ? VIP_RANKS[vip.rank_idx].name : null, upgrade_points_granted: granted, deposit_points_granted: depositPoints, checkin };
-}
-
-// ---------------------------------------------------------------------------
-// Referral program: a player shares /r/<their ID>; a friend who signs up through
-// it is linked. When the friend's FIRST deposit is keyed in (>= minimum), the
-// inviter gets reward credits (Settings). Optional bonus every N friends.
-// ---------------------------------------------------------------------------
-async function ensureReferralTables(env: Env): Promise<void> {
-  await env.DB.batch([
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', credits_added INTEGER NOT NULL DEFAULT 0, added_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), rewarded_at TEXT)"),
-    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals (referrer_id, id)'),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS referral_milestones (referrer_id INTEGER NOT NULL, milestone INTEGER NOT NULL, credits_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (referrer_id, milestone))"),
-    // One row per inviter per day: how many times their /r/ link was opened.
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS referral_clicks (referrer_id INTEGER NOT NULL, day TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (referrer_id, day))'),
-  ]);
-}
-async function referralClickStats(env: Env, referrerId: number): Promise<{ total: number; today: number; week: number }> {
-  try {
-    await ensureReferralTables(env);
-    const today = sgtDateKey();
-    const weekAgo = shiftSgtDay(today, -6);
-    const r = await env.DB.prepare('SELECT COALESCE(SUM(clicks), 0) AS total, COALESCE(SUM(CASE WHEN day = ? THEN clicks ELSE 0 END), 0) AS today, COALESCE(SUM(CASE WHEN day >= ? THEN clicks ELSE 0 END), 0) AS week FROM referral_clicks WHERE referrer_id = ?').bind(today, weekAgo, referrerId).first<any>();
-    return { total: Number(r?.total) || 0, today: Number(r?.today) || 0, week: Number(r?.week) || 0 };
-  } catch { return { total: 0, today: 0, week: 0 }; }
-}
-// Amounts are in SGD (reward credits); stored/paid as cents.
-function referralConfig(s: Record<string, string>): { enabled: boolean; per: number; every: number; bonus: number; min_deposit: number } {
-  const n = (k: string, d: number, max: number) => Math.max(0, Math.min(max, Math.round((Number(s[k] ?? d) || 0) * 100) / 100));
-  return {
-    enabled: String(s.referral_enabled ?? '0') === '1',
-    per: n('referral_reward', 5, 100000),
-    every: Math.max(1, Math.floor(n('referral_bonus_every', 10, 1000)) || 10),
-    bonus: n('referral_bonus', 0, 100000),
-    min_deposit: n('referral_min_deposit', 0, 1000000),
-  };
-}
-// "tr2810" -> "TR**10" so friends' login IDs aren't shown in full.
-function maskId(u: string): string {
-  const x = String(u || '').toUpperCase();
-  if (x.length <= 3) return x.slice(0, 1) + '**';
-  return x.slice(0, 2) + '**' + x.slice(-2);
-}
-async function checkReferral(env: Env, referredId: number, admin: string | null): Promise<{ rewarded: boolean; credits: number; bonus: number }> {
-  const out = { rewarded: false, credits: 0, bonus: 0 };
-  await ensureReferralTables(env);
-  const ref = await env.DB.prepare("SELECT id, referrer_id FROM referrals WHERE referred_id = ? AND status = 'pending'").bind(referredId).first<{ id: number; referrer_id: number }>();
-  if (!ref) return out;
-  const cfg = referralConfig(await getSettings(env));
-  if (!cfg.enabled) return out;
-  const dep = await env.DB.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(amount), 0) AS t FROM deposits WHERE player_id = ?').bind(referredId).first<{ c: number; t: number }>();
-  if (!dep || Number(dep.c) < 1 || Number(dep.t) < Math.max(cfg.min_deposit, 0.01)) return out;
-  const cents = Math.round(cfg.per * 100);
-  const upd = await env.DB.prepare("UPDATE referrals SET status = 'rewarded', credits_added = ?, rewarded_at = datetime('now') WHERE id = ? AND status = 'pending'").bind(cents, ref.id).run();
-  if (!upd.meta || !Number(upd.meta.changes)) return out; // already paid by a parallel request
-  out.rewarded = true;
-  const friend = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(referredId).first<{ username: string }>();
-  const fname = maskId(friend?.username || '');
-  const cnt = await env.DB.prepare("SELECT COUNT(*) AS c FROM referrals WHERE referrer_id = ? AND status = 'rewarded'").bind(ref.referrer_id).first<{ c: number }>();
-  const success = Number(cnt?.c) || 0;
-  if (cents > 0) {
-    await awardCredits(env, ref.referrer_id, cents, `Referral: ${String(friend?.username || referredId).toUpperCase()} made their first deposit`, admin);
-    out.credits = cfg.per;
-    try { await sendAutoMessage(env, ref.referrer_id, 'referral_reward', { friend_id: fname, referral_credits: cfg.per.toFixed(2), referral_count: String(success) }); } catch { /* best-effort */ }
-  }
-  // Bonus each time the count lands on a multiple of N (10, 20, 30 ...).
-  if (cfg.bonus > 0 && success > 0 && success % cfg.every === 0) {
-    const bcents = Math.round(cfg.bonus * 100);
-    const ins = await env.DB.prepare('INSERT OR IGNORE INTO referral_milestones (referrer_id, milestone, credits_added) VALUES (?, ?, ?)').bind(ref.referrer_id, success, bcents).run();
-    if (ins.meta && Number(ins.meta.changes)) {
-      await awardCredits(env, ref.referrer_id, bcents, `Referral bonus: ${success} friends deposited`, admin);
-      out.bonus = cfg.bonus;
-      try { await sendAutoMessage(env, ref.referrer_id, 'referral_milestone', { referral_count: String(success), referral_bonus: cfg.bonus.toFixed(2) }); } catch { /* best-effort */ }
-    }
-  }
-  return out;
-}
-// Link friend -> inviter. Returns an error message or null.
-async function linkReferral(env: Env, referrerId: number, friendId: number, admin: string): Promise<string | null> {
-  if (referrerId === friendId) return 'A player cannot refer themselves.';
-  await ensureReferralTables(env);
-  const had = await env.DB.prepare('SELECT r.referrer_id, p.username FROM referrals r LEFT JOIN players p ON p.id = r.referrer_id WHERE r.referred_id = ?').bind(friendId).first<{ referrer_id: number; username: string }>();
-  if (had) return had.referrer_id === referrerId ? 'This friend is already on the list.' : `This friend was already referred by ${String(had.username || had.referrer_id).toUpperCase()}.`;
-  const loop = await env.DB.prepare('SELECT 1 AS x FROM referrals WHERE referrer_id = ? AND referred_id = ?').bind(friendId, referrerId).first();
-  if (loop) return 'These two are the other way round already (this friend referred this player).';
-  try {
-    await env.DB.prepare('INSERT INTO referrals (referrer_id, referred_id, added_by) VALUES (?, ?, ?)').bind(referrerId, friendId, admin).run();
-  } catch { return 'This friend was already referred.'; }
-  return null;
-}
-
-// Home banners: sliding images on the Play page (Admin -> Settings).
-async function ensureBanners(env: Env): Promise<void> {
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS banners (id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, link_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-}
-
-// Deposit requests from the app (amount + receipt photo) waiting for staff.
-async function ensureDepositSubmissionsTable(env: Env): Promise<void> {
-  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS deposit_submissions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_id INTEGER NOT NULL,
-    amount REAL NOT NULL,
-    method TEXT NOT NULL DEFAULT 'paynow',
-    receipt_url TEXT,
-    reference TEXT,
-    game TEXT,
-    game_id TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    admin_username TEXT,
-    admin_note TEXT,
-    recorded INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    decided_at TEXT
-  )`).run();
-  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_depsub_status ON deposit_submissions(status, id)').run();
-  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_depsub_player ON deposit_submissions(player_id, id)').run();
-}
-
-// Bank verification for self sign-ups. players.bank_verified:
-//   NULL = not needed (staff-created / imported), 0 = waiting for staff to check
-//   the bank statement, 1 = verified. Add-only: 3 columns, added on first use.
-// Blocking of free-credit submits only happens while the admin setting
-// bank_verify_enabled = '1' (default OFF), so nothing changes until it's turned on.
-let verifyColsReady = false;
-async function ensureVerifyCols(env: Env): Promise<void> {
-  if (verifyColsReady) return;
-  for (const c of ['bank_verified INTEGER', 'verified_by TEXT', 'verified_at TEXT']) {
-    try { await env.DB.prepare('ALTER TABLE players ADD COLUMN ' + c).run(); } catch { /* already there */ }
-  }
-  // Self sign-ups made before this feature existed also need verifying (ONE time
-  // only, so a staff member using the SELF SIGNUP tag later doesn't block anyone).
-  try {
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS sheet_meta (k TEXT PRIMARY KEY, v TEXT)').run();
-    const done = await env.DB.prepare("SELECT v FROM sheet_meta WHERE k = 'verify_backfill'").first();
-    if (!done) {
-      await env.DB.prepare("UPDATE players SET bank_verified = 0 WHERE bank_verified IS NULL AND verified_at IS NULL AND upper(trim(COALESCE(tag,''))) = 'SELF SIGNUP'").run();
-      await env.DB.prepare("INSERT OR IGNORE INTO sheet_meta (k, v) VALUES ('verify_backfill', datetime('now'))").run();
-    }
-  } catch { /* ignore */ }
-  verifyColsReady = true;
-}
-// ---------------------------------------------------------------------------
-// One-tap login links (admin -> player). 24h, reusable until expiry, and
-// cancelled when a newer link is made or the player's sessions are reset.
-// Only the SHA-256 of the token is stored, so a DB leak cannot log anyone in.
-// ---------------------------------------------------------------------------
-const LOGIN_LINK_SECONDS = 24 * 3600;
-async function ensureLoginLinks(env: Env): Promise<void> {
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS login_links (token_hash TEXT PRIMARY KEY, player_id INTEGER NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, created_by TEXT, expires_at INTEGER NOT NULL, uses INTEGER NOT NULL DEFAULT 0, last_used_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-}
-async function sha256HexStr(s: string): Promise<string> {
-  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
-  return Array.from(d).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-function loginLinkErrorPage(): Response {
-  const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link expired</title>' +
-    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b0d;color:#eee;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:20px;box-sizing:border-box}' +
-    '.c{max-width:360px;text-align:center;background:#16161a;border:1px solid #2a2a30;border-radius:16px;padding:28px 22px}h1{font-size:20px;margin:0 0 8px;color:#e8c26a}p{margin:0 0 18px;color:#aaa}' +
-    'a{display:inline-block;background:#c9a24a;color:#111;text-decoration:none;font-weight:600;padding:11px 22px;border-radius:10px}</style></head>' +
-    '<body><div class="c"><h1>This login link has expired</h1><p>Login links only work for 24 hours. Please ask customer service for a new link, or log in with your Player ID and password.</p><a href="/">Go to login</a></div></body></html>';
-  return new Response(html, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
-}
-// GET /go/<token>: checks the link, makes a normal player session and sends the
-// app the token in the URL hash (the app saves it the same way as a password login).
-async function handleLoginLink(request: Request, env: Env, token: string): Promise<Response> {
-  if (!/^[A-Za-z0-9_-]{30,64}$/.test(token)) return loginLinkErrorPage();
-  if (!(await rateLimit(env, 'golink:ip:' + clientIp(request), 40, 300))) return loginLinkErrorPage();
-  try { await ensureLoginLinks(env); } catch { return loginLinkErrorPage(); }
-  const hash = await sha256HexStr(token);
-  const link = await env.DB.prepare('SELECT * FROM login_links WHERE token_hash = ?').bind(hash).first<any>();
-  if (!link || Number(link.expires_at) < Math.floor(Date.now() / 1000)) return loginLinkErrorPage();
-  const row = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(Number(link.player_id)).first<PlayerRow>();
-  if (!row || row.status !== 'active' || (row.session_version || 1) !== Number(link.session_version)) return loginLinkErrorPage();
-  await env.DB.prepare("UPDATE login_links SET uses = uses + 1, last_used_at = datetime('now') WHERE token_hash = ?").bind(hash).run();
-  const session = await signToken(env, 'player', String(row.id), row.session_version || 1, PLAYER_SESSION_SECONDS);
-  return new Response(null, { status: 302, headers: { Location: '/#login=' + encodeURIComponent(session), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' } });
-}
-
-// Broadcasts: every push broadcast is also kept here so players can read it
-// under the 🔔 in the app, even without push notifications switched on.
-async function ensureBroadcasts(env: Env): Promise<void> {
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, message_zh TEXT, created_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-}
-
-function verifyEnabled(s: Record<string, string>): boolean { return String(s.bank_verify_enabled ?? '0') === '1'; }
-async function playerVerifyState(env: Env, playerId: number): Promise<number | null> {
-  try {
-    await ensureVerifyCols(env);
-    const v = await env.DB.prepare('SELECT bank_verified FROM players WHERE id = ?').bind(playerId).first<{ bank_verified: number | null }>();
-    return v && v.bank_verified !== null && v.bank_verified !== undefined ? Number(v.bank_verified) : null;
-  } catch { return null; }
-}
+const PLAYER_ID_PREFIX = 'le';
 async function sheetCall(env: Env, payload: Record<string, unknown>, timeoutMs = 25000): Promise<any | null> {
   const url = String(env.SHEET_URL || '').trim(), secret = String(env.SHEET_SECRET || '').trim();
   if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url) || !secret) return null;
@@ -2239,7 +3246,7 @@ async function dbMaxPlayerNumber(env: Env): Promise<number> {
   }
   return max;
 }
-// Last highest TR number seen in the sheet. Used when Google is slow to wake
+// Last highest LE number seen in the sheet. Used when Google is slow to wake
 // up (Apps Script can take several seconds after being idle).
 async function sheetMaxCache(env: Env, value?: number): Promise<number> {
   try {
@@ -2274,7 +3281,7 @@ async function sheetSend(env: Env, playerId: number, msg: SheetMsg): Promise<boo
     const f = await flushSheetQueue(env, 20);
     if (f.left === 0) res = await sheetCall(env, { ...msg });
     else res = { ok: false, error: 'waiting behind earlier rows' };
-    const m = /^TR0*(\d{1,9})$/i.exec(String(msg.row?.code || ''));
+    const m = /^LE0*(\d{1,9})$/i.exec(String(msg.row?.code || ''));
     if (res && res.ok && m) await sheetMaxCache(env, Number(m[1]));
   } catch (e) { res = { ok: false, error: 'queue error' }; }
   if (res && res.ok) return true;
@@ -2288,7 +3295,8 @@ async function sheetPushRow(env: Env, playerId: number, row: SheetRow): Promise<
   return sheetSend(env, playerId, { action: 'append', row });
 }
 // Staff/player changed details in the system -> overwrite those cells in the sheet.
-// Only non-blank values are sent, so a blank field never erases sheet data.
+// Only non-blank values are sent, so a blank field never erases sheet data
+// (e.g. bank details that exist only in the sheet for imported players).
 async function sheetUpdatePlayer(env: Env, playerId: number, fields: Partial<SheetRow>, oldCode?: string): Promise<boolean> {
   const p = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(playerId).first<{ username: string }>();
   if (!p) return false;
@@ -2322,7 +3330,7 @@ async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; le
   if (le) { let code = ''; try { const j = JSON.parse(le.payload); code = String((j.row || j).code || ''); } catch { /* ignore */ } lastErr = (code ? code + ': ' : '') + String(le.last_error || ''); }
   return { sent, left: Number(left?.c || 0), stuck: Number(stuck?.c || 0), last_error: lastErr };
 }
-// Insert a player under the next free TR number. Retries if two sign-ups
+// Insert a player under the next free LE number. Retries if two sign-ups
 // race for the same number (the UNIQUE username blocks the second one).
 async function insertPlayerWithNextId(env: Env, insert: (username: string) => Promise<number>, timeoutMs = 6000): Promise<{ id: number; username: string }> {
   const info = await nextPlayerIdInfo(env, timeoutMs);
@@ -2334,69 +3342,101 @@ async function insertPlayerWithNextId(env: Env, insert: (username: string) => Pr
   }
   throw new Error('Could not find a free Player ID, please try again.');
 }
+// Phone -> digits; 8-digit Singapore numbers get the 65 prefix.
+function normalizePhone(v: unknown): string {
+  let d = String(v || '').replace(/\D/g, '');
+  if (/^[89]\d{7}$/.test(d)) d = '65' + d;
+  return d;
+}
+// Singapore numbers must be 65 + 8 digits (3/6/8/9...). Other countries: 8-15 digits.
+function validPhone(d: string): boolean {
+  if (/^65/.test(d)) return /^65[3689]\d{7}$/.test(d);
+  return /^\d{8,15}$/.test(d);
+}
+// Bank verification for self sign-ups. bank_verified: NULL = not needed
+// (staff-created / imported), 0 = waiting for CS to check the bank statement,
+// 1 = verified. Unverified players can't submit rewards to free credit.
+let verifyColsReady = false;
+async function ensureVerifyCols(env: Env): Promise<void> {
+  if (verifyColsReady) return;
+  for (const c of ['bank_verified INTEGER', 'verified_by TEXT', 'verified_at TEXT']) {
+    try { await env.DB.prepare('ALTER TABLE players ADD COLUMN ' + c).run(); } catch { /* already there */ }
+  }
+  // Self sign-ups made before this feature existed also need verifying (ONE time only,
+  // so a staff member using the SELF SIGNUP tag later doesn't block anyone).
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS sheet_meta (k TEXT PRIMARY KEY, v TEXT)').run();
+    const done = await env.DB.prepare("SELECT v FROM sheet_meta WHERE k = 'verify_backfill'").first();
+    if (!done) {
+      await env.DB.prepare("UPDATE players SET bank_verified = 0 WHERE bank_verified IS NULL AND verified_at IS NULL AND upper(trim(COALESCE(tag,''))) = 'SELF SIGNUP'").run();
+      await env.DB.prepare("INSERT OR IGNORE INTO sheet_meta (k, v) VALUES ('verify_backfill', datetime('now'))").run();
+    }
+  } catch { /* ignore */ }
+  verifyColsReady = true;
+}
+const SIGNUP_BANKS = ['DBS', 'POSB', 'OCBC', 'UOB', 'MARIBANK', 'TRUSTBANK', 'LIQUID', 'GXS', 'OTHERS'];
 
 // ---------------------------------------------------------------------------
-// Database check / repair (Admin -> Settings). Generated from TR666's own
-// schema + migrations. Repair is ADD-ONLY: creates missing tables, adds missing
-// columns, creates missing indexes. Never drops, renames or rewrites anything.
+// Guest Live Chat (login page, no account needed). A guest's conversation is
+// stored in the normal chat tables under a NEGATIVE id (-guest.id), so staff
+// see it in the same Live Chat inbox. The browser keeps a random token; only
+// its SHA-256 is saved. Staff can move a guest chat into a real player's chat.
 // ---------------------------------------------------------------------------
-const DB_SCHEMA: Array<{ t: string; c: string; cols: Array<[string, string]> }> = [{"t": "admins", "c": "CREATE TABLE admins ( id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')) , session_version INTEGER NOT NULL DEFAULT 1, permissions TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT 'manager')", "cols": [["id", "INTEGER"], ["username", "TEXT NOT NULL"], ["password", "TEXT NOT NULL"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["permissions", "TEXT NOT NULL DEFAULT ''"], ["role", "TEXT NOT NULL DEFAULT 'manager'"]]}, {"t": "app_domains", "c": "CREATE TABLE app_domains (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, label TEXT, is_primary INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT (datetime('now')), updated_by TEXT)", "cols": [["id", "INTEGER"], ["url", "TEXT NOT NULL"], ["label", "TEXT"], ["is_primary", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT DEFAULT datetime('now')"], ["updated_by", "TEXT"]]}, {"t": "arcade_activity", "c": "CREATE TABLE arcade_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, game TEXT NOT NULL, activity_date TEXT NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, result_label TEXT, win_cents INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')) , play_id TEXT)", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["game", "TEXT NOT NULL"], ["activity_date", "TEXT NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["result_label", "TEXT"], ["win_cents", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["play_id", "TEXT"]]}, {"t": "arcade_daily_rewards", "c": "CREATE TABLE arcade_daily_rewards ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, reward_date TEXT NOT NULL, seq INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, reward_date, seq) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["reward_date", "TEXT NOT NULL"], ["seq", "INTEGER NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "auth_throttle", "c": "CREATE TABLE auth_throttle ( id TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT )", "cols": [["id", "TEXT"], ["fails", "INTEGER NOT NULL DEFAULT 0"], ["locked_until", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"]]}, {"t": "chat_messages", "c": "CREATE TABLE chat_messages ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, sender TEXT NOT NULL, admin_username TEXT, body TEXT, image_url TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) , deleted_at TEXT, is_html INTEGER NOT NULL DEFAULT 0)", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["sender", "TEXT NOT NULL"], ["admin_username", "TEXT"], ["body", "TEXT"], ["image_url", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["deleted_at", "TEXT"], ["is_html", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "chat_state", "c": "CREATE TABLE chat_state ( player_id INTEGER PRIMARY KEY, last_msg_at TEXT, player_unread INTEGER NOT NULL DEFAULT 0, admin_unread INTEGER NOT NULL DEFAULT 0 )", "cols": [["player_id", "INTEGER"], ["last_msg_at", "TEXT"], ["player_unread", "INTEGER NOT NULL DEFAULT 0"], ["admin_unread", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "banners", "c": "CREATE TABLE banners (id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, link_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')))", "cols": [["id", "INTEGER"], ["image_url", "TEXT NOT NULL"], ["link_url", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "broadcasts", "c": "CREATE TABLE broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, message_zh TEXT, created_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))", "cols": [["id", "INTEGER"], ["message", "TEXT NOT NULL"], ["message_zh", "TEXT"], ["created_by", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "chat_templates", "c": "CREATE TABLE chat_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, content TEXT NOT NULL, trigger_key TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, updated_at TEXT, updated_by TEXT)", "cols": [["id", "INTEGER"], ["name", "TEXT NOT NULL"], ["content", "TEXT NOT NULL"], ["trigger_key", "TEXT NOT NULL DEFAULT ''"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "credit_activity", "c": "CREATE TABLE credit_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, reward_after_cents INTEGER NOT NULL, reason TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["amount_cents", "INTEGER NOT NULL"], ["reward_after_cents", "INTEGER NOT NULL"], ["reason", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "daily_checkins", "c": "CREATE TABLE daily_checkins ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, checkin_date TEXT NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, streak INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, checkin_date) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["checkin_date", "TEXT NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["streak", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "deposit_submissions", "c": "CREATE TABLE deposit_submissions (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount REAL NOT NULL, method TEXT NOT NULL DEFAULT 'paynow', receipt_url TEXT, reference TEXT, game TEXT, game_id TEXT, status TEXT NOT NULL DEFAULT 'pending', admin_username TEXT, admin_note TEXT, recorded INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT)", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["amount", "REAL NOT NULL"], ["method", "TEXT NOT NULL DEFAULT 'paynow'"], ["receipt_url", "TEXT"], ["reference", "TEXT"], ["game", "TEXT"], ["game_id", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["admin_username", "TEXT"], ["admin_note", "TEXT"], ["recorded", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["decided_at", "TEXT"]]}, {"t": "deposit_bonus_claims", "c": "CREATE TABLE deposit_bonus_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, tier_id INTEGER NOT NULL, period_key TEXT NOT NULL DEFAULT 'lifetime', reward_type TEXT NOT NULL, amount INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(player_id, tier_id, period_key) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["tier_id", "INTEGER NOT NULL"], ["period_key", "TEXT NOT NULL DEFAULT 'lifetime'"], ["reward_type", "TEXT NOT NULL"], ["amount", "INTEGER NOT NULL"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "deposit_bonus_tiers", "c": "CREATE TABLE deposit_bonus_tiers ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, min_deposit INTEGER NOT NULL, period TEXT NOT NULL DEFAULT 'lifetime', reward_type TEXT NOT NULL DEFAULT 'points', amount INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')) , start_date TEXT, end_date TEXT, image_url TEXT)", "cols": [["id", "INTEGER"], ["title", "TEXT"], ["min_deposit", "INTEGER NOT NULL"], ["period", "TEXT NOT NULL DEFAULT 'lifetime'"], ["reward_type", "TEXT NOT NULL DEFAULT 'points'"], ["amount", "INTEGER NOT NULL"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["start_date", "TEXT"], ["end_date", "TEXT"], ["image_url", "TEXT"]]}, {"t": "deposits", "c": "CREATE TABLE deposits ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount REAL NOT NULL, month_key TEXT NOT NULL, note TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) , reference TEXT)", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["amount", "REAL NOT NULL"], ["month_key", "TEXT NOT NULL"], ["note", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["reference", "TEXT"]]}, {"t": "game_config_changes", "c": "CREATE TABLE game_config_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, game TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, changed_by TEXT, changed_at TEXT NOT NULL DEFAULT (datetime('now')))", "cols": [["id", "INTEGER"], ["game", "TEXT NOT NULL"], ["before_json", "TEXT"], ["after_json", "TEXT NOT NULL"], ["changed_by", "TEXT"], ["changed_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "game_configs", "c": "CREATE TABLE game_configs (game TEXT PRIMARY KEY, cost INTEGER NOT NULL, prizes_json TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT (datetime('now')), updated_by TEXT)", "cols": [["game", "TEXT"], ["cost", "INTEGER NOT NULL"], ["prizes_json", "TEXT NOT NULL"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["updated_by", "TEXT"]]}, {"t": "login_links", "c": "CREATE TABLE login_links (token_hash TEXT PRIMARY KEY, player_id INTEGER NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, created_by TEXT, expires_at INTEGER NOT NULL, uses INTEGER NOT NULL DEFAULT 0, last_used_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))", "cols": [["token_hash", "TEXT"], ["player_id", "INTEGER NOT NULL"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["created_by", "TEXT"], ["expires_at", "INTEGER NOT NULL"], ["uses", "INTEGER NOT NULL DEFAULT 0"], ["last_used_at", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "payout_requests", "c": "CREATE TABLE payout_requests ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT , decision_note TEXT, fc_status TEXT, fc_winover_x REAL, fc_hit_cents INTEGER, fc_cap_cents INTEGER, fc_cleared_at TEXT, fc_cleared_by TEXT, game_password TEXT, game TEXT, game_id TEXT, fc_custom INTEGER NOT NULL DEFAULT 0)", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["amount_cents", "INTEGER NOT NULL"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["admin_username", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["decided_at", "TEXT"], ["decision_note", "TEXT"], ["fc_status", "TEXT"], ["fc_winover_x", "REAL"], ["fc_hit_cents", "INTEGER"], ["fc_cap_cents", "INTEGER"], ["fc_cleared_at", "TEXT"], ["fc_cleared_by", "TEXT"], ["game_password", "TEXT"], ["game", "TEXT"], ["game_id", "TEXT"], ["fc_custom", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "player_free_ids", "c": "CREATE TABLE player_free_ids (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, platform TEXT NOT NULL, game_id TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(player_id, platform))", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["platform", "TEXT NOT NULL"], ["game_id", "TEXT NOT NULL"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "player_game_ids", "c": "CREATE TABLE player_game_ids ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, platform TEXT NOT NULL, game_id TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(player_id, platform) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["platform", "TEXT NOT NULL"], ["game_id", "TEXT NOT NULL"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "players", "c": "CREATE TABLE players ( id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE, password TEXT NOT NULL, display_name TEXT, points INTEGER NOT NULL DEFAULT 0, reward_cents INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) , session_version INTEGER NOT NULL DEFAULT 1, telegram TEXT, whatsapp TEXT, bank_name TEXT, bank_account TEXT, bank_holder TEXT, paynow_number TEXT, birthday TEXT, bank_locked INTEGER NOT NULL DEFAULT 0, birthday_locked INTEGER NOT NULL DEFAULT 0, tag TEXT, lang TEXT, mc_status TEXT, mc_amount_cents INTEGER NOT NULL DEFAULT 0, mc_winover REAL, mc_cap_cents INTEGER, mc_payout_id INTEGER)", "cols": [["id", "INTEGER"], ["username", "TEXT NOT NULL"], ["password", "TEXT NOT NULL"], ["display_name", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["reward_cents", "INTEGER NOT NULL DEFAULT 0"], ["status", "TEXT NOT NULL DEFAULT 'active'"], ["note", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["session_version", "INTEGER NOT NULL DEFAULT 1"], ["telegram", "TEXT"], ["whatsapp", "TEXT"], ["bank_name", "TEXT"], ["bank_account", "TEXT"], ["bank_holder", "TEXT"], ["paynow_number", "TEXT"], ["birthday", "TEXT"], ["bank_locked", "INTEGER NOT NULL DEFAULT 0"], ["birthday_locked", "INTEGER NOT NULL DEFAULT 0"], ["tag", "TEXT"], ["lang", "TEXT"], ["mc_status", "TEXT"], ["mc_amount_cents", "INTEGER NOT NULL DEFAULT 0"], ["mc_winover", "REAL"], ["mc_cap_cents", "INTEGER"], ["mc_payout_id", "INTEGER"], ["bank_verified", "INTEGER"], ["verified_by", "TEXT"], ["verified_at", "TEXT"]]}, {"t": "point_activity", "c": "CREATE TABLE point_activity ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, points_after INTEGER NOT NULL, note TEXT, admin_username TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["type", "TEXT NOT NULL"], ["amount", "INTEGER NOT NULL"], ["points_after", "INTEGER NOT NULL"], ["note", "TEXT"], ["admin_username", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "promo_claims", "c": "CREATE TABLE promo_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, promo_id INTEGER NOT NULL, player_id INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, day_key TEXT NOT NULL, unlock_id INTEGER, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["promo_id", "INTEGER NOT NULL"], ["player_id", "INTEGER NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["day_key", "TEXT NOT NULL"], ["unlock_id", "INTEGER"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "promo_unlocks", "c": "CREATE TABLE promo_unlocks ( id INTEGER PRIMARY KEY AUTOINCREMENT, promo_id INTEGER NOT NULL, player_id INTEGER NOT NULL, granted_by TEXT, status TEXT NOT NULL DEFAULT 'available', created_at TEXT NOT NULL DEFAULT (datetime('now')), claimed_at TEXT )", "cols": [["id", "INTEGER"], ["promo_id", "INTEGER NOT NULL"], ["player_id", "INTEGER NOT NULL"], ["granted_by", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'available'"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["claimed_at", "TEXT"]]}, {"t": "promos", "c": "CREATE TABLE promos ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, title_zh TEXT, tnc TEXT, tnc_zh TEXT, points INTEGER NOT NULL DEFAULT 0, access TEXT NOT NULL DEFAULT 'gated', limit_type TEXT NOT NULL DEFAULT 'day', limit_count INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) , app_only INTEGER NOT NULL DEFAULT 0, reward_type TEXT NOT NULL DEFAULT 'points', image_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0)", "cols": [["id", "INTEGER"], ["title", "TEXT NOT NULL"], ["title_zh", "TEXT"], ["tnc", "TEXT"], ["tnc_zh", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["access", "TEXT NOT NULL DEFAULT 'gated'"], ["limit_type", "TEXT NOT NULL DEFAULT 'day'"], ["limit_count", "INTEGER NOT NULL DEFAULT 1"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["app_only", "INTEGER NOT NULL DEFAULT 0"], ["reward_type", "TEXT NOT NULL DEFAULT 'points'"], ["image_url", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "push_log", "c": "CREATE TABLE push_log ( id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (kind, key) )", "cols": [["id", "INTEGER"], ["kind", "TEXT NOT NULL"], ["key", "TEXT NOT NULL"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "push_subs", "c": "CREATE TABLE push_subs ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, lang TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["endpoint", "TEXT NOT NULL"], ["p256dh", "TEXT NOT NULL"], ["auth", "TEXT NOT NULL"], ["lang", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "rate_limits", "c": "CREATE TABLE rate_limits ( bucket TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL DEFAULT 0 )", "cols": [["bucket", "TEXT"], ["window_start", "INTEGER NOT NULL"], ["count", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "referral_clicks", "c": "CREATE TABLE referral_clicks (referrer_id INTEGER NOT NULL, day TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (referrer_id, day))", "cols": [["referrer_id", "INTEGER NOT NULL"], ["day", "TEXT NOT NULL"], ["clicks", "INTEGER NOT NULL DEFAULT 0"]]}, {"t": "referral_milestones", "c": "CREATE TABLE referral_milestones (referrer_id INTEGER NOT NULL, milestone INTEGER NOT NULL, credits_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (referrer_id, milestone))", "cols": [["referrer_id", "INTEGER NOT NULL"], ["milestone", "INTEGER NOT NULL"], ["credits_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "referrals", "c": "CREATE TABLE referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', credits_added INTEGER NOT NULL DEFAULT 0, added_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), rewarded_at TEXT)", "cols": [["id", "INTEGER"], ["referrer_id", "INTEGER NOT NULL"], ["referred_id", "INTEGER NOT NULL"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["credits_added", "INTEGER NOT NULL DEFAULT 0"], ["added_by", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["rewarded_at", "TEXT"]]}, {"t": "rtp_games", "c": "CREATE TABLE rtp_games ( id INTEGER PRIMARY KEY AUTOINCREMENT, platform_id INTEGER NOT NULL, name TEXT NOT NULL, image_url TEXT, rtp REAL NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["platform_id", "INTEGER NOT NULL"], ["name", "TEXT NOT NULL"], ["image_url", "TEXT"], ["rtp", "REAL NOT NULL DEFAULT 0"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "rtp_platforms", "c": "CREATE TABLE rtp_platforms ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, logo_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["name", "TEXT NOT NULL"], ["logo_url", "TEXT"], ["sort_order", "INTEGER NOT NULL DEFAULT 0"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "settings", "c": "CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL )", "cols": [["key", "TEXT"], ["value", "TEXT NOT NULL"]]}, {"t": "sheet_meta", "c": "CREATE TABLE sheet_meta (k TEXT PRIMARY KEY, v TEXT)", "cols": [["k", "TEXT"], ["v", "TEXT"]]}, {"t": "sheet_queue", "c": "CREATE TABLE sheet_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER, payload TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))", "cols": [["id", "INTEGER"], ["player_id", "INTEGER"], ["payload", "TEXT NOT NULL"], ["tries", "INTEGER NOT NULL DEFAULT 0"], ["last_error", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "task_completions", "c": "CREATE TABLE task_completions ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, task_id INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, task_id) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["task_id", "INTEGER NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "tasks", "c": "CREATE TABLE tasks ( id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT, points INTEGER NOT NULL DEFAULT 0, url TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')) )", "cols": [["id", "INTEGER"], ["title", "TEXT NOT NULL"], ["description", "TEXT"], ["points", "INTEGER NOT NULL DEFAULT 0"], ["url", "TEXT"], ["active", "INTEGER NOT NULL DEFAULT 1"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "vip_rewards", "c": "CREATE TABLE vip_rewards (rank_idx INTEGER PRIMARY KEY, weekly INTEGER NOT NULL, upgrade INTEGER NOT NULL, updated_at TEXT, updated_by TEXT)", "cols": [["rank_idx", "INTEGER"], ["weekly", "INTEGER NOT NULL"], ["upgrade", "INTEGER NOT NULL"], ["updated_at", "TEXT"], ["updated_by", "TEXT"]]}, {"t": "vip_upgrade_grants", "c": "CREATE TABLE vip_upgrade_grants ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, month_key TEXT NOT NULL, rank_idx INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, month_key, rank_idx) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["month_key", "TEXT NOT NULL"], ["rank_idx", "INTEGER NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "vip_weekly_claims", "c": "CREATE TABLE vip_weekly_claims ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, week_key TEXT NOT NULL, rank_idx INTEGER NOT NULL, points_added INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (player_id, week_key) )", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["week_key", "TEXT NOT NULL"], ["rank_idx", "INTEGER NOT NULL"], ["points_added", "INTEGER NOT NULL DEFAULT 0"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "withdraw_rule_changes", "c": "CREATE TABLE withdraw_rule_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, before_json TEXT, after_json TEXT NOT NULL, changed_by TEXT, changed_at TEXT NOT NULL DEFAULT (datetime('now')))", "cols": [["id", "INTEGER"], ["before_json", "TEXT"], ["after_json", "TEXT NOT NULL"], ["changed_by", "TEXT"], ["changed_at", "TEXT NOT NULL DEFAULT datetime('now')"]]}, {"t": "withdraw_rules", "c": "CREATE TABLE withdraw_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, up_to_cents INTEGER NOT NULL, winover_x REAL NOT NULL DEFAULT 0, cap_cents INTEGER NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), updated_by TEXT)", "cols": [["id", "INTEGER"], ["up_to_cents", "INTEGER NOT NULL"], ["winover_x", "REAL NOT NULL DEFAULT 0"], ["cap_cents", "INTEGER NOT NULL"], ["updated_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["updated_by", "TEXT"]]}, {"t": "withdrawals", "c": "CREATE TABLE withdrawals ( id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, amount_cents INTEGER NOT NULL, bank_name TEXT, bank_account TEXT, bank_holder TEXT, paynow_number TEXT, status TEXT NOT NULL DEFAULT 'pending', note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT, decided_by TEXT , source_type TEXT, source_game TEXT, source_game_id TEXT, free_credit_cents INTEGER, winover_x INTEGER, rule_cap_cents INTEGER, source_payout_id INTEGER)", "cols": [["id", "INTEGER"], ["player_id", "INTEGER NOT NULL"], ["amount_cents", "INTEGER NOT NULL"], ["bank_name", "TEXT"], ["bank_account", "TEXT"], ["bank_holder", "TEXT"], ["paynow_number", "TEXT"], ["status", "TEXT NOT NULL DEFAULT 'pending'"], ["note", "TEXT"], ["created_at", "TEXT NOT NULL DEFAULT datetime('now')"], ["decided_at", "TEXT"], ["decided_by", "TEXT"], ["source_type", "TEXT"], ["source_game", "TEXT"], ["source_game_id", "TEXT"], ["free_credit_cents", "INTEGER"], ["winover_x", "INTEGER"], ["rule_cap_cents", "INTEGER"], ["source_payout_id", "INTEGER"]]}];
-const DB_INDEXES: string[] = ["CREATE INDEX IF NOT EXISTS idx_deposits_player ON deposits (player_id, month_key)", "CREATE INDEX IF NOT EXISTS idx_checkins_player ON daily_checkins (player_id, checkin_date)", "CREATE INDEX IF NOT EXISTS idx_arcade_player ON arcade_activity (player_id, activity_date)", "CREATE INDEX IF NOT EXISTS idx_activity_player ON point_activity (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_payouts_status ON payout_requests (status, id)", "CREATE INDEX IF NOT EXISTS idx_payouts_player ON payout_requests (player_id, id)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_arcade_playid ON arcade_activity (player_id, play_id) WHERE play_id IS NOT NULL", "CREATE INDEX IF NOT EXISTS idx_arcade_daily_player ON arcade_daily_rewards (player_id, reward_date)", "CREATE INDEX IF NOT EXISTS idx_payouts_created ON payout_requests (status, created_at)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_task_completion ON task_completions (player_id, task_id)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_checkin ON daily_checkins (player_id, checkin_date)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_vip_weekly ON vip_weekly_claims (player_id, week_key)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_vip_upgrade ON vip_upgrade_grants (player_id, month_key, rank_idx)", "CREATE INDEX IF NOT EXISTS idx_credit_activity_player ON credit_activity (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_chat_player ON chat_messages (player_id, id)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_app_domains_url ON app_domains(url)", "CREATE INDEX IF NOT EXISTS idx_deposit_bonus_claims ON deposit_bonus_claims (player_id)", "CREATE INDEX IF NOT EXISTS idx_player_free_ids ON player_free_ids (player_id)", "CREATE INDEX IF NOT EXISTS idx_gcc_game_time ON game_config_changes(game, changed_at DESC)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_reference ON deposits (reference) WHERE reference IS NOT NULL", "CREATE INDEX IF NOT EXISTS idx_player_game_ids ON player_game_ids (player_id)", "CREATE INDEX IF NOT EXISTS idx_promo_unlocks ON promo_unlocks (player_id, promo_id, status)", "CREATE INDEX IF NOT EXISTS idx_promo_claims ON promo_claims (player_id, promo_id, day_key)", "CREATE INDEX IF NOT EXISTS idx_push_player ON push_subs (player_id)", "CREATE INDEX IF NOT EXISTS idx_rtp_games_platform ON rtp_games(platform_id, sort_order, id)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_tpl_trigger ON chat_templates(trigger_key) WHERE trigger_key != ''", "CREATE INDEX IF NOT EXISTS idx_withdrawals_player ON withdrawals (player_id, id)", "CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals (status)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wd_one_pending ON withdrawals (player_id) WHERE status = 'pending'"];
-type DbReport = {
-  ok: boolean; missing_tables: string[]; missing_columns: Array<{ table: string; column: string }>;
-  missing_indexes: string[]; extra_tables: string[]; tables: number; r2: boolean;
-};
-async function dbCheck(env: Env): Promise<DbReport> {
-  const have = new Map<string, Set<string>>();
-  const rows = await env.DB.prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all<{ name: string; type: string }>();
-  const idxHave = new Set<string>();
-  for (const r of rows.results || []) {
-    if (r.type === 'table') have.set(r.name, new Set());
-    else if (r.type === 'index') idxHave.add(r.name);
-  }
-  const missing_tables: string[] = [];
-  const missing_columns: Array<{ table: string; column: string }> = [];
-  for (const tb of DB_SCHEMA) {
-    if (!have.has(tb.t)) { missing_tables.push(tb.t); continue; }
-    const info = await env.DB.prepare(`PRAGMA table_info(${tb.t})`).all<{ name: string }>();
-    const cols = new Set((info.results || []).map((c) => c.name));
-    for (const [c] of tb.cols) if (!cols.has(c)) missing_columns.push({ table: tb.t, column: c });
-  }
-  const missing_indexes = DB_INDEXES
-    .map((i) => (i.match(/IF NOT EXISTS (\w+)/) || [])[1] || '')
-    .filter((n) => n && !idxHave.has(n));
-  const known = new Set(DB_SCHEMA.map((tb) => tb.t));
-  const extra_tables = [...have.keys()].filter((n) => !known.has(n) && n !== 'd1_migrations').sort();
-  return {
-    ok: !missing_tables.length && !missing_columns.length,
-    missing_tables, missing_columns, missing_indexes, extra_tables,
-    tables: have.size, r2: !!env.CHAT_IMAGES,
-  };
+let guestChatReady = false;
+async function ensureGuestChat(env: Env): Promise<void> {
+  if (guestChatReady) return;
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS chat_guests (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, ip TEXT, linked_player_id INTEGER, linked_by TEXT, linked_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), last_seen_at TEXT, player_code TEXT)").run();
+  // player_code = the Player ID a guest typed on "Forgot password?" (added later — older tables get it here).
+  try { await env.DB.prepare('ALTER TABLE chat_guests ADD COLUMN player_code TEXT').run(); } catch { /* already there */ }
+  guestChatReady = true;
 }
-async function dbRepair(env: Env): Promise<{ done: string[]; failed: Array<{ step: string; error: string }> }> {
-  const before = await dbCheck(env);
-  const done: string[] = [];
-  const failed: Array<{ step: string; error: string }> = [];
-  const run = async (label: string, q: string) => {
-    try { await env.DB.prepare(q).run(); done.push(label); }
-    catch (e) { failed.push({ step: label, error: String((e as Error)?.message || e).slice(0, 200) }); }
-  };
-  for (const name of before.missing_tables) {
-    const tb = DB_SCHEMA.find((x) => x.t === name);
-    if (tb) await run('create table ' + name, tb.c.replace(/^CREATE TABLE /, 'CREATE TABLE IF NOT EXISTS '));
-  }
-  for (const mc of before.missing_columns) {
-    const tb = DB_SCHEMA.find((x) => x.t === mc.table);
-    const def = tb && tb.cols.find((c) => c[0] === mc.column);
-    if (def) await run(`add column ${mc.table}.${mc.column}`, `ALTER TABLE ${mc.table} ADD COLUMN ${mc.column} ${def[1]}`);
-  }
-  for (const i of DB_INDEXES) {
-    const n = (i.match(/IF NOT EXISTS (\w+)/) || [])[1] || i;
-    if (before.missing_indexes.indexOf(n) !== -1) await run('index ' + n, i);
-  }
-  return { done, failed };
+type GuestRow = { id: number; name: string; phone: string; linked_player_id: number | null; player_code?: string | null };
+async function guestFromToken(env: Env, token: string): Promise<GuestRow | null> {
+  const t = String(token || '').trim();
+  if (!/^[A-Za-z0-9_-]{20,100}$/.test(t)) return null;
+  await ensureGuestChat(env);
+  return await env.DB.prepare('SELECT id, name, phone, linked_player_id, player_code FROM chat_guests WHERE token_hash = ?').bind(await sha256HexStr(t)).first<GuestRow>();
+}
+function guestChatOn(s: Record<string, string>): boolean { return String(s.guest_chat_enabled ?? '1') !== '0'; }
+
+// ---------------------------------------------------------------------------
+// One-tap login links (admin -> player). 24h, reusable until expiry, and
+// cancelled when a newer link is made or the player's sessions are reset.
+// Only the SHA-256 of the token is stored, so a DB leak cannot log anyone in.
+// ---------------------------------------------------------------------------
+const LOGIN_LINK_SECONDS = 24 * 3600;
+async function ensureLoginLinks(env: Env): Promise<void> {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS login_links (token_hash TEXT PRIMARY KEY, player_id INTEGER NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, created_by TEXT, expires_at INTEGER NOT NULL, uses INTEGER NOT NULL DEFAULT 0, last_used_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+}
+async function sha256HexStr(s: string): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+  return Array.from(d).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function loginLinkErrorPage(): Response {
+  const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link expired</title>' +
+    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0b0d;color:#eee;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:20px;box-sizing:border-box}' +
+    '.c{max-width:360px;text-align:center;background:#16161a;border:1px solid #2a2a30;border-radius:16px;padding:28px 22px}h1{font-size:20px;margin:0 0 8px;color:#e8c26a}p{margin:0 0 18px;color:#aaa}' +
+    'a{display:inline-block;background:#c9a24a;color:#111;text-decoration:none;font-weight:600;padding:11px 22px;border-radius:10px}</style></head>' +
+    '<body><div class="c"><h1>This login link has expired</h1><p>Login links only work for 24 hours. Please ask customer service for a new link, or log in with your Player ID and password.</p><a href="/login">Go to login</a></div></body></html>';
+  return new Response(html, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+async function handleLoginLink(request: Request, env: Env, token: string): Promise<Response> {
+  if (!/^[A-Za-z0-9_-]{30,64}$/.test(token)) return loginLinkErrorPage();
+  if (!(await rateLimit(env, 'golink:ip:' + clientIp(request), 40, 300))) return loginLinkErrorPage();
+  try { await ensureLoginLinks(env); } catch { return loginLinkErrorPage(); }
+  const hash = await sha256HexStr(token);
+  const link = await env.DB.prepare('SELECT * FROM login_links WHERE token_hash = ?').bind(hash).first<any>();
+  if (!link || Number(link.expires_at) < Math.floor(Date.now() / 1000)) return loginLinkErrorPage();
+  const row = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(Number(link.player_id)).first<PlayerRow>();
+  if (!row || row.status !== 'active' || (row.session_version || 1) !== Number(link.session_version)) return loginLinkErrorPage();
+  await env.DB.prepare("UPDATE login_links SET uses = uses + 1, last_used_at = datetime('now') WHERE token_hash = ?").bind(hash).run();
+  const session = await signToken(env, 'player', String(row.id), row.session_version || 1, PLAYER_SESSION_SECONDS);
+  const r = new Response(null, { status: 302, headers: { Location: '/', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' } });
+  r.headers.append('Set-Cookie', 'le888sid=' + session + '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=' + PLAYER_SESSION_SECONDS);
+  return r;
 }
 
+// Total rows for a paged list (same filters, no LIMIT). Never breaks the list.
 async function countRows(env: Env, sql: string, binds: unknown[]): Promise<number | null> {
   try { const r = await env.DB.prepare('SELECT COUNT(*) AS c FROM (' + sql + ')').bind(...binds).first<{ c: number }>(); return Number(r?.c ?? 0); } catch { return null; }
 }
@@ -2420,22 +3460,6 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
   if (request.method !== 'POST') return fail('METHOD_NOT_ALLOWED', 'Method not allowed', 405, rid);
 
   // Chat image upload: raw image bytes (not JSON), player session required.
-  if (path === '/api/deposit/receipt') {
-    // Receipt photo for a deposit request. Stored next to chat images (R2).
-    const player = await requirePlayer(request, env);
-    if (!player) return fail('UNAUTHENTICATED', 'Please sign in.', 401, rid);
-    if (!env.CHAT_IMAGES) return fail('NOT_CONFIGURED', 'Receipt uploads are not set up yet. Please send your receipt in Chat.', 503, rid);
-    if (!(await rateLimit(env, `deprcpt:${player.id}`, 20, 3600))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
-    const ct = request.headers.get('content-type') || '';
-    const ext = ct === 'image/webp' ? 'webp' : ct === 'image/jpeg' ? 'jpg' : ct === 'image/png' ? 'png' : null;
-    if (!ext) return fail('BAD_TYPE', 'Only JPG, PNG or WebP images are allowed.', 400, rid);
-    const bytes = await request.arrayBuffer();
-    if (bytes.byteLength < 100 || bytes.byteLength > 3_000_000) return fail('TOO_LARGE', 'Image must be under 3 MB.', 400, rid);
-    const key = 'rcpt-' + crypto.randomUUID().replace(/-/g, '') + '.' + ext;
-    await env.CHAT_IMAGES.put(key, bytes, { httpMetadata: { contentType: ct } });
-    return json({ ok: true, url: '/api/chat/img/' + key }, 200, rid);
-  }
-
   if (path === '/api/chat/upload') {
     const player = await requirePlayer(request, env);
     if (!player) return fail('UNAUTHENTICATED', 'Please sign in.', 401, rid);
@@ -2516,140 +3540,55 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
   }
 
   // Public config (no auth) — lets the login page reach the support link.
-  if (path === '/api/banners/list') {
-    try {
-      await ensureBanners(env);
-      const br = await env.DB.prepare('SELECT id, image_url, link_url FROM banners WHERE active = 1 ORDER BY sort_order ASC, id ASC LIMIT 20').all();
-      return json({ ok: true, banners: br.results || [] }, 200, rid);
-    } catch { return json({ ok: true, banners: [] }, 200, rid); }
-  }
-
   if (path === '/api/config') {
     const s = await getSettings(env);
     const games = await publicGames(env);
     return json({
       ok: true,
       contact_url: s.contact_url || '',
-      // Login-page "Contact us" buttons (Settings). Empty = button hidden.
       contact_whatsapp: s.contact_whatsapp || '',
       contact_telegram: s.contact_telegram || '',
       signup_enabled: String(s.signup_enabled ?? '1') !== '0',
-      signup_banks: SIGNUP_BANKS,
+      guest_chat_enabled: guestChatOn(s),
       game_costs: games.game_costs,
       game_prizes: games.game_prizes,
       game_enabled: games.game_enabled,
     }, 200, rid);
   }
 
-  // Public Game RTP data for the player page (active platforms + games only).
-  if (path === '/api/rtp/list') {
+  // ---- Slot Games (admin-managed launcher list) — display/link only ----
+  if (path === '/api/slots/list') {
     try {
-      const pr = await env.DB.prepare('SELECT id, name, logo_url FROM rtp_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
-      const gr = await env.DB.prepare('SELECT platform_id, name, image_url, rtp FROM rtp_games WHERE active=1 ORDER BY platform_id ASC, sort_order ASC, id ASC').all();
-      return json({ ok: true, platforms: pr.results || [], games: gr.results || [] }, 200, rid);
-    } catch { return json({ ok: true, platforms: [], games: [] }, 200, rid); }
+      await ensureSlotPlatforms(env);
+      const sr = await env.DB.prepare('SELECT id, name, logo_url, kind, play_url, android_package, links_json FROM slot_platforms WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
+      const platforms = (sr.results || []).map((r: any) => ({ id: r.id, name: r.name, logo_url: r.logo_url, kind: r.kind, play_url: r.play_url, android_package: r.android_package, links: slotLinksOf(r) }));
+      return json({ ok: true, platforms }, 200, rid);
+    } catch { return json({ ok: true, platforms: [] }, 200, rid); }
+  }
+
+  // ---- Home banners (admin-managed carousel) — display/link only ----
+  if (path === '/api/banners/list') {
+    try {
+      const br = await env.DB.prepare('SELECT id, image_url, link_url FROM banners WHERE active=1 ORDER BY sort_order ASC, id ASC').all();
+      return json({ ok: true, banners: br.results || [] }, 200, rid);
+    } catch { return json({ ok: true, banners: [] }, 200, rid); }
   }
 
   if (path.startsWith('/api/admin/')) return handleAdminApi(path, request, env, rid, ctx);
-  return handlePlayerApi(path, request, env, rid);
+  return handlePlayerApi(path, request, env, rid, ctx);
 }
 
 // ---------------------------------------------------------------------------
 // Player API
 // ---------------------------------------------------------------------------
 
-async function handlePlayerApi(path: string, request: Request, env: Env, rid: string): Promise<Response> {
+async function handlePlayerApi(path: string, request: Request, env: Env, rid: string, ctx?: ExecutionContext): Promise<Response> {
+  const laterP = (pr: Promise<unknown>) => { if (ctx) ctx.waitUntil(pr); else return pr; };
   const body = await readJsonBody(request);
   if (body === null) return fail('BAD_REQUEST', 'Invalid request.', 400, rid);
   const ip = clientIp(request);
 
   // ---- Login (no session required) ----
-  // ---- Self sign-up (public). Same checks as LE888; TR ids; keeps TR666's token login. ----
-  if (path === '/api/register') {
-    const st = await getSettings(env);
-    if (String(st.signup_enabled ?? '1') === '0') return fail('SIGNUP_CLOSED', 'Sign-up is closed right now. Please contact customer service.', 403, rid);
-    if (!(await rateLimit(env, 'signup:ip:' + ip, 30, 3600))) return fail('RATE_LIMITED', 'Too many attempts. Please try again later or contact customer service.', 429, rid);
-    const name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
-    let phone = normalizePhone(body.phone);
-    if (/^\d{8}$/.test(phone)) phone = '65' + phone; // typed 8 digits -> add country code
-    const paynowRaw = String(body.paynow || '').replace(/[\s-]+/g, '').trim().slice(0, 30);
-    const paynow = /^\+?\d{8,15}$/.test(paynowRaw) ? normalizePhone(paynowRaw) : paynowRaw.toUpperCase();
-    const holder = String(body.bank_holder || '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 60);
-    const account = String(body.bank_account || '').trim().slice(0, 40);
-    const bankType = String(body.bank_type || '').trim().toUpperCase();
-    const password = String(body.password || '');
-    if (name.length < 2) return fail('BAD_NAME', 'Please enter your name.', 400, rid);
-    if (!validPhone(phone)) return fail('BAD_PHONE', 'Please enter a valid phone number, e.g. 6591234567.', 400, rid);
-    if (!paynow || paynow.replace(/[^0-9A-Za-z]/g, '').length < 8) return fail('BAD_PAYNOW', 'Please enter your PayNow number (mobile number, NRIC or UEN).', 400, rid);
-    if (!holder) return fail('BAD_HOLDER', 'Please enter the name on your bank account.', 400, rid);
-    if (!/^[0-9A-Za-z#\-\s./]{5,40}$/.test(account)) return fail('BAD_ACCOUNT', 'Please enter a valid bank account number (numbers and letters only).', 400, rid);
-    if (SIGNUP_BANKS.indexOf(bankType) === -1) return fail('BAD_BANK', 'Please choose your bank.', 400, rid);
-    if (password.length < 8) return fail('WEAK_PASSWORD', 'Password must be at least 8 characters.', 400, rid);
-    // One account per phone number (compare digits only).
-    const dup = await env.DB.prepare("SELECT id FROM players WHERE replace(replace(replace(replace(COALESCE(whatsapp,''),' ',''),'+',''),'-',''),'.','') IN (?, ?) LIMIT 1")
-      .bind(phone, phone.replace(/^65(?=[89]\d{7}$)/, '')).first();
-    if (dup) return fail('PHONE_TAKEN', 'This phone number is already registered. Please log in, or contact customer service if you forgot your Player ID.', 409, rid);
-    // Only checked (valid, new-phone) sign-ups count here: max 10 new accounts / hour / network.
-    if (!(await rateLimit(env, 'signup-ok:ip:' + ip, 10, 3600))) return fail('RATE_LIMITED', 'Too many new accounts from this network. Please try again later or contact customer service.', 429, rid);
-    const hash = await hashPassword(password);
-    let created: { id: number; username: string };
-    try {
-      created = await insertPlayerWithNextId(env, async (username) => {
-        const ins = await env.DB.prepare("INSERT INTO players (username, password, display_name, whatsapp, bank_name, bank_account, bank_holder, paynow_number, bank_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)")
-          .bind(username, hash, name, phone, bankType, account, holder, paynow).run();
-        return Number(ins.meta.last_row_id);
-      });
-    } catch (e) {
-      if (/UNIQUE/i.test(String((e as any)?.message || e))) return fail('BUSY', 'Could not create your account right now. Please try again.', 500, rid);
-      return fail('CREATE_FAILED', 'Could not create your account right now. Please try again.', 500, rid);
-    }
-    // Tag so staff can see who registered themselves (separate so a missing column can't block sign-up).
-    try { await env.DB.prepare("UPDATE players SET tag = 'SELF SIGNUP' WHERE id = ?").bind(created.id).run(); } catch { /* tag column not migrated */ }
-    // Self sign-ups wait for staff to check their bank statement (bank_verified = 0).
-    try { await ensureVerifyCols(env); await env.DB.prepare('UPDATE players SET bank_verified = 0 WHERE id = ?').bind(created.id).run(); } catch { /* ignore */ }
-    // Welcome message in their Live Chat (editable in Admin -> Templates).
-    try { await sendAutoMessage(env, created.id, 'welcome_signup', {}); } catch { /* best-effort */ }
-    // Referral link: the ?ref= the page sends, or the tr666ref cookie set by /r/<id>.
-    let referredBy = '';
-    try {
-      const ck = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)tr666ref=([^;]+)/);
-      let ckVal = ''; try { ckVal = ck ? decodeURIComponent(ck[1]) : ''; } catch { ckVal = ''; }
-      const refCode = normalizeUsername(body.ref || ckVal || '');
-      if (refCode) {
-        const refRow = await env.DB.prepare("SELECT id, username FROM players WHERE username = ? AND status = 'active'").bind(refCode).first<{ id: number; username: string }>();
-        if (refRow && refRow.id !== created.id) { const err = await linkReferral(env, refRow.id, created.id, 'signup link'); if (!err) referredBy = refRow.username.toUpperCase(); }
-      }
-    } catch { referredBy = ''; }
-    ctx.waitUntil(sheetPushRow(env, created.id, { code: created.username.toUpperCase(), contact: phone, paynow, holder, account, bankType, referral: referredBy || undefined }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
-    const row = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(created.id).first<PlayerRow>();
-    if (!row) return fail('CREATE_FAILED', 'Could not create your account right now. Please try again.', 500, rid);
-    const token = await signToken(env, 'player', String(row.id), row.session_version || 1, PLAYER_SESSION_SECONDS);
-    const resp = json({ ok: true, token, player: publicPlayer(row), expires_in: PLAYER_SESSION_SECONDS, username: created.username.toUpperCase(), referred_by: referredBy || null }, 200, rid);
-    resp.headers.append('Set-Cookie', 'tr666ref=; Path=/; SameSite=Lax; Secure; Max-Age=0');
-    return resp;
-  }
-
-  // Guest Live Chat from the login page (no account needed). A tiny "guest"
-  // player row is created so the normal chat (and Admin -> Messages) just works.
-  // Guests can only use the chat routes; everything else needs a real login.
-  if (path === '/api/guest/start') {
-    const ip = clientIp(request);
-    if (!(await rateLimit(env, 'guest:ip:' + ip, 20, 3600))) return fail('RATE_LIMITED', 'Too many attempts. Please try again later.', 429, rid);
-    const rnd = () => { const A = 'abcdefghjkmnpqrstuvwxyz23456789'; const b = crypto.getRandomValues(new Uint8Array(10)); let o = ''; for (const x of b) o += A[x % A.length]; return o; };
-    const hash = await hashPassword(rnd() + rnd());
-    let id = 0, username = '';
-    for (let i = 0; i < 5 && !id; i++) {
-      username = 'guest' + rnd();
-      try {
-        const ins = await env.DB.prepare("INSERT INTO players (username, password, display_name, tag) VALUES (?, ?, 'Guest', 'GUEST')").bind(username, hash).run();
-        id = Number(ins.meta.last_row_id);
-      } catch { /* clash: try another name */ }
-    }
-    if (!id) return fail('BUSY', 'Could not start the chat right now. Please try again.', 500, rid);
-    const token = await signToken(env, 'player', String(id), 1, 7 * 86400);
-    return json({ ok: true, token, username: username.toUpperCase() }, 200, rid);
-  }
-
   if (path === '/api/login') {
     const username = normalizeUsername(body.username);
     const password = String(body.password || '');
@@ -2674,10 +3613,6 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
   const player = await requirePlayer(request, env);
   if (!player) return fail('UNAUTHENTICATED', 'Please sign in.', 401, rid);
   if (player.status !== 'active') return fail('ACCOUNT_INACTIVE', 'This account is not active. Please contact support.', 403, rid);
-  // Guests (login-page Live Chat) may only chat.
-  if (String((player as any).tag || '') === 'GUEST' && path !== '/api/chat/list' && path !== '/api/chat/send') {
-    return fail('GUEST', 'Please sign in first.', 403, rid);
-  }
 
   const settings = await getSettings(env);
   const today = sgtDateKey();
@@ -2753,7 +3688,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // App-only promos can only be claimed from the installed app. A browser
       // claim is refused here (never a balance change, just a gate).
       if (pr.app_only && !isAppRequest(request)) {
-        return fail('APP_ONLY', 'Please open the TR666 app to claim this promo. Tap "Install" to get it.', 403, rid);
+        return fail('APP_ONLY', 'Please open the LE888 app to claim this promo. Tap "Install" to get it.', 403, rid);
       }
 
       let unlockId: number | null = null;
@@ -2865,6 +3800,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
         if (!bn || !ba || !bh) return fail('BAD_REQUEST', 'Bank name, account number and account holder are all required.', 400, rid);
         // Guarded on bank_locked=0 so a double submit can't overwrite.
         stmts.push(env.DB.prepare("UPDATE players SET bank_name=?, bank_account=?, bank_holder=?, paynow_number=?, bank_locked=1, updated_at=datetime('now') WHERE id=? AND bank_locked=0").bind(bn, ba, bh, pn, player.id));
+        if ((player as any).bank_verified === 1) stmts.push(env.DB.prepare("UPDATE players SET bank_verified = 0, verified_by = 'player (new bank)', verified_at = datetime('now') WHERE id = ?").bind(player.id));
       }
       if (wantBday) {
         if (cur?.birthday_locked) return fail('LOCKED', 'Your birthday is already saved. Contact support to change it.', 403, rid);
@@ -2877,7 +3813,8 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       } catch {
         return fail('NEEDS_MIGRATION', 'This feature is being set up. Please try again later.', 503, rid);
       }
-      const fresh = await env.DB.prepare('SELECT bank_name, bank_account, bank_holder, paynow_number, birthday, bank_locked, birthday_locked FROM players WHERE id = ?').bind(player.id).first();
+      const fresh = await env.DB.prepare('SELECT bank_name, bank_account, bank_holder, paynow_number, birthday, bank_locked, birthday_locked FROM players WHERE id = ?').bind(player.id).first<any>();
+      if (wantBank && fresh) await laterP(sheetUpdatePlayer(env, player.id, { bankType: String(fresh.bank_name || '').toUpperCase(), account: fresh.bank_account || '', holder: String(fresh.bank_holder || '').toUpperCase(), paynow: fresh.paynow_number || '' }).catch(() => false));
       return json({ ok: true, details: playerDetails(fresh) }, 200, rid);
     }
 
@@ -2987,8 +3924,8 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     case '/api/withdraw/list': {
       // Only the 10 most recent requests.
       try {
-        const { results } = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all()
-          .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all());
+        const { results } = await env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note, source_type, source_game, source_game_id FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all()
+          .catch(() => env.DB.prepare('SELECT id, amount_cents, status, created_at, decided_at, note FROM withdrawals WHERE player_id = ? ORDER BY id DESC LIMIT 60').bind(player.id).all());
         const rows = ((results || []) as any[]).map((w) => ({
           id: w.id, amount: centsToStr(w.amount_cents), status: w.status,
           created_at: w.created_at, decided_at: w.decided_at, note: w.note || '',
@@ -3014,7 +3951,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
           const r = await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND id > ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').bind(player.id, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 50').bind(player.id).all();
+          const r = await env.DB.prepare('SELECT id, sender, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT ?').bind(player.id, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
         const d = await env.DB.prepare("SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NOT NULL AND deleted_at > datetime('now','-1 day')").bind(player.id).all<{ id: number }>();
@@ -3025,7 +3962,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
           const r = await env.DB.prepare('SELECT id, sender, body, image_url, created_at FROM chat_messages WHERE player_id = ? AND id > ? ORDER BY id ASC LIMIT 100').bind(player.id, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 50').bind(player.id).all();
+          const r = await env.DB.prepare('SELECT id, sender, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT ?').bind(player.id, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
       }
@@ -3044,6 +3981,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
         'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime(\'now\'), 1, 0) ' +
         'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), admin_unread = admin_unread + 1',
       ).bind(player.id).run();
+      await pruneChat(env, player.id);
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -3071,12 +4009,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // Seconds left on the reward-submit cooldown (0 = can submit now). Lets the
       // app disable Submit and show a live countdown instead of a bare error.
       let submitCooldown = 0;
-      try {
-        const cd = await env.DB.prepare(
-          "SELECT CAST(600 - (julianday('now') - julianday(MAX(created_at))) * 86400 AS INTEGER) AS s FROM payout_requests WHERE player_id = ? AND status NOT IN ('cancelled', 'rejected') AND created_at > datetime('now', '-600 seconds')",
-        ).bind(player.id).first<{ s: number | null }>();
-        submitCooldown = Math.max(0, Number(cd?.s ?? 0));
-      } catch { /* ignore */ }
+      try { submitCooldown = await rewardCooldownSeconds(env, player.id); } catch { /* ignore */ }
 
       // Latest "Free Credit" account handed to the player (from the most recent
       // approved reward payout) — offered as a withdrawal source.
@@ -3122,60 +4055,10 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       const mcLocked = !!mcState && (mcState.mc_status === 'pending_submission' || mcState.mc_status === 'pending_approval');
       const mcNotice = !!mcState && mcState.mc_status === 'pending_submission';
 
-      // Latest broadcast (🔔 in the app). Best-effort: no table yet = nothing to show.
-      let noticeLatest = 0, noticeText = '';
-      try {
-        const nr = await env.DB.prepare('SELECT id, message, message_zh FROM broadcasts ORDER BY id DESC LIMIT 1').first<any>();
-        if (nr) { noticeLatest = Number(nr.id) || 0; noticeText = String(((player as any).lang === 'zh' && nr.message_zh) ? nr.message_zh : nr.message || ''); }
-      } catch { noticeLatest = 0; }
-      // Red number badges on the bottom nav: things waiting on the Earn / VIP pages.
-      // Best-effort — a failure here never breaks the profile.
-      const safeN = async (fn: () => Promise<number>): Promise<number> => { try { return await fn(); } catch { return 0; } };
-      const [bPromos, bBonus, bVip] = await Promise.all([
-        safeN(async () => {
-          const { results } = await env.DB.prepare('SELECT id, access, limit_type, limit_count FROM promos WHERE active = 1').all<any>();
-          let n = 0;
-          for (const pr of results || []) {
-            if (pr.access === 'gated') {
-              const a = await env.DB.prepare("SELECT COUNT(*) AS c FROM promo_unlocks WHERE player_id = ? AND promo_id = ? AND status = 'available'").bind(player.id, pr.id).first<{ c: number }>();
-              if (Number(a?.c || 0) > 0) n++;
-            } else {
-              const c = pr.limit_type === 'day'
-                ? await env.DB.prepare('SELECT COUNT(*) AS c FROM promo_claims WHERE player_id = ? AND promo_id = ? AND day_key = ?').bind(player.id, pr.id, today).first<{ c: number }>()
-                : await env.DB.prepare('SELECT COUNT(*) AS c FROM promo_claims WHERE player_id = ? AND promo_id = ?').bind(player.id, pr.id).first<{ c: number }>();
-              if (Number(c?.c || 0) < Math.max(1, Number(pr.limit_count) || 1)) n++;
-            }
-          }
-          return n;
-        }),
-        safeN(async () => (await depositBonusStatus(env, player.id)).tiers.filter((x: any) => x.reached && !x.claimed).length),
-        safeN(async () => {
-          if (vipNow.rank_idx < 0) return 0;
-          const rank = (await getRanks(env))[vipNow.rank_idx];
-          if (!rank || !(Number(rank.weekly) > 0)) return 0;
-          const c = await env.DB.prepare('SELECT 1 AS x FROM vip_weekly_claims WHERE player_id = ? AND week_key = ?').bind(player.id, vipNow.week_key).first();
-          return c ? 0 : 1;
-        }),
-      ]);
-      const badges = { earn: (checkin.can_check_in ? 1 : 0) + bPromos + bBonus, vip: bVip };
-      // Self sign-ups wait for staff to check their bank statement before free credit.
-      const vstate = await playerVerifyState(env, player.id);
-      const verifyRequired = verifyEnabled(settings) && vstate === 0;
       return json({
         ok: true,
-        player: {
-          ...publicPlayer(player),
-          verify_required: verifyRequired,
-          verify_bank: verifyRequired ? {
-            bank: String((player as any).bank_name || ''),
-            holder: String((player as any).bank_holder || ''),
-            account_end: String((player as any).bank_account || '').replace(/\s+/g, '').slice(-4),
-          } : null,
-        },
+        player: publicPlayer(player),
         settings: publicSettings(settings),
-        notice_latest: noticeLatest,
-        notice_text: noticeText,
-        badges,
         rank_idx: vipNow.rank_idx,
         rank_name: rankNow ? rankNow.name : null,
         game_costs: games.game_costs,
@@ -3204,78 +4087,6 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       }, 200, rid);
     }
 
-    case '/api/deposit/info': {
-      // What the Deposit sheet needs: my deposit IDs, whether receipts can be
-      // uploaded, and my recent requests (so the player sees pending/approved).
-      let submissions: any[] = [];
-      try {
-        await ensureDepositSubmissionsTable(env);
-        const r = await env.DB.prepare('SELECT id, amount, method, receipt_url, reference, game, game_id, status, admin_note, created_at, decided_at FROM deposit_submissions WHERE player_id = ? ORDER BY id DESC LIMIT 10').bind(player.id).all<any>();
-        submissions = (r.results || []).map((x: any) => ({ id: x.id, amount: Number(x.amount), method: x.method, receipt_url: x.receipt_url || '', reference: x.reference || '', game: x.game || '', game_id: x.game_id || '', status: x.status, note: x.admin_note || '', created_at: x.created_at, decided_at: x.decided_at }));
-      } catch { submissions = []; }
-      const ids = (await loadGameIds(env, player.id)).filter((g: any) => g && g.game_id).map((g: any) => ({ platform: g.platform, label: GAME_PLATFORM_LABELS[g.platform] || g.platform, game_id: g.game_id }));
-      return json({ ok: true, receipts: !!env.CHAT_IMAGES, submissions, deposit_ids: ids }, 200, rid);
-    }
-
-    case '/api/deposit/submit': {
-      if (player.status !== 'active') return fail('ACCOUNT_INACTIVE', 'This account is not active. Please contact support.', 403, rid);
-      if (!(await rateLimit(env, `depsub:${player.id}`, 10, 3600))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
-      const amount = Math.round(Number(body.amount) * 100) / 100;
-      if (!Number.isFinite(amount) || amount < 1 || amount > 100000) return fail('BAD_AMOUNT', 'Enter the amount you transferred (SGD 1 - 100,000).', 400, rid);
-      const receipt = String(body.receipt_url || '').trim();
-      if (receipt && !/^\/api\/chat\/img\/rcpt-[a-f0-9]{32}\.(webp|jpg|png)$/.test(receipt)) return fail('BAD_RECEIPT', 'Invalid receipt.', 400, rid);
-      if (!receipt && env.CHAT_IMAGES) return fail('NEED_RECEIPT', 'Please attach your transfer receipt.', 400, rid);
-      const reference = String(body.reference || '').trim().slice(0, 80);
-      // Which game account (Deposit ID) this transfer is for: must be one of the player's own.
-      const myIds = (await loadGameIds(env, player.id)).filter((g: any) => g && g.game_id);
-      let depGame: string | null = null, depGameId: string | null = null;
-      if (myIds.length) {
-        const wantPlat = String(body.platform || '').trim(); const wantId = String(body.game_id || '').trim();
-        const pick = myIds.find((g: any) => g.platform === wantPlat && String(g.game_id) === wantId) || (myIds.length === 1 && !wantPlat ? myIds[0] : null);
-        if (!pick) return fail('NEED_GAME', 'Choose which game account (Deposit ID) this deposit is for.', 400, rid);
-        depGame = GAME_PLATFORM_LABELS[pick.platform] || pick.platform; depGameId = String(pick.game_id);
-      }
-      await ensureDepositSubmissionsTable(env);
-      const pend = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE player_id = ? AND status = 'pending'").bind(player.id).first<{ c: number }>();
-      if ((pend?.c ?? 0) >= 3) return fail('TOO_MANY', 'You already have 3 requests waiting. Please wait for staff to review them.', 429, rid);
-      const ins = await env.DB.prepare('INSERT INTO deposit_submissions (player_id, amount, method, receipt_url, reference, game, game_id) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(player.id, amount, 'paynow', receipt || null, reference || null, depGame, depGameId).run();
-      return json({ ok: true, submission: { id: ins.meta.last_row_id, amount, receipt_url: receipt, reference, game: depGame || '', game_id: depGameId || '', status: 'pending', note: '', created_at: new Date().toISOString().slice(0, 19).replace('T', ' ') } }, 200, rid);
-    }
-
-    case '/api/referrals': {
-      // My invite link + friends list (masked IDs) + what I earned.
-      const cfg = referralConfig(settings);
-      let friends: any[] = []; let success = 0; let earnedCents = 0;
-      try {
-        await ensureReferralTables(env);
-        const r = await env.DB.prepare('SELECT r.status, r.credits_added, r.created_at, r.rewarded_at, p.username FROM referrals r LEFT JOIN players p ON p.id = r.referred_id WHERE r.referrer_id = ? ORDER BY r.id DESC LIMIT 200').bind(player.id).all<any>();
-        friends = (r.results || []).map((x: any) => ({ name: maskId(x.username || ''), status: x.status === 'rewarded' ? 'rewarded' : 'pending', credits: (Number(x.credits_added) || 0) / 100, created_at: x.created_at, rewarded_at: x.rewarded_at || null }));
-        success = (r.results || []).filter((x: any) => x.status === 'rewarded').length;
-        const e = await env.DB.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS t FROM credit_activity WHERE player_id = ? AND reason LIKE 'Referral%'").bind(player.id).first<{ t: number }>();
-        earnedCents = Number(e?.t) || 0;
-      } catch { friends = []; }
-      const origin = new URL(request.url).origin;
-      const clicks = await referralClickStats(env, player.id);
-      return json({
-        ok: true, code: player.username.toUpperCase(), link: origin + '/r/' + player.username.toUpperCase(), clicks,
-        enabled: cfg.enabled, reward: cfg.per, every: cfg.every, bonus: cfg.bonus, min_deposit: cfg.min_deposit,
-        success, pending: friends.length - success, earned: earnedCents / 100,
-        next_bonus_in: cfg.every - (success % cfg.every),
-        friends,
-      }, 200, rid);
-    }
-
-    case '/api/notices': {
-      // Broadcasts from staff, newest first (English, or Chinese when the player uses 中文).
-      try {
-        await ensureBroadcasts(env);
-        const zh = (player as any).lang === 'zh';
-        const r = await env.DB.prepare('SELECT id, message, message_zh, created_at FROM broadcasts ORDER BY id DESC LIMIT 30').all<any>();
-        const items = (r.results || []).map((x: any) => ({ id: x.id, message: zh && x.message_zh ? x.message_zh : x.message, created_at: x.created_at }));
-        return json({ ok: true, notices: items }, 200, rid);
-      } catch { return json({ ok: true, notices: [] }, 200, rid); }
-    }
-
     case '/api/checkin': {
       if (!(await rateLimit(env, `checkin:${player.id}`, 10, 60))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
       if (await hasCustomCreditLock(env, player.id)) return fail('CREDIT_LOCK', CREDIT_LOCK_MSG, 409, rid);
@@ -3292,10 +4103,10 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
       // otherwise it restarts at day 1. Escalating reward per day (1..7, cycles).
       const prev = await env.DB.prepare('SELECT streak FROM daily_checkins WHERE player_id = ? AND checkin_date = ?').bind(player.id, sgtYesterdayKey()).first<{ streak: number }>();
       const streak = (prev?.streak ?? 0) + 1;
-      const rewards = checkinRewards(settings);
-      const points = checkinPointsForStreak(streak, rewards);
+      const ciRewards = checkinRewards(settings);
+      const points = checkinPointsForStreak(streak, ciRewards);
 
-      const day = Math.min(streak, rewards.length);
+      const day = Math.min(streak, ciRewards.length);
       // Claim + points in ONE transaction. The UNIQUE(player_id, checkin_date)
       // makes a duplicate fail the whole batch, so a player can never be marked
       // "checked in" without receiving the points.
@@ -3343,6 +4154,7 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     case '/api/arcade/play': {
       if (await hasCustomCreditLock(env, player.id)) return fail('CREDIT_LOCK', CREDIT_LOCK_MSG, 409, rid);
       const game = String(body.game || '');
+      if (game === 'cross') return fail('USE_CROSS_API', 'Lucky Crossing is played lane by lane.', 400, rid);
       // Settings now come from `game_configs` (cached 60s per isolate).
       const conf = await getGameConf(env, game);
       if (!conf) {
@@ -3444,26 +4256,21 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
     // ---- Reward submit: atomic claim-and-reset (no duplicate payouts) ----
     case '/api/reward/submit': {
       if (!(await rateLimit(env, `submit:${player.id}`, 12, 60))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
-      // Self sign-ups must be verified by staff (bank statement) before rewards go to free credit.
-      if (verifyEnabled(settings) && (await playerVerifyState(env, player.id)) === 0) {
-        return fail('NOT_VERIFIED', 'Your account is waiting for verification. Please send your bank statement to customer service in Live Chat. You can submit rewards once our team has verified it.', 403, rid);
-      }
-
-      // Cooldown: after a submission that is still pending or was approved, the
-      // player must wait 10 minutes before submitting again. It is measured from
-      // the submission time (created_at), so a later staff approval never resets
-      // or extends the clock. Cancelled AND rejected submissions are excluded, so
-      // a cancel-within-10s or a staff rejection never triggers the wait.
-      // Uses only created_at + status values, so it needs no schema migration.
+      // Self sign-ups must be verified by CS (bank statement) before rewards go to free credit.
       try {
-        const recent = await env.DB.prepare(
-          "SELECT created_at FROM payout_requests WHERE player_id = ? AND status NOT IN ('cancelled', 'rejected') AND created_at > datetime('now', '-600 seconds') ORDER BY id DESC LIMIT 1",
-        ).bind(player.id).first<{ created_at: string }>();
-        if (recent) {
-          const left = await env.DB.prepare(
-            "SELECT CAST((600 - (julianday('now') - julianday(?)) * 86400) AS INTEGER) AS s",
-          ).bind(recent.created_at).first<{ s: number }>();
-          const secs = Math.max(1, left?.s ?? 600);
+        await ensureVerifyCols(env);
+        const vr = await env.DB.prepare('SELECT bank_verified FROM players WHERE id = ?').bind(player.id).first<{ bank_verified: number | null }>();
+        if (vr && vr.bank_verified === 0) return fail('NOT_VERIFIED', 'Your account is waiting for verification. Please send your bank statement to customer service in Live Chat. You can submit rewards once our team has verified it.', 403, rid);
+      } catch { /* column not added yet = nobody needs verifying */ }
+
+      // One submission at a time: blocked while one is pending. After staff
+      // APPROVE it, the player waits 10 minutes (counted from the approval).
+      // Cancelled (within the 10s window) and rejected submissions never wait.
+      try {
+        const pend = await env.DB.prepare("SELECT 1 AS x FROM payout_requests WHERE player_id = ? AND status = 'pending' LIMIT 1").bind(player.id).first();
+        if (pend) return fail('PENDING', 'Your last submission is still being processed.', 409, rid);
+        const secs = await rewardCooldownSeconds(env, player.id);
+        if (secs > 0) {
           const mins = Math.max(1, Math.ceil(secs / 60));
           return fail('COOLDOWN', `Please wait about ${mins} minute${mins === 1 ? '' : 's'} before submitting again.`, 429, rid);
         }
@@ -3701,7 +4508,8 @@ async function handlePlayerApi(path: string, request: Request, env: Env, rid: st
 // Admin API
 // ---------------------------------------------------------------------------
 
-async function handleAdminApi(path: string, request: Request, env: Env, rid: string, ctx: ExecutionContext): Promise<Response> {
+async function handleAdminApi(path: string, request: Request, env: Env, rid: string, ctx?: ExecutionContext): Promise<Response> {
+  const later = (pr: Promise<unknown>) => { if (ctx) ctx.waitUntil(pr); else return pr; };
   const body = await readJsonBody(request);
   if (body === null) return fail('BAD_REQUEST', 'Invalid request.', 400, rid);
   const ip = clientIp(request);
@@ -3778,6 +4586,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
   // anything, which would defeat the whole permission system.)
   const MANAGER_ONLY = [
     '/api/admin/history/purge',
+    '/api/admin/db/check', '/api/admin/db/repair',
     '/api/admin/admins/list', '/api/admin/admins/create', '/api/admin/admins/delete',
     '/api/admin/admins/permissions', '/api/admin/admins/password',
     // Permanently deleting a player wipes their records — managers only.
@@ -3796,18 +4605,19 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
   // Messages search and the player profile popup, so they stay reachable; those
   // tabs are hidden in the UI instead. What IS locked here changes money/config.
   const PERM_MAP: Record<string, string> = {
-    '/api/admin/deposits/all': 'deposits',
+    '/api/admin/deposits/all': 'deposits', '/api/admin/deposits/requests': 'depreq', '/api/admin/deposits/decide': 'depreq',
+    '/api/admin/promopages/list': 'promopages', '/api/admin/promopages/save': 'promopages', '/api/admin/promopages/delete': 'promopages', '/api/admin/promopages/reorder': 'promopages',
     '/api/admin/promos/list': 'earn', '/api/admin/promos/save': 'earn', '/api/admin/promos/delete': 'earn', '/api/admin/promos/reorder': 'earn',
     '/api/admin/games/list': 'games', '/api/admin/games/save': 'games', '/api/admin/games/simulate': 'games',
     '/api/admin/rules/list': 'rules', '/api/admin/rules/save': 'rules',
     '/api/admin/vip/list': 'vip', '/api/admin/vip/save': 'vip',
     '/api/admin/templates/save': 'templates', '/api/admin/templates/delete': 'templates',
     '/api/admin/domains/list': 'domains', '/api/admin/domains/save': 'domains', '/api/admin/domains/delete': 'domains', '/api/admin/domains/set-primary': 'domains', '/api/admin/domains/broadcast': 'domains',
-    '/api/admin/settings/get': 'settings', '/api/admin/banners/list': 'settings', '/api/admin/banners/save': 'settings', '/api/admin/banners/delete': 'settings', '/api/admin/banners/reorder': 'settings', '/api/admin/sheet/status': 'settings', '/api/admin/players/next-id': 'players', '/api/admin/tags': 'players', '/api/admin/player/verify': 'players', '/api/admin/referrals/get': 'players', '/api/admin/referrals/add': 'players', '/api/admin/referrals/remove': 'players', '/api/admin/db/check': 'settings', '/api/admin/db/repair': 'settings', '/api/admin/sheet/backfill': 'settings', '/api/admin/settings/save': 'settings',
-    // Game RTP page (platforms + games + the paste-a-column RTP update).
-    '/api/admin/rtp/platforms': 'rtp', '/api/admin/rtp/platform/save': 'rtp', '/api/admin/rtp/platform/delete': 'rtp',
-    '/api/admin/rtp/games': 'rtp', '/api/admin/rtp/game/save': 'rtp', '/api/admin/rtp/game/delete': 'rtp',
-    '/api/admin/rtp/bulk-add': 'rtp', '/api/admin/rtp/bulk-import': 'rtp', '/api/admin/rtp/paste': 'rtp',
+    '/api/admin/settings/get': 'settings', '/api/admin/settings/save': 'settings',
+    // Slot Games launcher (same "rtp" section — the slot/games area).
+    '/api/admin/slots/list': 'rtp', '/api/admin/slots/save': 'rtp', '/api/admin/slots/delete': 'rtp', '/api/admin/slots/reorder': 'rtp',
+    // Home banners (site display — grouped under "settings").
+    '/api/admin/banners/list': 'settings', '/api/admin/banners/save': 'settings', '/api/admin/banners/delete': 'settings', '/api/admin/banners/reorder': 'settings',
     // "View app" (act as player) — grantable to trusted staff.
     '/api/admin/player/impersonate': 'view_app',
     '/api/admin/player/login-link': 'view_app',
@@ -3932,6 +4742,17 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     // ---- Game economy editor (manager only) --------------------------------
     case '/api/admin/games/list': {
+      try {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('cross', 5, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 100, w: 85 }, { cents: 200, w: 80 }, { cents: 400, w: 75 }, { cents: 800, w: 70 }, { cents: 1600, w: 65 }, { cents: 3200, w: 60 }])).run();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('wheel', 1, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 0, w: 20 }, { cents: 50, w: 25 }, { cents: 100, w: 20 }, { cents: 200, w: 15 }, { cents: 500, w: 10 }, { cents: 888, w: 6 }, { cents: 2888, w: 3 }, { cents: 8888, w: 1 }])).run();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO game_configs (game, cost, prizes_json, enabled, version, updated_at, updated_by) VALUES ('crown', 10, ?, 0, 1, datetime('now'), 'system')`,
+        ).bind(JSON.stringify([{ cents: 7777, w: 2 }, { cents: 5077, w: 6 }, { cents: 3077, w: 15 }, { cents: 1077, w: 32 }, { cents: 0, w: 45 }])).run();
+      } catch { /* table missing or older schema: the editor shows the game as not set up */ }
       const rows = await readGameConfigsFresh(env);
       const settings = await getSettings(env);
       const ptCents = pointValueCents(settings);
@@ -3950,8 +4771,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           version: row.version,
           updated_at: row.updated_at,
           updated_by: row.updated_by,
-          expected_cents: Math.round(expectedPayoutCents(prizes) * 100) / 100,
-          rtp: rtpPercent(prizes, row.cost, ptCents),
+          expected_cents: Math.round((g === 'cross' ? crossBestValueCents(prizes) : expectedPayoutCents(prizes)) * 100) / 100,
+          rtp: g === 'cross' ? rtpPercent([{ cents: crossBestValueCents(prizes), w: 100 }], row.cost, ptCents) : rtpPercent(prizes, row.cost, ptCents),
         };
       });
       return json({
@@ -4016,13 +4837,14 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         ok: true,
         game,
         version: fresh?.version ?? 1,
-        expected_cents: Math.round(expectedPayoutCents(v.prizes) * 100) / 100,
-        rtp: rtpPercent(v.prizes, v.cost, ptCents),
+        expected_cents: Math.round((game === 'cross' ? crossBestValueCents(v.prizes) : expectedPayoutCents(v.prizes)) * 100) / 100,
+        rtp: game === 'cross' ? rtpPercent([{ cents: crossBestValueCents(v.prizes), w: 100 }], v.cost, ptCents) : rtpPercent(v.prizes, v.cost, ptCents),
       }, 200, rid);
     }
 
     case '/api/admin/games/simulate': {
       const game = String(body.game || '');
+      if (game === 'cross') return fail('NOT_SUPPORTED', 'Simulation is not available for Lucky Crossing — the RTP shown is for a player who always stops at the best lane.', 400, rid);
       const v = validateGameInput(game, body.cost, body.prizes);
       if (!v.ok) return fail(v.code, v.msg, 400, rid);
 
@@ -4120,55 +4942,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const chatUnread = await env.DB.prepare('SELECT COALESCE(SUM(admin_unread), 0) AS s FROM chat_state').first<{ s: number }>().catch(() => null);
       const pendingWithdrawals = await env.DB.prepare("SELECT COUNT(*) AS c FROM withdrawals WHERE status = 'pending'").first<{ c: number }>().catch(() => null);
       const pendingDepReq = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE status = 'pending'").first<{ c: number }>().catch(() => null);
-      return json({ ok: true, role: auth.role, perms: isManager ? GRANTABLE_PERMS.slice() : auth.perms, players: players?.c ?? 0, active_today: activeToday?.c ?? 0, points_total: pointsTotal?.s ?? 0, tasks: tasks?.c ?? 0, pending_payouts: pendingPayouts?.c ?? 0, pending_withdrawals: pendingWithdrawals?.c ?? 0, pending_deposit_requests: pendingDepReq?.c ?? 0, chat_unread: chatUnread?.s ?? 0 }, 200, rid);
-    }
-
-    case '/api/admin/referrals/get': {
-      const id = Number(body.id);
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      await ensureReferralTables(env);
-      const cfg = referralConfig(await getSettings(env));
-      const by = await env.DB.prepare('SELECT p.id, p.username, p.display_name, r.status FROM referrals r JOIN players p ON p.id = r.referrer_id WHERE r.referred_id = ?').bind(id).first<any>();
-      const list = await env.DB.prepare(
-        'SELECT r.id, r.referred_id, r.status, r.credits_added, r.added_by, r.created_at, r.rewarded_at, p.username, p.display_name, ' +
-        '(SELECT COALESCE(SUM(amount), 0) FROM deposits d WHERE d.player_id = r.referred_id) AS deposit_total ' +
-        'FROM referrals r LEFT JOIN players p ON p.id = r.referred_id WHERE r.referrer_id = ? ORDER BY r.id DESC LIMIT 500',
-      ).bind(id).all<any>();
-      const rows = list.results || [];
-      const success = rows.filter((x: any) => x.status === 'rewarded').length;
-      const ms = await env.DB.prepare('SELECT milestone, credits_added, created_at FROM referral_milestones WHERE referrer_id = ? ORDER BY milestone').bind(id).all<any>();
-      return json({ ok: true, config: cfg, referred_by: by || null, referrals: rows, success, milestones: ms.results || [], clicks: await referralClickStats(env, id) }, 200, rid);
-    }
-    case '/api/admin/referrals/add': {
-      const id = Number(body.id);
-      const fu = normalizeUsername(body.friend);
-      if (!id || !fu) return fail('BAD_REQUEST', 'Enter the friend\'s Player ID.', 400, rid);
-      const me = await env.DB.prepare('SELECT id, username FROM players WHERE id = ?').bind(id).first<{ id: number; username: string }>();
-      if (!me) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
-      const fr = await env.DB.prepare('SELECT id, username FROM players WHERE username = ?').bind(fu).first<{ id: number; username: string }>();
-      if (!fr) return fail('FRIEND_NOT_FOUND', `No player with ID ${fu.toUpperCase()}. Create their account first.`, 404, rid);
-      const err = await linkReferral(env, id, fr.id, admin);
-      if (err) return fail('REFERRAL_EXISTS', err, 409, rid);
-      // Mirror "who referred them" to the Google Sheet (REFFERAL CODE column, if present).
-      ctx.waitUntil(sheetUpdatePlayer(env, fr.id, { referral: String(me.username).toUpperCase() }).catch(() => false));
-      // Friend may already have deposits keyed in -> reward straight away.
-      let r = { rewarded: false, credits: 0, bonus: 0 };
-      try { r = await checkReferral(env, fr.id, admin); } catch { /* best-effort */ }
-      return json({ ok: true, friend: fr.username.toUpperCase(), ...r }, 200, rid);
-    }
-    case '/api/admin/referrals/remove': {
-      const refId = Number(body.ref_id);
-      if (!refId) return fail('BAD_REQUEST', 'ref_id is required.', 400, rid);
-      await ensureReferralTables(env);
-      const row = await env.DB.prepare('SELECT status FROM referrals WHERE id = ?').bind(refId).first<{ status: string }>();
-      if (!row) return fail('NOT_FOUND', 'Referral not found.', 404, rid);
-      if (row.status === 'rewarded') return fail('ALREADY_REWARDED', 'This friend already deposited and the credits were given, so it can\'t be removed.', 409, rid);
-      await env.DB.prepare("DELETE FROM referrals WHERE id = ? AND status = 'pending'").bind(refId).run();
-      return json({ ok: true }, 200, rid);
+      return json({ ok: true, role: auth.role, perms: isManager ? GRANTABLE_PERMS.slice() : auth.perms, players: players?.c ?? 0, active_today: activeToday?.c ?? 0, points_total: pointsTotal?.s ?? 0, tasks: tasks?.c ?? 0, pending_deposit_requests: pendingDepReq?.c ?? 0, pending_payouts: pendingPayouts?.c ?? 0, pending_withdrawals: pendingWithdrawals?.c ?? 0, chat_unread: chatUnread?.s ?? 0 }, 200, rid);
     }
 
     case '/api/admin/player/verify': {
-      // Staff checked the player's bank statement -> Verified (or undo).
+      // CS checked the player's bank statement -> Verified (or undo).
       const id = Number(body.id);
       if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
       await ensureVerifyCols(env);
@@ -4178,7 +4956,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         await env.DB.prepare("UPDATE players SET bank_verified = 0, verified_by = ?, verified_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").bind(admin + ' (undo)', id).run();
       } else {
         await env.DB.prepare("UPDATE players SET bank_verified = 1, verified_by = ?, verified_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").bind(admin, id).run();
-        if (Number(p.bank_verified) !== 1) { try { await sendAutoMessage(env, id, 'bank_verified', {}); } catch { /* best-effort */ } }
       }
       const r = await env.DB.prepare('SELECT bank_verified, verified_by, verified_at FROM players WHERE id = ?').bind(id).first();
       return json({ ok: true, ...(r || {}) }, 200, rid);
@@ -4192,83 +4969,67 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       } catch { return json({ ok: true, tags: [] }, 200, rid); }
     }
 
-    case '/api/admin/db/check': {
-      try { return json({ ok: true, report: await dbCheck(env) }, 200, rid); }
-      catch (e) { return fail('DB_CHECK_FAILED', String((e as Error)?.message || e).slice(0, 200), 500, rid); }
-    }
-    case '/api/admin/db/repair': {
-      if (!(await rateLimit(env, `dbrepair:${admin}`, 5, 600))) return fail('RATE_LIMITED', 'Please wait a few minutes before repairing again.', 429, rid);
-      const r = await dbRepair(env);
-      return json({ ok: true, ...r, report: await dbCheck(env) }, 200, rid);
-    }
-
     case '/api/admin/players/next-id': {
       // Next free Player ID (system + Google Sheet) for the "+ New player" form.
       const info = await nextPlayerIdInfo(env, 15000);
       return json({ ok: true, next: info.next.toUpperCase(), db_max: info.db_max, sheet_max: info.sheet_max, sheet_live: info.sheet_live, sheet_error: info.sheet_error || null }, 200, rid);
     }
 
+    case '/api/admin/sheet/status': {
+      // Settings -> Google Sheet card: is the link working? Also retries waiting rows.
+      const configured = !!(env.SHEET_URL && env.SHEET_SECRET);
+      const info = await nextPlayerIdInfo(env, 20000);
+      let queued = 0, sent = 0, stuck = 0, lastError = '';
+      if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; stuck = f.stuck || 0; lastError = f.last_error || ''; } catch { /* ignore */ } }
+      return json({ ok: true, configured, connected: info.sheet_live, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent, stuck, last_error: (queued || stuck) ? lastError : '' }, 200, rid);
+    }
+
     case '/api/admin/player/create': {
-      // Blank username (or auto_id:true) = hand out the next free TR number
-      // (highest of system + sheet + 1), retrying if two staff race for it.
       const autoId = body.auto_id === true || String(body.username || '').trim() === '';
       const username = autoId ? 'auto' : normalizeUsername(body.username);
       const password = String(body.password || '');
       const displayName = String(body.display_name || '').trim().slice(0, 60);
       if (!username) return fail('BAD_USERNAME', 'Username must be 3-32 characters: letters, numbers, dot or underscore.', 400, rid);
       if (password.length < 8) return fail('WEAK_PASSWORD', 'Password must be at least 8 characters.', 400, rid);
-      // Optional phone -> saved as WhatsApp and copied to the sheet's Contact No.
+      // Optional "Referred by" — checked BEFORE creating so a typo doesn't leave a half-done job.
+      let refById = 0;
+      const refByRaw = String(body.referred_by || '').trim();
+      if (refByRaw) {
+        const ru = normalizeUsername(refByRaw);
+        const rp = ru ? await env.DB.prepare('SELECT id FROM players WHERE username = ?').bind(ru).first<{ id: number }>() : null;
+        if (!rp) return fail('REFERRER_NOT_FOUND', `"Referred by" player @${refByRaw} was not found.`, 400, rid);
+        refById = rp.id;
+      }
+      const hash = await hashPassword(password);
       const npPhone = normalizePhone(body.phone);
       if (body.phone && !validPhone(npPhone)) return fail('BAD_PHONE', 'Phone number looks wrong. Singapore numbers are 8 digits, e.g. 91234567 or 6591234567.', 400, rid);
-      const hash = await hashPassword(password);
-      const doInsert = async (u: string): Promise<number> => {
-        const r = await env.DB.prepare('INSERT INTO players (username, password, display_name, whatsapp) VALUES (?, ?, ?, ?)').bind(u, hash, displayName || null, npPhone || null).run();
-        return Number(r.meta.last_row_id);
-      };
-      let newId = 0, finalName = username;
       try {
+        let newId: number, finalName: string = username;
+        const doInsert = async (u: string) => Number((await env.DB.prepare('INSERT INTO players (username, password, display_name, whatsapp) VALUES (?, ?, ?, ?)').bind(u, hash, displayName || null, npPhone || null).run()).meta.last_row_id);
         if (autoId) { const c = await insertPlayerWithNextId(env, doInsert); newId = c.id; finalName = c.username; }
         else newId = await doInsert(username);
+        const res = { meta: { last_row_id: newId } };
+        // Every new player also gets a row in the Google Sheet.
+        await later(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone, referral: refById ? (normalizeUsername(refByRaw) || '').toUpperCase() || undefined : undefined }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
+        if (refById) { try { await linkReferral(env, refById, newId, admin); } catch { /* best-effort */ } }
+        // Pass the just-set password so the Welcome template can show the player
+        // their starting login. This is the ONLY point it's known in plain text
+        // (it's hashed at rest). It then lives in that chat as plain text.
+        try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ }
+        return json({ ok: true, id: res.meta.last_row_id, username: finalName }, 200, rid);
       } catch (e) {
-        if (/UNIQUE/i.test(String((e as any)?.message || e))) return fail('USERNAME_TAKEN', 'That username already exists.', 409, rid);
-        return fail('CREATE_FAILED', String((e as any)?.message || 'Could not create player.').slice(0, 160), 500, rid);
+        const m = String((e as any)?.message || e);
+        if (/UNIQUE/i.test(m)) return fail('USERNAME_TAKEN', 'That Player ID already exists.', 409, rid);
+        return fail('CREATE_FAILED', /free Player ID/i.test(m) ? m : 'Could not create the player. Please try again.', 500, rid);
       }
-      // Optional "Referred by": link the inviter (their reward comes with this player's first deposit).
-      let referredBy = '';
-      const refRaw = String(body.referred_by || '').trim();
-      if (refRaw) {
-        const ru = normalizeUsername(refRaw);
-        const rp = ru ? await env.DB.prepare('SELECT id, username FROM players WHERE username = ?').bind(ru).first<{ id: number; username: string }>() : null;
-        if (rp) { try { const err = await linkReferral(env, rp.id, newId, admin); if (!err) referredBy = rp.username.toUpperCase(); } catch { /* best-effort */ } }
-      }
-      ctx.waitUntil(sheetPushRow(env, newId, { code: finalName.toUpperCase(), contact: npPhone || undefined, referral: referredBy || undefined }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
-      // Pass the just-set password so the Welcome template can show the player
-      // their starting login. This is the ONLY point it's known in plain text
-      // (it's hashed at rest). It then lives in that chat as plain text.
-      try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ }
-      return json({ ok: true, id: newId, username: finalName, referred_by: referredBy || null }, 200, rid);
     }
 
-    case '/api/admin/player/login-link': {
-      // One-tap login link for a player, valid 24h. Making a new link cancels
-      // the old ones; resetting the password / sessions also cancels them.
-      if (!(await rateLimit(env, `golink:${admin}`, 60, 300))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
-      const id = Number(body.id);
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      const p = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<PlayerRow>();
-      if (!p) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
-      if ((p as any).status !== 'active') return fail('ACCOUNT_INACTIVE', 'That account is not active.', 400, rid);
-      await ensureLoginLinks(env);
-      const now = Math.floor(Date.now() / 1000);
-      await env.DB.prepare('DELETE FROM login_links WHERE player_id = ? OR expires_at < ?').bind(id, now).run();
-      const token = b64urlEncode(crypto.getRandomValues(new Uint8Array(24)));
-      const expires = now + LOGIN_LINK_SECONDS;
-      await env.DB.prepare('INSERT INTO login_links (token_hash, player_id, session_version, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(await sha256HexStr(token), id, (p as any).session_version || 1, admin, expires).run();
-      const origin = new URL(request.url).origin;
-      return json({ ok: true, url: origin + '/go/' + token, expires_at: new Date(expires * 1000).toISOString(), username: (p as any).username, whatsapp: (p as any).whatsapp || '' }, 200, rid);
-    }
-
+    // ---- Bulk import (Admin -> Players -> Bulk import) ----------------------
+    // Up to 50 rows per call (the page sends big lists in batches). Each row:
+    // {username?, name?, password?, tag?, telegram?, whatsapp?, referred_by?}.
+    // Missing Player ID -> next number after the highest "<prefix><digits>".
+    // Missing password -> the shared default, else a random one. Plain
+    // passwords are returned ONCE so staff can hand them out; stored hashed.
     case '/api/admin/players/check': {
       // Bulk import pre-check: which of these Player IDs already exist? (up to 1000 per call)
       const ids = Array.isArray(body.ids) ? (body.ids as any[]).slice(0, 1000).map((x) => normalizeUsername(x)).filter((x): x is string => !!x) : [];
@@ -4282,15 +5043,13 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     }
 
     case '/api/admin/players/bulk': {
-      // Up to 50 rows per call (the admin page sends the file in chunks).
-      // Existing Player IDs are never touched: add-only.
       const rows = Array.isArray(body.rows) ? (body.rows as any[]).slice(0, 50) : [];
       if (!rows.length) return fail('BAD_REQUEST', 'No rows to import.', 400, rid);
-      const prefix = String(body.prefix || PLAYER_ID_PREFIX).trim().toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 10) || PLAYER_ID_PREFIX;
+      const prefix = String(body.prefix || 'le').trim().toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 10) || 'le';
       const defPw = String(body.default_password || '');
       if (defPw && defPw.length < 8) return fail('WEAK_PASSWORD', 'The shared password must be at least 8 characters.', 400, rid);
       const sendWelcome = !!body.send_welcome;
-      // Highest existing number for this prefix (e.g. tr5612 -> 5612).
+      // Highest existing number for this prefix (e.g. le10680 -> 10680).
       let maxNum = 0;
       try {
         const { results } = await env.DB.prepare('SELECT username FROM players WHERE username LIKE ?').bind(prefix + '%').all<{ username: string }>();
@@ -4320,10 +5079,17 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (password.length < 8) { res.error = 'Password must be at least 8 characters.'; out.push(res); continue; }
         const exists = await env.DB.prepare('SELECT id FROM players WHERE username = ?').bind(username).first();
         if (exists) { res.error = 'Player ID already exists.'; out.push(res); continue; }
+        let refId = 0;
+        const refRaw = String(r.referred_by || '').trim();
+        if (refRaw) {
+          const ru = normalizeUsername(refRaw);
+          const rp = ru ? await env.DB.prepare('SELECT id FROM players WHERE username = ?').bind(ru).first<{ id: number }>() : null;
+          if (!rp) { res.error = `"Referred by" ${refRaw.toUpperCase()} not found.`; out.push(res); continue; }
+          refId = rp.id;
+        }
         const tag = String(r.tag || '').trim().slice(0, 40);
         const telegram = String(r.telegram || '').trim().slice(0, 100);
-        const whatsappRaw = String(r.whatsapp || '').trim().slice(0, 100);
-        const whatsapp = whatsappRaw ? (normalizePhone(whatsappRaw) || whatsappRaw) : '';
+        const whatsapp = String(r.whatsapp || '').trim().slice(0, 100);
         const hash = await hashPassword(password);
         let newId = 0;
         try {
@@ -4337,22 +5103,35 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
             newId = Number(ins.meta.last_row_id);
           } catch { res.error = 'Could not create this player.'; out.push(res); continue; }
         }
-        let refName = '';
-        const refRaw = String(r.referred_by || '').trim();
-        if (refRaw) {
-          const ru = normalizeUsername(refRaw);
-          const rp = ru ? await env.DB.prepare('SELECT id, username FROM players WHERE username = ?').bind(ru).first<{ id: number; username: string }>() : null;
-          if (rp) { try { const err = await linkReferral(env, rp.id, newId, admin); if (!err) refName = rp.username.toUpperCase(); } catch { /* best-effort */ } }
-          else res.warning = `"Referred by" ${refRaw.toUpperCase()} not found — player created without it.`;
-        }
+        if (refId) { try { await linkReferral(env, refId, newId, admin); } catch { /* best-effort */ } }
         if (sendWelcome) { try { await sendAutoMessage(env, newId, 'welcome', { password }); } catch { /* best-effort */ } }
         // Rows WITHOUT a Player ID got a new number -> add them to the Google Sheet.
-        // (Rows with an ID usually came from the sheet already; "Send missing players" covers the rest.)
-        if (!rawId) ctx.waitUntil(sheetPushRow(env, newId, { code: username.toUpperCase(), contact: whatsapp || undefined, referral: refName || undefined }).then(() => flushSheetQueue(env, 10)).catch(() => {}));
+        // (Rows with an ID came from the sheet already.)
+        if (!rawId) await later(sheetPushRow(env, newId, { code: username.toUpperCase(), contact: whatsapp ? (normalizePhone(whatsapp) || whatsapp) : undefined, referral: refId ? (normalizeUsername(refRaw) || '').toUpperCase() || undefined : undefined }).catch(() => false));
         res.ok = true; res.password = password; res.id = newId;
         out.push(res);
       }
       return json({ ok: true, results: out, created: out.filter((x) => x.ok).length }, 200, rid);
+    }
+
+    case '/api/admin/player/login-link': {
+      // One-tap login link for a player, valid 24h. Making a new link cancels
+      // the old ones; resetting the password / sessions also cancels them.
+      if (!(await rateLimit(env, `golink:${admin}`, 60, 300))) return fail('RATE_LIMITED', 'Please slow down.', 429, rid);
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      const p = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<PlayerRow>();
+      if (!p) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
+      if ((p as any).status !== 'active') return fail('ACCOUNT_INACTIVE', 'That account is not active.', 400, rid);
+      await ensureLoginLinks(env);
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare('DELETE FROM login_links WHERE player_id = ? OR expires_at < ?').bind(id, now).run();
+      const token = b64urlEncode(crypto.getRandomValues(new Uint8Array(24)));
+      const expires = now + LOGIN_LINK_SECONDS;
+      await env.DB.prepare('INSERT INTO login_links (token_hash, player_id, session_version, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(await sha256HexStr(token), id, (p as any).session_version || 1, admin, expires).run();
+      const origin = new URL(request.url).origin;
+      return json({ ok: true, url: origin + '/go/' + token, expires_at: new Date(expires * 1000).toISOString(), username: (p as any).username, whatsapp: (p as any).whatsapp || '' }, 200, rid);
     }
 
     case '/api/admin/player/impersonate': {
@@ -4388,14 +5167,19 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const limit = Math.min(100, Math.max(1, Number(body.limit) || 50));
       const like = `%${q.toLowerCase()}%`;
       try {
-        // Tag-aware: search matches the tag too, and an exact tag filter is supported.
         await ensureVerifyCols(env);
+        // Tag-aware: search matches the tag too, and an exact tag filter is supported.
         let sql = 'SELECT id, username, display_name, points, reward_cents, status, note, telegram, whatsapp, tag, bank_verified, verified_by, verified_at, created_at, updated_at FROM players';
         const conds: string[] = []; const binds: unknown[] = [];
         if (q) { conds.push("(lower(username) LIKE ? OR lower(display_name) LIKE ? OR CAST(id AS TEXT) LIKE ? OR lower(COALESCE(tag,'')) LIKE ?)"); binds.push(like, like, like, like); }
+        // Phone match (digits only, with or without 65) — used by "Link guest to player".
+        const phoneQ = String(body.phone || '').replace(/\D/g, '');
+        if (phoneQ.length >= 8) {
+          const local = phoneQ.replace(/^65(?=\d{8}$)/, '');
+          conds.push("replace(replace(replace(replace(COALESCE(whatsapp,''),' ',''),'+',''),'-',''),'.','') IN (?, ?)"); binds.push(local, '65' + local);
+        }
         if (tagFilter === '__unverified') conds.push('bank_verified = 0');
-        else if (tagFilter) { conds.push("lower(COALESCE(tag,'')) = ?"); binds.push(tagFilter.toLowerCase()); }
-        else conds.push("COALESCE(tag,'') != 'GUEST'"); // login-page chat guests are not real players
+        else if (tagFilter) { conds.push("lower(trim(COALESCE(tag,''))) = ?"); binds.push(tagFilter.trim().toLowerCase()); }
         if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
         const total = await countRows(env, sql, binds);
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
@@ -4418,8 +5202,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     case '/api/admin/player/update': {
       const id = Number(body.id);
       if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      let before: { username: string; whatsapp: string | null } | null = null;
-      try { before = await env.DB.prepare('SELECT username, whatsapp FROM players WHERE id = ?').bind(id).first<{ username: string; whatsapp: string | null }>(); } catch { /* ignore */ }
       const status = body.status !== undefined ? String(body.status) : null;
       const note = body.note !== undefined ? String(body.note).slice(0, 500) : null;
       const displayName = body.display_name !== undefined ? String(body.display_name).trim().slice(0, 60) : null;
@@ -4435,6 +5217,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         newUsername = normalizeUsername(body.username);
         if (!newUsername) return fail('BAD_USERNAME', 'Username must be 3-32 characters: letters, numbers, dot or underscore.', 400, rid);
       }
+      const before = (whatsapp !== null || newUsername !== null) ? await env.DB.prepare('SELECT username, whatsapp FROM players WHERE id = ?').bind(id).first<{ username: string; whatsapp: string | null }>() : null;
       const sets: string[] = [];
       const binds: unknown[] = [];
       if (status !== null) { sets.push('status = ?'); binds.push(status); }
@@ -4455,12 +5238,14 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       if (tag !== null) {
         try { await env.DB.prepare("UPDATE players SET tag = ?, updated_at = datetime('now') WHERE id = ?").bind(tag || null, id).run(); } catch { /* tag column not migrated */ }
       }
-      // Keep the Google Sheet in step: Player ID rename and/or phone change.
-      try {
-        const idChanged = !!(newUsername && before && newUsername !== before.username);
-        const phoneChanged = whatsapp !== null && !!before && (whatsapp || '') !== String(before.whatsapp || '');
-        if (idChanged || phoneChanged) ctx.waitUntil(sheetUpdatePlayer(env, id, phoneChanged ? { contact: normalizePhone(whatsapp) || String(whatsapp) } : {}, idChanged && before ? before.username : undefined).catch(() => false));
-      } catch { /* best-effort */ }
+      // Mirror a changed phone number / Player ID to the Google Sheet.
+      if (before) {
+        const phoneChanged = whatsapp !== null && whatsapp && whatsapp !== (before.whatsapp || '');
+        const idChanged = newUsername !== null && newUsername !== before.username;
+        if (phoneChanged || idChanged) {
+          await later(sheetUpdatePlayer(env, id, phoneChanged ? { contact: normalizePhone(whatsapp) || whatsapp } : {}, idChanged ? before.username : undefined).catch(() => false));
+        }
+      }
       return json({ ok: true, username: newUsername || undefined }, 200, rid);
     }
 
@@ -4507,10 +5292,15 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         'point_activity', 'credit_activity', 'arcade_activity', 'daily_checkins',
         'chat_messages', 'chat_state', 'promo_claims', 'promo_unlocks',
         'vip_weekly_claims', 'vip_upgrade_grants', 'deposit_bonus_claims', 'push_subs',
+        'task_completions', 'cross_rounds', 'deposit_submissions', 'arcade_daily_rewards',
       ];
       for (const t of childTables) {
         try { await env.DB.prepare(`DELETE FROM ${t} WHERE player_id = ?`).bind(id).run(); } catch { /* table may not exist */ }
       }
+      try {
+        await env.DB.prepare('DELETE FROM referrals WHERE referrer_id = ? OR referred_id = ?').bind(id, id).run();
+        await env.DB.prepare('DELETE FROM referral_milestones WHERE referrer_id = ?').bind(id).run();
+      } catch { /* tables may not exist yet */ }
       await env.DB.prepare('DELETE FROM players WHERE id = ?').bind(id).run();
       return json({ ok: true, deleted_username: p.username }, 200, rid);
     }
@@ -4559,21 +5349,21 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // Lock a group once it holds data; clearing it unlocks so the player could re-enter.
       const bankLock = (bn || ba || bh || pn) ? 1 : 0;
       const bdayLock = bd ? 1 : 0;
-      let prevBank: any = null;
-      try { await ensureVerifyCols(env); prevBank = await env.DB.prepare('SELECT bank_name, bank_account, bank_holder, bank_verified FROM players WHERE id = ?').bind(id).first<any>(); } catch { prevBank = null; }
+      const prevBank = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<any>();
       try {
         await env.DB.prepare("UPDATE players SET bank_name=?, bank_account=?, bank_holder=?, paynow_number=?, birthday=?, bank_locked=?, birthday_locked=?, updated_at=datetime('now') WHERE id=?")
           .bind(bn || null, ba || null, bh || null, pn || null, bd || null, bankLock, bdayLock, id).run();
       } catch { return fail('NEEDS_MIGRATION', 'Run the profile migration first.', 409, rid); }
       // A verified sign-up whose bank account/name changes must be checked again.
       try {
-        const normB = (v: unknown) => String(v || '').replace(/\s+/g, '').toUpperCase();
-        if (prevBank && Number(prevBank.bank_verified) === 1 && (normB(prevBank.bank_account) !== normB(ba) || normB(prevBank.bank_holder) !== normB(bh) || normB(prevBank.bank_name) !== normB(bn))) {
+        const norm = (v: unknown) => String(v || '').replace(/\s+/g, '').toUpperCase();
+        if (prevBank && prevBank.bank_verified === 1 && (norm(prevBank.bank_account) !== norm(ba) || norm(prevBank.bank_holder) !== norm(bh) || norm(prevBank.bank_name) !== norm(bn))) {
           await env.DB.prepare("UPDATE players SET bank_verified = 0, verified_by = ?, verified_at = datetime('now') WHERE id = ?").bind(admin + ' (bank changed)', id).run();
         }
       } catch { /* verify columns not added yet */ }
       const p = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<any>();
-      ctx.waitUntil(sheetUpdatePlayer(env, id, { bankType: bn.toUpperCase(), account: ba, holder: bh.toUpperCase(), paynow: pn }).catch(() => false));
+      // Mirror to the Google Sheet (Bank Type / Acc No. / Bank Name / PayNow).
+      await later(sheetUpdatePlayer(env, id, { bankType: bn.toUpperCase(), account: ba, holder: bh.toUpperCase(), paynow: pn }).catch(() => false));
       return json({ ok: true, details: playerDetails(p) }, 200, rid);
     }
 
@@ -4601,56 +5391,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const reference = String(body.reference || '').trim().slice(0, 80);
       const res = await recordDeposit(env, id, amount, note, reference, admin, String(body.date || '').trim());
       if (!res.ok) return fail(res.code, res.msg, res.status, rid);
-      return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, upgrade_points_granted: res.upgrade_points_granted, deposit_points_granted: res.deposit_points_granted, checkin: res.checkin }, 200, rid);
-    }
-
-    case '/api/admin/deposits/requests': {
-      // Deposit requests sent from the app (amount + receipt). Pending first.
-      await ensureDepositSubmissionsTable(env);
-      const status = String(body.status || 'pending');
-      const sql = 'SELECT s.id, s.player_id, s.amount, s.method, s.receipt_url, s.reference, s.game, s.game_id, s.status, s.admin_username, s.admin_note, s.recorded, s.created_at, s.decided_at, p.username, p.display_name FROM deposit_submissions s LEFT JOIN players p ON p.id = s.player_id';
-      const r = status === 'all'
-        ? await env.DB.prepare(sql + " ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, s.id DESC LIMIT 150").all()
-        : await env.DB.prepare(sql + ' WHERE s.status = ? ORDER BY s.id DESC LIMIT 150').bind(status).all();
-      const pending = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE status = 'pending'").first<{ c: number }>();
-      return json({ ok: true, requests: r.results || [], pending: pending?.c ?? 0 }, 200, rid);
-    }
-
-    case '/api/admin/deposits/decide': {
-      // approve (optionally also record the deposit) / reject with a reason.
-      const id = Number(body.id);
-      const action = String(body.action || '');
-      const note = String(body.note || '').trim().slice(0, 300);
-      const alsoRecord = body.record !== false; // default: approving also records the deposit
-      if (!id || (action !== 'approve' && action !== 'reject')) return fail('BAD_REQUEST', 'A request id and an action (approve/reject) are required.', 400, rid);
-      await ensureDepositSubmissionsTable(env);
-      const sub = await env.DB.prepare('SELECT id, player_id, amount, status, game, game_id FROM deposit_submissions WHERE id = ?').bind(id).first<{ id: number; player_id: number; amount: number; status: string; game: string | null; game_id: string | null }>();
-      if (!sub) return fail('NOT_FOUND', 'Request not found.', 404, rid);
-      if (sub.status !== 'pending') return fail('ALREADY_DECIDED', 'This request was already ' + sub.status + '.', 409, rid);
-      // Claim it first (status guard) so two staff cannot approve the same request.
-      const upd = await env.DB.prepare("UPDATE deposit_submissions SET status = ?, admin_username = ?, admin_note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'pending'")
-        .bind(action === 'approve' ? 'approved' : 'rejected', admin, note || null, id).run();
-      if (upd.meta.changes === 0) return fail('ALREADY_DECIDED', 'This request was already decided.', 409, rid);
-      if (action === 'approve') {
-        let recorded: RecordDepositResult | null = null;
-        if (alsoRecord) {
-          // Reference "DEPREQ-<id>" makes the record unique: the same request can never be keyed in twice.
-          recorded = await recordDeposit(env, sub.player_id, Number(sub.amount), 'Deposit request #' + sub.id + (sub.game_id ? ' · ' + (sub.game || '') + ' ' + sub.game_id : ''), 'DEPREQ-' + sub.id, admin);
-          if (recorded.ok) { try { await env.DB.prepare('UPDATE deposit_submissions SET recorded = 1 WHERE id = ?').bind(id).run(); } catch { /* ignore */ } }
-        }
-        let messaged = false;
-        try {
-          await sendAutoMessage(env, sub.player_id, 'deposit_request_approved', {
-            deposit_amount: Number(sub.amount).toFixed(2),
-            deposit_game: sub.game || 'your game account',
-            deposit_game_id: sub.game_id || '—',
-          });
-          messaged = true;
-        } catch { /* best-effort */ }
-        return json({ ok: true, approved: true, messaged, recorded: recorded ? (recorded.ok ? recorded : { ok: false, error: recorded.msg }) : null }, 200, rid);
-      }
-      try { await sendAutoMessage(env, sub.player_id, 'deposit_rejected', { deposit_amount: Number(sub.amount).toFixed(2), reason: note || 'receipt could not be verified' }); } catch { /* best-effort */ }
-      return json({ ok: true }, 200, rid);
+      return json({ ok: true, deposit_total: res.deposit_total, rank_name: res.rank_name, upgrade_points_granted: res.upgrade_points_granted, deposit_points_granted: res.deposit_points_granted, checkin: (res as any).checkin || null }, 200, rid);
     }
 
     case '/api/admin/deposit/list': {
@@ -4904,6 +5645,53 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true, cutoff_utc: cutoff, deleted }, 200, rid);
     }
 
+    // ---- Promotions page (view-only promo cards with HTML details) ----------
+    case '/api/admin/promopages/list': {
+      await ensurePromoPages(env);
+      const r = await env.DB.prepare('SELECT * FROM promo_pages ORDER BY sort_order ASC, id DESC').all();
+      return json({ ok: true, promotions: r.results || [] }, 200, rid);
+    }
+    case '/api/admin/promopages/save': {
+      await ensurePromoPages(env);
+      const id = Number(body.id) || 0;
+      const title = String(body.title || '').trim().slice(0, 120);
+      const details = String(body.details_html || '');
+      if (!title) return fail('BAD_REQUEST', 'A promotion title is required.', 400, rid);
+      if (details.length > PROMO_DETAILS_MAX) return fail('TOO_LONG', 'Promo details are too long (max 200,000 characters).', 400, rid);
+      const rawImg = String(body.image_url || '').trim();
+      const imageUrl = /^\/api\/chat\/img\/[a-z0-9-]{20,64}\.(webp|jpg|png)$/.test(rawImg) ? rawImg : null;
+      const active = Number(body.active) ? 1 : 0;
+      if (id) {
+        const res = await env.DB.prepare("UPDATE promo_pages SET title = ?, image_url = ?, details_html = ?, active = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?").bind(title, imageUrl, details || null, active, admin, id).run();
+        if (!res.meta || !res.meta.changes) return fail('NOT_FOUND', 'Promotion not found.', 404, rid);
+        return json({ ok: true, id }, 200, rid);
+      }
+      const mn = await env.DB.prepare('SELECT COALESCE(MIN(sort_order), 0) AS m FROM promo_pages').first<{ m: number }>();
+      const ins = await env.DB.prepare('INSERT INTO promo_pages (title, image_url, details_html, active, sort_order, updated_by) VALUES (?, ?, ?, ?, ?, ?)').bind(title, imageUrl, details || null, active, (Number(mn?.m) || 0) - 1, admin).run();
+      return json({ ok: true, id: ins.meta?.last_row_id }, 200, rid);
+    }
+    case '/api/admin/promopages/delete': {
+      await ensurePromoPages(env);
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      await env.DB.prepare('DELETE FROM promo_pages WHERE id = ?').bind(id).run();
+      return json({ ok: true }, 200, rid);
+    }
+    case '/api/admin/promopages/reorder': {
+      await ensurePromoPages(env);
+      const id = Number(body.id);
+      const dir = String(body.dir) === 'up' ? 'up' : 'down';
+      const r = await env.DB.prepare('SELECT id FROM promo_pages ORDER BY sort_order ASC, id DESC').all<{ id: number }>();
+      const ordered = r.results || [];
+      const idx = ordered.findIndex((x) => x.id === id);
+      if (idx < 0) return fail('NOT_FOUND', 'Promotion not found.', 404, rid);
+      const sw = dir === 'up' ? idx - 1 : idx + 1;
+      if (sw < 0 || sw >= ordered.length) return json({ ok: true }, 200, rid);
+      const t = ordered[idx]; ordered[idx] = ordered[sw]; ordered[sw] = t;
+      await env.DB.batch(ordered.map((x, i) => env.DB.prepare('UPDATE promo_pages SET sort_order = ? WHERE id = ?').bind(i, x.id)));
+      return json({ ok: true }, 200, rid);
+    }
+
     case '/api/admin/promos/list': {
       const listSql = (order: string) => `SELECT p.*,
           (SELECT COUNT(*) FROM promo_claims c WHERE c.promo_id = p.id) AS total_claims,
@@ -5048,199 +5836,199 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true }, 200, rid);
     }
 
-    // ---- Game RTP: platforms + games + the paste-a-column RTP update -------
-    // RTP touches no points and no money. It is display/config only.
-    case '/api/admin/rtp/platforms': {
+    // ---- Referral program: a player's referred friends --------------------
+    case '/api/admin/referrals/get': {
+      const id = Number(body.id);
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      await ensureReferralTables(env);
+      const cfg = referralConfig(await getSettings(env));
+      const by = await env.DB.prepare('SELECT p.id, p.username, p.display_name, r.status FROM referrals r JOIN players p ON p.id = r.referrer_id WHERE r.referred_id = ?').bind(id).first<any>();
+      const list = await env.DB.prepare(
+        'SELECT r.id, r.referred_id, r.status, r.points_added, r.added_by, r.created_at, r.rewarded_at, p.username, p.display_name, ' +
+        '(SELECT COALESCE(SUM(amount), 0) FROM deposits d WHERE d.player_id = r.referred_id) AS deposit_total ' +
+        'FROM referrals r LEFT JOIN players p ON p.id = r.referred_id WHERE r.referrer_id = ? ORDER BY r.id DESC LIMIT 500',
+      ).bind(id).all<any>();
+      const rows = list.results || [];
+      const success = rows.filter((x: any) => x.status === 'rewarded').length;
+      const ms = await env.DB.prepare('SELECT milestone, points_added, created_at FROM referral_milestones WHERE referrer_id = ? ORDER BY milestone').bind(id).all<any>();
+      return json({ ok: true, config: cfg, referred_by: by || null, referrals: rows, success, milestones: ms.results || [], clicks: await refClickStats(env, id) }, 200, rid);
+    }
+    case '/api/admin/referrals/add': {
+      const id = Number(body.id);
+      const fu = normalizeUsername(body.friend);
+      if (!id || !fu) return fail('BAD_REQUEST', 'Enter the friend\'s Player ID.', 400, rid);
+      const me = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(id).first();
+      if (!me) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
+      const fr = await env.DB.prepare('SELECT id, username FROM players WHERE username = ?').bind(fu).first<{ id: number; username: string }>();
+      if (!fr) return fail('FRIEND_NOT_FOUND', `No player with ID @${fu}. Create their account first.`, 404, rid);
+      const err = await linkReferral(env, id, fr.id, admin);
+      if (err) return fail('REFERRAL_EXISTS', err, 409, rid);
+      // Mirror "who referred them" to the Google Sheet (REFFERAL CODE column).
+      try { const rr = await env.DB.prepare('SELECT username FROM players WHERE id = ?').bind(id).first<{ username: string }>(); if (rr) await later(sheetUpdatePlayer(env, fr.id, { referral: String(rr.username).toUpperCase() }).catch(() => false)); } catch { /* ignore */ }
+      // Friend may already have deposits keyed in -> reward straight away.
+      let r = { rewarded: false, points: 0, bonus: 0 };
+      try { r = await checkReferral(env, fr.id, admin); } catch { /* best-effort */ }
+      return json({ ok: true, friend: fr.username, ...r }, 200, rid);
+    }
+    case '/api/admin/referrals/remove': {
+      const refId = Number(body.ref_id);
+      if (!refId) return fail('BAD_REQUEST', 'ref_id is required.', 400, rid);
+      await ensureReferralTables(env);
+      const row = await env.DB.prepare('SELECT status FROM referrals WHERE id = ?').bind(refId).first<{ status: string }>();
+      if (!row) return fail('NOT_FOUND', 'Referral not found.', 404, rid);
+      if (row.status === 'rewarded') return fail('ALREADY_REWARDED', 'This friend already deposited and the PTS were given, so it can\'t be removed.', 409, rid);
+      await env.DB.prepare("DELETE FROM referrals WHERE id = ? AND status = 'pending'").bind(refId).run();
+      return json({ ok: true }, 200, rid);
+    }
+
+    // ---- Database health: compare the live D1 with what this app needs ----
+    case '/api/admin/db/check': {
+      try { await ensureGuestChat(env); await ensureRefClicks(env); } catch { /* reported below if still missing */ }
+      try { return json({ ok: true, report: await dbCheck(env) }, 200, rid); }
+      catch (e) { return fail('DB_CHECK_FAILED', String((e as Error)?.message || e).slice(0, 200), 500, rid); }
+    }
+    case '/api/admin/db/repair': {
+      if (!(await rateLimit(env, `dbrepair:${admin}`, 5, 600))) return fail('RATE_LIMITED', 'Please wait a few minutes before repairing again.', 429, rid);
+      const r = await dbRepair(env);
+      return json({ ok: true, ...r, report: await dbCheck(env) }, 200, rid);
+    }
+
+    // ---- Slot Games launcher: platforms + play links (display/link only) ----
+    // No points, no money — this only stores what "Play Now" opens.
+    case '/api/admin/slots/list': {
       try {
-        const pr = await env.DB.prepare('SELECT id, name, logo_url, sort_order, active FROM rtp_platforms ORDER BY sort_order ASC, id ASC')
-          .all<{ id: number; name: string; logo_url: string | null; sort_order: number; active: number }>();
-        const cr = await env.DB.prepare('SELECT platform_id AS pid, COUNT(*) AS c FROM rtp_games GROUP BY platform_id')
-          .all<{ pid: number; c: number }>();
-        const cmap: Record<number, number> = {};
-        for (const x of (cr.results || [])) cmap[x.pid] = x.c;
-        const platforms = (pr.results || []).map((p) => ({
-          id: p.id, name: p.name, logo_url: p.logo_url || '', sort_order: p.sort_order, active: p.active, games: cmap[p.id] || 0,
-        }));
+        await ensureSlotPlatforms(env);
+        const sr = await env.DB.prepare(
+          'SELECT id, name, logo_url, kind, play_url, android_package, links_json, sort_order, active FROM slot_platforms ORDER BY sort_order ASC, id ASC',
+        ).all();
+        const platforms = (sr.results || []).map((r: any) => ({ ...r, links: slotLinksOf(r) }));
         return json({ ok: true, platforms }, 200, rid);
       } catch { return json({ ok: true, platforms: [], needs_migration: true }, 200, rid); }
     }
 
-    case '/api/admin/rtp/platform/save': {
+    case '/api/admin/slots/save': {
       const id = Number(body.id) || 0;
       const name = String(body.name || '').trim().slice(0, 80);
       const logo = String(body.logo_url || '').trim().slice(0, 300);
+      const kind = String(body.kind) === 'web' ? 'web' : 'app';
+      const pkg = String(body.android_package || '').trim().slice(0, 120);
       const active = Number(body.active) ? 1 : 0;
       if (!name) return fail('BAD_REQUEST', 'A platform name is required.', 400, rid);
-      if (logo && !isRtpImage(logo)) return fail('BAD_IMAGE', 'Bad logo image.', 400, rid);
+      // Links: [{label, url}] — each becomes a button on the player's game card.
+      const rawLinks = Array.isArray(body.links) ? (body.links as unknown[]) : [];
+      if (rawLinks.length > SLOT_LINKS_MAX) return fail('BAD_REQUEST', `Up to ${SLOT_LINKS_MAX} links per game.`, 400, rid);
+      const links: SlotLink[] = [];
+      for (let i = 0; i < rawLinks.length; i++) {
+        const l = (rawLinks[i] || {}) as Record<string, unknown>;
+        const url = String(l.url || '').trim().slice(0, 500);
+        const label = String(l.label || '').trim().slice(0, 24);
+        if (!url && !label) continue;
+        if (!/^https?:\/\//i.test(url)) return fail('BAD_URL', `Link ${i + 1}: must start with http:// or https://`, 400, rid);
+        links.push({ label: label || (links.length ? `Link ${links.length + 1}` : (kind === 'web' ? 'Play now' : 'Download')), url });
+      }
+      // Old single-link field still accepted (older admin page) as link #1.
+      const legacy = String(body.play_url || '').trim().slice(0, 500);
+      if (!links.length && legacy) {
+        if (!/^https?:\/\//i.test(legacy)) return fail('BAD_URL', 'Play link must start with http:// or https://', 400, rid);
+        links.push({ label: kind === 'web' ? 'Play now' : 'Download', url: legacy });
+      }
+      const playUrl = links.length ? links[0].url : '';
+      const linksJson = links.length ? JSON.stringify(links) : null;
+      if (logo && !(isRtpImage(logo) || /^https:\/\//i.test(logo) || /^\/assets\/logos\/[a-z0-9]+\.webp$/.test(logo))) return fail('BAD_IMAGE', 'Logo must be an uploaded image or an https link.', 400, rid);
+      if (pkg && !/^[a-zA-Z0-9._]+$/.test(pkg)) return fail('BAD_PACKAGE', 'Android package looks invalid (letters, numbers and dots only).', 400, rid);
       try {
+        await ensureSlotPlatforms(env);
         if (id) {
-          await env.DB.prepare('UPDATE rtp_platforms SET name=?, logo_url=?, active=? WHERE id=?').bind(name, logo || null, active, id).run();
+          await env.DB.prepare('UPDATE slot_platforms SET name=?, logo_url=?, kind=?, play_url=?, android_package=?, links_json=?, active=? WHERE id=?')
+            .bind(name, logo || null, kind, playUrl || null, pkg || null, linksJson, active, id).run();
         } else {
-          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM rtp_platforms').first<{ n: number }>();
-          await env.DB.prepare('INSERT INTO rtp_platforms (name, logo_url, sort_order, active) VALUES (?,?,?,?)').bind(name, logo || null, m?.n || 1, active).run();
+          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM slot_platforms').first<{ n: number }>();
+          await env.DB.prepare('INSERT INTO slot_platforms (name, logo_url, kind, play_url, android_package, links_json, sort_order, active) VALUES (?,?,?,?,?,?,?,?)')
+            .bind(name, logo || null, kind, playUrl || null, pkg || null, linksJson, m?.n || 1, active).run();
         }
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 (the RTP tables) first.', 503, rid); }
+      } catch { return fail('NEEDS_MIGRATION', 'Run the slot_platforms table SQL first.', 503, rid); }
       return json({ ok: true }, 200, rid);
     }
 
-    case '/api/admin/rtp/platform/delete': {
+    case '/api/admin/slots/delete': {
       const id = Number(body.id);
       if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      try {
-        await env.DB.prepare('DELETE FROM rtp_games WHERE platform_id=?').bind(id).run();
-        await env.DB.prepare('DELETE FROM rtp_platforms WHERE id=?').bind(id).run();
-      } catch { /* tables gone */ }
+      try { await env.DB.prepare('DELETE FROM slot_platforms WHERE id=?').bind(id).run(); } catch { /* table gone */ }
       return json({ ok: true }, 200, rid);
     }
 
-    case '/api/admin/rtp/platform/reorder': {
-      // Move one platform up or down. Rewrites sort_order for the whole list so
-      // the order stays clean, then swaps the two neighbours. Player RTP page
-      // and admin list both read ORDER BY sort_order, so this is all that's needed.
+    case '/api/admin/slots/reorder': {
       const id = Number(body.id);
       const dir = String(body.dir) === 'up' ? 'up' : 'down';
       if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
       let ordered: { id: number }[];
       try {
-        const r = await env.DB.prepare('SELECT id FROM rtp_platforms ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
+        const r = await env.DB.prepare('SELECT id FROM slot_platforms ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
         ordered = r.results || [];
-      } catch {
-        return fail('NEEDS_MIGRATION', 'RTP tables are not set up yet.', 409, rid);
-      }
+      } catch { return fail('NEEDS_MIGRATION', 'Slot table is not set up yet.', 409, rid); }
       const idx = ordered.findIndex((p) => p.id === id);
       if (idx < 0) return fail('NOT_FOUND', 'Platform not found.', 404, rid);
       const swapWith = dir === 'up' ? idx - 1 : idx + 1;
-      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid); // already at the edge
+      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid);
       const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
       await env.DB.batch(ordered.map((p, i) =>
-        env.DB.prepare('UPDATE rtp_platforms SET sort_order = ? WHERE id = ?').bind(i, p.id),
+        env.DB.prepare('UPDATE slot_platforms SET sort_order = ? WHERE id = ?').bind(i, p.id),
       ));
       return json({ ok: true }, 200, rid);
     }
 
-    case '/api/admin/rtp/games': {
-      const pid = Number(body.platform_id);
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
+    // ---- Home banners: carousel images (display/link only) ----
+    case '/api/admin/banners/list': {
       try {
-        const r = await env.DB.prepare('SELECT id, name, image_url, rtp, sort_order, active FROM rtp_games WHERE platform_id=? ORDER BY sort_order ASC, id ASC').bind(pid).all();
-        return json({ ok: true, games: r.results || [] }, 200, rid);
-      } catch { return json({ ok: true, games: [], needs_migration: true }, 200, rid); }
+        const br = await env.DB.prepare('SELECT id, image_url, link_url, sort_order, active FROM banners ORDER BY sort_order ASC, id ASC').all();
+        return json({ ok: true, banners: br.results || [] }, 200, rid);
+      } catch { return json({ ok: true, banners: [], needs_migration: true }, 200, rid); }
     }
 
-    case '/api/admin/rtp/game/save': {
+    case '/api/admin/banners/save': {
       const id = Number(body.id) || 0;
-      const pid = Number(body.platform_id) || 0;
-      const name = String(body.name || '').trim().slice(0, 120);
       const img = String(body.image_url || '').trim().slice(0, 300);
-      const rtp = Math.max(0, Math.min(100, Number(body.rtp) || 0));
+      const link = String(body.link_url || '').trim().slice(0, 500);
       const active = Number(body.active) ? 1 : 0;
-      if (img && !isRtpImage(img)) return fail('BAD_IMAGE', 'Bad game image.', 400, rid);
+      if (!img) return fail('BAD_REQUEST', 'A banner image is required.', 400, rid);
+      if (!(isRtpImage(img) || /^https:\/\//i.test(img))) return fail('BAD_IMAGE', 'Banner must be an uploaded image or an https link.', 400, rid);
+      if (link && !/^https?:\/\//i.test(link)) return fail('BAD_URL', 'Link must start with http:// or https://', 400, rid);
       try {
         if (id) {
-          await env.DB.prepare('UPDATE rtp_games SET name=?, image_url=?, rtp=?, active=? WHERE id=?').bind(name, img || null, rtp, active, id).run();
+          await env.DB.prepare('UPDATE banners SET image_url=?, link_url=?, active=? WHERE id=?').bind(img, link || null, active, id).run();
         } else {
-          if (!pid || !name) return fail('BAD_REQUEST', 'platform and name are required.', 400, rid);
-          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM rtp_games WHERE platform_id=?').bind(pid).first<{ n: number }>();
-          await env.DB.prepare('INSERT INTO rtp_games (platform_id,name,image_url,rtp,sort_order,active) VALUES (?,?,?,?,?,?)').bind(pid, name, img || null, rtp, m?.n || 1, active).run();
+          const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM banners').first<{ n: number }>();
+          await env.DB.prepare('INSERT INTO banners (image_url, link_url, sort_order, active) VALUES (?,?,?,?)').bind(img, link || null, m?.n || 1, active).run();
         }
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
+      } catch { return fail('NEEDS_MIGRATION', 'Run the banners table SQL first.', 503, rid); }
       return json({ ok: true }, 200, rid);
     }
 
-    case '/api/admin/rtp/game/delete': {
+    case '/api/admin/banners/delete': {
       const id = Number(body.id);
       if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      try { await env.DB.prepare('DELETE FROM rtp_games WHERE id=?').bind(id).run(); } catch { /* gone */ }
+      try { await env.DB.prepare('DELETE FROM banners WHERE id=?').bind(id).run(); } catch { /* table gone */ }
       return json({ ok: true }, 200, rid);
     }
 
-    // Bulk-add games by pasting a list of names (one per line), kept in order.
-    case '/api/admin/rtp/bulk-add': {
-      const pid = Number(body.platform_id) || 0;
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      const names = String(body.names || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 2000);
-      if (!names.length) return fail('BAD_REQUEST', 'Paste at least one game name.', 400, rid);
+    case '/api/admin/banners/reorder': {
+      const id = Number(body.id);
+      const dir = String(body.dir) === 'up' ? 'up' : 'down';
+      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
+      let ordered: { id: number }[];
       try {
-        const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0) AS n FROM rtp_games WHERE platform_id=?').bind(pid).first<{ n: number }>();
-        let so = m?.n || 0;
-        const stmts = names.map((nm) => {
-          so++;
-          return env.DB.prepare('INSERT INTO rtp_games (platform_id,name,rtp,sort_order,active) VALUES (?,?,?,?,1)').bind(pid, nm.slice(0, 120), 0, so);
-        });
-        await env.DB.batch(stmts);
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      return json({ ok: true, added: names.length }, 200, rid);
-    }
-
-    // Bulk-import games WITH icons in one shot. Each line pairs a name with its
-    // icon file: "Game Name <TAB> file.webp". Name + icon are read from the same
-    // line together, so they can never get mixed up. Icons must already be in
-    // /public/gameicons/<folder>/. Games are appended in the pasted order.
-    case '/api/admin/rtp/bulk-import': {
-      const pid = Number(body.platform_id) || 0;
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      const folder = String(body.folder || '').trim().toLowerCase();
-      if (!/^[a-z0-9_-]{1,40}$/.test(folder)) return fail('BAD_REQUEST', 'Folder must be simple letters/numbers (e.g. ace333).', 400, rid);
-      const lines = String(body.text || '').split('\n').map((s) => s.replace(/\r$/, '')).filter((s) => s.trim());
-      if (!lines.length) return fail('BAD_REQUEST', 'Paste the name + icon list first.', 400, rid);
-      const items: Array<{ name: string; url: string }> = [];
-      const bad: string[] = [];
-      for (const ln of lines) {
-        const parts = ln.split('\t');
-        const name = (parts[0] || '').trim().slice(0, 120);
-        const file = (parts[1] || '').trim();
-        if (!name || !file) { bad.push(ln.slice(0, 40)); continue; }
-        const url = '/gameicons/' + folder + '/' + file;
-        if (!isRtpImage(url)) { bad.push(name); continue; }
-        items.push({ name, url });
-      }
-      if (!items.length) return fail('BAD_REQUEST', 'No valid rows found. Each line needs: Name [tab] file.webp', 400, rid);
-      try {
-        const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order),0) AS n FROM rtp_games WHERE platform_id=?').bind(pid).first<{ n: number }>();
-        let so = m?.n || 0;
-        const stmts = items.map((it) => { so++; return env.DB.prepare('INSERT INTO rtp_games (platform_id,name,image_url,rtp,sort_order,active) VALUES (?,?,?,?,?,1)').bind(pid, it.name, it.url, 0, so); });
-        for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      return json({ ok: true, added: items.length, skipped: bad.length, skipped_names: bad.slice(0, 20) }, 200, rid);
-    }
-
-    // The paste-a-column RTP update. Values line up top-to-bottom with the
-    // platform's games in their fixed order. preview:true returns the mapping
-    // without saving; without it, the RTP values are written.
-    case '/api/admin/rtp/paste': {
-      const pid = Number(body.platform_id) || 0;
-      if (!pid) return fail('BAD_REQUEST', 'platform_id is required.', 400, rid);
-      let vals: number[];
-      if (Array.isArray(body.values)) vals = body.values.map((v: unknown) => Number(v));
-      else vals = String(body.text || '').split('\n').map((s) => s.trim()).filter(Boolean).map((s) => Number(s.replace('%', '').trim()));
-      vals = vals.filter((v) => !Number.isNaN(v));
-      if (!vals.length) return fail('BAD_REQUEST', 'No RTP numbers were found in what you pasted.', 400, rid);
-      let games: Array<{ id: number; name: string }>;
-      try {
-        const r = await env.DB.prepare('SELECT id, name FROM rtp_games WHERE platform_id=? ORDER BY sort_order ASC, id ASC').bind(pid).all<{ id: number; name: string }>();
-        games = r.results || [];
-      } catch { return fail('NEEDS_MIGRATION', 'Run migration 23 first.', 503, rid); }
-      const n = Math.min(vals.length, games.length);
-      const rows: Array<{ game: string | null; rtp: number | null }> = [];
-      const total = Math.max(vals.length, games.length);
-      for (let i = 0; i < total; i++) {
-        rows.push({ game: games[i] ? games[i].name : null, rtp: i < vals.length ? vals[i] : null });
-      }
-      const preview = !!body.preview;
-      let applied = 0;
-      if (!preview) {
-        const stmts = [];
-        for (let i = 0; i < n; i++) {
-          const rtp = Math.max(0, Math.min(100, vals[i]));
-          stmts.push(env.DB.prepare('UPDATE rtp_games SET rtp=? WHERE id=?').bind(rtp, games[i].id));
-        }
-        if (stmts.length) await env.DB.batch(stmts);
-        applied = n;
-      }
-      return json({
-        ok: true, matched: n, pasted: vals.length, games: games.length,
-        mismatch: vals.length !== games.length, applied, preview: rows.slice(0, 600),
-      }, 200, rid);
+        const r = await env.DB.prepare('SELECT id FROM banners ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
+        ordered = r.results || [];
+      } catch { return fail('NEEDS_MIGRATION', 'Banners table is not set up yet.', 409, rid); }
+      const idx = ordered.findIndex((p) => p.id === id);
+      if (idx < 0) return fail('NOT_FOUND', 'Banner not found.', 404, rid);
+      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid);
+      const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
+      await env.DB.batch(ordered.map((p, i) =>
+        env.DB.prepare('UPDATE banners SET sort_order = ? WHERE id = ?').bind(i, p.id),
+      ));
+      return json({ ok: true }, 200, rid);
     }
 
     case '/api/admin/promos/unlocks': {
@@ -5310,10 +6098,14 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const q = String(body.q || '').trim();
       const offset = Math.max(0, Number(body.offset) || 0);
       const like = `%${q.toLowerCase()}%`;
+      // Guest chats (login page, no account) have a negative id -> chat_guests.
+      await ensureGuestChat(env);
       const buildSql = (tagCol: boolean) => `SELECT cs.player_id, cs.last_msg_at, cs.admin_unread, p.username, p.display_name${tagCol ? ', p.tag' : ''},
+          g.name AS guest_name, g.phone AS guest_phone, g.player_code AS guest_code,
           (SELECT COALESCE(m.body, '[image]') FROM chat_messages m WHERE m.player_id = cs.player_id ORDER BY m.id DESC LIMIT 1) AS last_body
-        FROM chat_state cs LEFT JOIN players p ON p.id = cs.player_id WHERE 1=1${q ? ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ?)' : ''} ORDER BY cs.last_msg_at DESC LIMIT 50 OFFSET ?`;
-      const binds: unknown[] = q ? [like, like, offset] : [offset];
+        FROM chat_state cs LEFT JOIN players p ON p.id = cs.player_id LEFT JOIN chat_guests g ON cs.player_id < 0 AND g.id = -cs.player_id
+        WHERE (cs.player_id > 0 OR g.linked_player_id IS NULL)${q ? ' AND (lower(p.username) LIKE ? OR lower(p.display_name) LIKE ? OR lower(g.name) LIKE ? OR g.phone LIKE ? OR lower(g.player_code) LIKE ?)' : ''} ORDER BY cs.last_msg_at DESC LIMIT 50 OFFSET ?`;
+      const binds: unknown[] = q ? [like, like, like, like, like, offset] : [offset];
       let results: unknown[] | undefined;
       try {
         ({ results } = await env.DB.prepare(buildSql(true)).bind(...binds).all());
@@ -5335,7 +6127,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND id > ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').bind(pid, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 50').bind(pid).all();
+          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, is_html, created_at FROM chat_messages WHERE player_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT ?').bind(pid, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
         const d = await env.DB.prepare("SELECT id FROM chat_messages WHERE player_id = ? AND deleted_at IS NOT NULL AND deleted_at > datetime('now','-1 day')").bind(pid).all<{ id: number }>();
@@ -5345,7 +6137,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, created_at FROM chat_messages WHERE player_id = ? AND id > ? ORDER BY id ASC LIMIT 100').bind(pid, afterId).all();
           messages = r.results || [];
         } else {
-          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT 50').bind(pid).all();
+          const r = await env.DB.prepare('SELECT id, sender, admin_username, body, image_url, created_at FROM chat_messages WHERE player_id = ? ORDER BY id DESC LIMIT ?').bind(pid, await chatKeepLimit(env)).all();
           messages = (r.results || []).reverse();
         }
       }
@@ -5364,6 +6156,32 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         return fail('NEEDS_MIGRATION', 'This feature needs migration 15 (the deleted_at column). Run it first.', 503, rid);
       }
       return json({ ok: true }, 200, rid);
+    }
+
+    // Guest chat (login page) -> move the whole conversation into a real
+    // player's chat, once staff know who the guest is.
+    case '/api/admin/chat/guest-link': {
+      await ensureGuestChat(env);
+      const gid = Math.abs(Number(body.guest_id) || 0);
+      const uname = normalizeUsername(body.username || '');
+      if (!gid || !uname) return fail('BAD_REQUEST', 'guest_id and username are required.', 400, rid);
+      const g = await env.DB.prepare('SELECT id, name, phone, linked_player_id FROM chat_guests WHERE id = ?').bind(gid).first<GuestRow>();
+      if (!g) return fail('NOT_FOUND', 'Guest chat not found.', 404, rid);
+      if (g.linked_player_id) return fail('ALREADY_LINKED', 'This guest chat was already moved to a player.', 409, rid);
+      const pl = await env.DB.prepare('SELECT id, username, tag FROM players WHERE username = ?').bind(uname).first<{ id: number; username: string; tag: string | null }>();
+      if (!pl) return fail('PLAYER_NOT_FOUND', 'No player with Player ID ' + uname.toUpperCase() + '.', 404, rid);
+      const gs = await env.DB.prepare('SELECT last_msg_at, admin_unread FROM chat_state WHERE player_id = ?').bind(-gid).first<{ last_msg_at: string; admin_unread: number }>();
+      await env.DB.batch([
+        env.DB.prepare('UPDATE chat_messages SET player_id = ? WHERE player_id = ?').bind(pl.id, -gid),
+        env.DB.prepare(
+          'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, ?, ?, 0) ' +
+          'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = MAX(COALESCE(chat_state.last_msg_at, \'\'), excluded.last_msg_at), admin_unread = chat_state.admin_unread + excluded.admin_unread',
+        ).bind(pl.id, gs?.last_msg_at || new Date().toISOString().slice(0, 19).replace('T', ' '), Number(gs?.admin_unread) || 0),
+        env.DB.prepare('DELETE FROM chat_state WHERE player_id = ?').bind(-gid),
+        env.DB.prepare("UPDATE chat_guests SET linked_player_id = ?, linked_by = ?, linked_at = datetime('now') WHERE id = ?").bind(pl.id, admin, gid),
+      ]);
+      await pruneChat(env, pl.id);
+      return json({ ok: true, player_id: pl.id, username: pl.username, tag: pl.tag || '' }, 200, rid);
     }
 
     // ---- Chat message templates (manager edits; any staff can send) ----
@@ -5417,7 +6235,16 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const pid = Number(body.player_id);
       const tid = Number(body.template_id);
       if (!pid || !tid) return fail('BAD_REQUEST', 'player_id and template_id are required.', 400, rid);
-      const target = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(pid).first<PlayerRow>();
+      let target: PlayerRow | null;
+      if (pid < 0) {
+        // Guest chat: fill templates with the guest's name / phone only.
+        await ensureGuestChat(env);
+        const g = await env.DB.prepare('SELECT id, name, phone, linked_player_id FROM chat_guests WHERE id = ?').bind(-pid).first<GuestRow>();
+        if (!g || g.linked_player_id) return fail('PLAYER_NOT_FOUND', 'This guest chat was moved to a player.', 404, rid);
+        target = { id: pid, username: 'GUEST', display_name: g.name, whatsapp: g.phone, points: 0, reward_cents: 0 } as unknown as PlayerRow;
+      } else {
+        target = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(pid).first<PlayerRow>();
+      }
       if (!target) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
       let tpl: { content: string } | null;
       try { tpl = await env.DB.prepare('SELECT content FROM chat_templates WHERE id = ?').bind(tid).first<{ content: string }>(); }
@@ -5435,7 +6262,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         'INSERT INTO chat_state (player_id, last_msg_at, admin_unread, player_unread) VALUES (?, datetime(\'now\'), 0, 1) ' +
         'ON CONFLICT(player_id) DO UPDATE SET last_msg_at = datetime(\'now\'), player_unread = player_unread + 1',
       ).bind(pid).run();
-      try { await pushToPlayer(env, pid, { title: 'TR666 Support', body: 'You have a new message.' }, { title: 'TR666 客服', body: '你有一条新消息。' }); } catch { /* best-effort */ }
+      if (pid > 0) { try { await pushToPlayer(env, pid, { title: 'LE888 Support', body: 'You have a new message.' }, { title: 'LE888 客服', body: '你有一条新消息。' }); } catch { /* best-effort */ } }
+      await pruneChat(env, pid);
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -5445,7 +6273,15 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const imageUrl = String(body.image_url || '').trim();
       if (imageUrl && !/^\/api\/chat\/img\/[a-z0-9]{20,64}\.(webp|jpg|png)$/.test(imageUrl)) return fail('BAD_REQUEST', 'Invalid image.', 400, rid);
       if (!pid || (!text && !imageUrl)) return fail('BAD_REQUEST', 'player_id and a message or image are required.', 400, rid);
-      const target = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(pid).first();
+      let target: unknown;
+      if (pid < 0) {
+        await ensureGuestChat(env);
+        const g = await env.DB.prepare('SELECT linked_player_id FROM chat_guests WHERE id = ?').bind(-pid).first<{ linked_player_id: number | null }>();
+        if (g && g.linked_player_id) return fail('PLAYER_NOT_FOUND', 'This guest chat was moved to a player. Open the player\'s chat instead.', 404, rid);
+        target = g;
+      } else {
+        target = await env.DB.prepare('SELECT id FROM players WHERE id = ?').bind(pid).first();
+      }
       if (!target) return fail('PLAYER_NOT_FOUND', 'Player not found.', 404, rid);
       const ins = await env.DB.prepare('INSERT INTO chat_messages (player_id, sender, admin_username, body, image_url) VALUES (?, ?, ?, ?, ?)').bind(pid, 'admin', admin, text || null, imageUrl || null).run();
       await env.DB.prepare(
@@ -5456,9 +6292,10 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       try {
         const preview = text ? (text.length > 80 ? text.slice(0, 77) + '...' : text) : '\ud83d\udcf7 Image';
         await pushToPlayer(env, pid,
-          { title: 'TR666 Support', body: preview },
-          { title: 'TR666 \u5ba2\u670d', body: preview });
+          { title: 'LE888 Support', body: preview },
+          { title: 'LE888 \u5ba2\u670d', body: preview });
       } catch { /* best-effort */ }
+      await pruneChat(env, pid);
       return json({ ok: true, id: ins.meta.last_row_id }, 200, rid);
     }
 
@@ -5467,7 +6304,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const message = String(body.message || '').trim().slice(0, 300);
       const messageZh = String(body.message_zh || '').trim().slice(0, 300);
       if (!message) return fail('BAD_REQUEST', 'A message is required.', 400, rid);
-      // Every broadcast is kept: players read it under the 🔔 in the app,
+      // Every broadcast is kept: players read it under the bell in the app,
       // even without push notifications switched on.
       try { await ensureBroadcasts(env); await env.DB.prepare('INSERT INTO broadcasts (message, message_zh, created_by) VALUES (?, ?, ?)').bind(message, messageZh || null, admin).run(); } catch { /* best-effort */ }
       let results: any[] = [];
@@ -5475,56 +6312,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       let sent = 0;
       for (const s of (results || []) as any[]) {
         const text = s.lang === 'zh' && messageZh ? messageZh : message;
-        const status = await sendWebPush(env, s, JSON.stringify({ title: 'TR666', body: text }));
+        const status = await sendWebPush(env, s, JSON.stringify({ title: 'LE888', body: text }));
         if (status >= 200 && status < 300) sent++;
         else if (status === 404 || status === 410) await env.DB.prepare('DELETE FROM push_subs WHERE id = ?').bind(s.id).run();
       }
       return json({ ok: true, sent, total: (results || []).length }, 200, rid);
-    }
-
-    // ---- Home banners (Settings) ----------------------------------------
-    case '/api/admin/banners/list': {
-      try { await ensureBanners(env); const br = await env.DB.prepare('SELECT id, image_url, link_url, sort_order, active FROM banners ORDER BY sort_order ASC, id ASC').all(); return json({ ok: true, banners: br.results || [] }, 200, rid); }
-      catch { return json({ ok: true, banners: [] }, 200, rid); }
-    }
-    case '/api/admin/banners/save': {
-      const id = Number(body.id) || 0;
-      const img = String(body.image_url || '').trim().slice(0, 300);
-      const link = String(body.link_url || '').trim().slice(0, 500);
-      const active = Number(body.active) ? 1 : 0;
-      if (!img) return fail('BAD_REQUEST', 'A banner image is required.', 400, rid);
-      if (!(isRtpImage(img) || /^https:\/\//i.test(img))) return fail('BAD_IMAGE', 'Banner must be an uploaded image or an https link.', 400, rid);
-      // Link: an https address, or an in-app page: earn / vip / rtp / deposit / history / settings
-      if (link && !/^https?:\/\//i.test(link) && !/^(earn|vip|rtp|deposit|history|settings)$/.test(link)) return fail('BAD_URL', 'Link must start with https:// or be one of: earn, vip, rtp, deposit, history, settings', 400, rid);
-      await ensureBanners(env);
-      if (id) {
-        await env.DB.prepare('UPDATE banners SET image_url = ?, link_url = ?, active = ? WHERE id = ?').bind(img, link || null, active, id).run();
-      } else {
-        const m = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM banners').first<{ n: number }>();
-        await env.DB.prepare('INSERT INTO banners (image_url, link_url, sort_order, active) VALUES (?, ?, ?, ?)').bind(img, link || null, m?.n || 1, active).run();
-      }
-      return json({ ok: true }, 200, rid);
-    }
-    case '/api/admin/banners/delete': {
-      const id = Number(body.id);
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      try { await env.DB.prepare('DELETE FROM banners WHERE id = ?').bind(id).run(); } catch { /* table gone */ }
-      return json({ ok: true }, 200, rid);
-    }
-    case '/api/admin/banners/reorder': {
-      const id = Number(body.id);
-      const dir = String(body.dir) === 'up' ? 'up' : 'down';
-      if (!id) return fail('BAD_REQUEST', 'id is required.', 400, rid);
-      await ensureBanners(env);
-      const r = await env.DB.prepare('SELECT id FROM banners ORDER BY sort_order ASC, id ASC').all<{ id: number }>();
-      const ordered = r.results || [];
-      const idx = ordered.findIndex((b) => b.id === id);
-      if (idx < 0) return fail('NOT_FOUND', 'Banner not found.', 404, rid);
-      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
-      if (swapWith < 0 || swapWith >= ordered.length) return json({ ok: true }, 200, rid);
-      const tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
-      await env.DB.batch(ordered.map((b, i) => env.DB.prepare('UPDATE banners SET sort_order = ? WHERE id = ?').bind(i, b.id)));
-      return json({ ok: true }, 200, rid);
     }
 
     case '/api/admin/broadcasts/list': {
@@ -5606,8 +6398,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       }
       const bodyEn = 'Our login link has changed. Tap to open: ' + url;
       const bodyZh = '我们的登录网址已更改。点击打开：' + url;   // 我们的登录网址已更改。点击打开：
-      const payloadEn = JSON.stringify({ title: 'TR666 — New link', body: bodyEn, url, kind: 'domain' });
-      const payloadZh = JSON.stringify({ title: 'TR666 — 新网址', body: bodyZh, url, kind: 'domain' });   // 新网址
+      const payloadEn = JSON.stringify({ title: 'LE888 — New link', body: bodyEn, url, kind: 'domain' });
+      const payloadZh = JSON.stringify({ title: 'LE888 — 新网址', body: bodyZh, url, kind: 'domain' });   // 新网址
       let sent = 0, total = 0;
       try {
         const { results } = await env.DB.prepare('SELECT id, endpoint, p256dh, auth, lang FROM push_subs').all();
@@ -5619,6 +6411,49 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         }
       } catch { /* best-effort */ }
       return json({ ok: true, sent, total, url }, 200, rid);
+    }
+
+    case '/api/admin/deposits/requests': {
+      await ensureDepositSubmissionsTable(env);
+      const status = String(body.status || 'pending');
+      const sql = 'SELECT s.id, s.player_id, s.amount, s.method, s.receipt_url, s.reference, s.game, s.game_id, s.status, s.admin_username, s.admin_note, s.created_at, s.decided_at, p.username, p.display_name FROM deposit_submissions s LEFT JOIN players p ON p.id = s.player_id';
+      const r = status === 'all'
+        ? await env.DB.prepare(sql + " ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, s.id DESC LIMIT 150").all()
+        : await env.DB.prepare(sql + ' WHERE s.status = ? ORDER BY s.id DESC LIMIT 150').bind(status).all();
+      const pending = await env.DB.prepare("SELECT COUNT(*) AS c FROM deposit_submissions WHERE status = 'pending'").first<{ c: number }>();
+      return json({ ok: true, requests: r.results || [], pending: pending?.c ?? 0 }, 200, rid);
+    }
+
+    case '/api/admin/deposits/decide': {
+      const id = Number(body.id);
+      const action = String(body.action || '');
+      const note = String(body.note || '').trim().slice(0, 300);
+      if (!id || (action !== 'approve' && action !== 'reject')) return fail('BAD_REQUEST', 'A request id and an action (approve/reject) are required.', 400, rid);
+      await ensureDepositSubmissionsTable(env);
+      const sub = await env.DB.prepare('SELECT id, player_id, amount, status, game, game_id FROM deposit_submissions WHERE id = ?').bind(id).first<{ id: number; player_id: number; amount: number; status: string }>();
+      if (!sub) return fail('NOT_FOUND', 'Request not found.', 404, rid);
+      if (sub.status !== 'pending') return fail('ALREADY_DECIDED', 'This request was already ' + sub.status + '.', 409, rid);
+      // Claim it first (status guard) so two staff cannot approve the same request.
+      const upd = await env.DB.prepare("UPDATE deposit_submissions SET status = ?, admin_username = ?, admin_note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        .bind(action === 'approve' ? 'approved' : 'rejected', admin, note || null, id).run();
+      if (upd.meta.changes === 0) return fail('ALREADY_DECIDED', 'This request was already decided.', 409, rid);
+      if (action === 'approve') {
+        // Checking the receipt only. It does NOT record a deposit, give PTS or
+        // count toward VIP: staff key the deposit in under Manage -> Deposits.
+        // The player is told in Live Chat which game + ID it was approved for.
+        let messaged = false;
+        try {
+          await sendAutoMessage(env, sub.player_id, 'deposit_request_approved', {
+            deposit_amount: Number(sub.amount).toFixed(2),
+            deposit_game: (sub as any).game || 'your game account',
+            deposit_game_id: (sub as any).game_id || '—',
+          });
+          messaged = true;
+        } catch { /* best-effort */ }
+        return json({ ok: true, approved: true, messaged }, 200, rid);
+      }
+      try { await sendAutoMessage(env, sub.player_id, 'deposit_rejected', { deposit_amount: String(sub.amount), reason: note || 'receipt could not be verified' }); } catch { /* best-effort */ }
+      return json({ ok: true }, 200, rid);
     }
 
     case '/api/admin/deposits/all': {
@@ -5783,6 +6618,13 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (!gameId) return fail('GAME_ID_REQUIRED', 'Enter the player’s Game ID.', 400, rid);
       }
 
+      // The player has 10 seconds after submitting to cancel. Staff can't decide
+      // during that window (the request is also hidden from the queue until then).
+      {
+        const hold = await env.DB.prepare("SELECT 1 AS x FROM payout_requests WHERE id = ? AND status = 'pending' AND created_at > datetime('now', '-10 seconds')").bind(id).first();
+        if (hold) return fail('ON_HOLD', 'The player can still cancel this for a few seconds. Try again shortly.', 409, rid);
+      }
+
       let decided: { player_id: number; amount_cents: number } | null;
       if (decision === 'approved') {
         const owner = await env.DB.prepare("SELECT player_id, amount_cents FROM payout_requests WHERE id = ? AND status = 'pending'").bind(id).first<{ player_id: number; amount_cents: number }>();
@@ -5818,15 +6660,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
           ).bind(admin, note || null, game, gameId, id).first<{ player_id: number; amount_cents: number }>();
         }
         if (!decided) return fail('ALREADY_DECIDED', 'This request was already decided by someone else.', 409, rid);
-        // First free credit for this game: remember the ID staff entered so the
-        // player's next submit (and their profile) uses it automatically.
-        try {
-          const platKey = FREE_PLATFORMS.find((k) => GAME_PLATFORM_LABELS[k] === game);
-          if (platKey) {
-            const has = await env.DB.prepare('SELECT 1 AS x FROM player_free_ids WHERE player_id = ? AND platform = ?').bind(decided.player_id, platKey).first();
-            if (!has) await env.DB.prepare('INSERT INTO player_free_ids (player_id, platform, game_id) VALUES (?, ?, ?) ON CONFLICT(player_id, platform) DO NOTHING').bind(decided.player_id, platKey, gameId).run();
-          }
-        } catch { /* best-effort */ }
         // ONE free credit at a time. Crediting a new free credit means the
         // player's game IDs were reset to 0 first, so every EARLIER open free
         // credit is now dead money. Void them all so none can be withdrawn after
@@ -5857,6 +6690,17 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         if (!res[1] || (res[1].meta.changes || 0) === 0) return fail('ALREADY_DECIDED', 'This request was already decided by someone else.', 409, rid);
         decided = await env.DB.prepare('SELECT player_id, amount_cents FROM payout_requests WHERE id = ?').bind(id).first<{ player_id: number; amount_cents: number }>();
         if (!decided) return fail('ALREADY_DECIDED', 'This request was already decided.', 409, rid);
+      }
+      // First free credit for this game: remember the ID staff entered so the
+      // player's next submit (and their profile) uses it automatically.
+      if (decision === 'approved') {
+        try {
+          const platKey = FREE_PLATFORMS.find((k) => GAME_PLATFORM_LABELS[k] === game);
+          if (platKey) {
+            const has = await env.DB.prepare('SELECT 1 AS x FROM player_free_ids WHERE player_id = ? AND platform = ?').bind(decided.player_id, platKey).first();
+            if (!has) await env.DB.prepare("INSERT INTO player_free_ids (player_id, platform, game_id) VALUES (?, ?, ?) ON CONFLICT(player_id, platform) DO NOTHING").bind(decided.player_id, platKey, gameId).run();
+          }
+        } catch { /* best-effort */ }
       }
       // Best-effort push to the player - never blocks or fails the decision.
       try {
@@ -5934,53 +6778,6 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true }, 200, rid);
     }
 
-    case '/api/admin/sheet/status': {
-      // Settings -> Google Sheet card: is the link working? Also retries waiting rows.
-      const configured = !!(env.SHEET_URL && env.SHEET_SECRET);
-      const info = await nextPlayerIdInfo(env, 20000);
-      let queued = 0, sent = 0, stuck = 0, lastError = '';
-      if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; stuck = f.stuck || 0; lastError = f.last_error || ''; } catch { /* ignore */ } }
-      return json({ ok: true, configured, connected: info.sheet_live, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent, stuck, last_error: (queued || stuck) ? lastError : '' }, 200, rid);
-    }
-
-    case '/api/admin/sheet/backfill': {
-      // Settings -> "Send missing players to sheet". Compares every TR player in
-      // the system with the sheet's list and queues the ones the sheet lacks
-      // (append = fills a new row; an existing row only gets its blank cells filled).
-      if (!env.SHEET_URL || !env.SHEET_SECRET) return fail('SHEET_OFF', 'Google Sheet link is not set up.', 400, rid);
-      const { results } = await env.DB.prepare('SELECT id, username, whatsapp, bank_name, bank_account, bank_holder, paynow_number FROM players WHERE username LIKE ? ORDER BY id').bind(PLAYER_ID_PREFIX + '%').all<any>();
-      const appPlayers = (results || []).filter((p) => /^\d{1,9}$/.test(String(p.username).slice(PLAYER_ID_PREFIX.length)));
-      let inSheet: Set<string> | null = null, mode = 'full';
-      const cr = await sheetCall(env, { action: 'codes' }, 25000);
-      if (cr && cr.ok && Array.isArray(cr.codes)) inSheet = new Set(cr.codes.map((c: unknown) => String(c).toUpperCase()));
-      else {
-        // Script not updated yet (no "codes" job) or Google slow -> only players above the sheet's highest ID.
-        mode = 'above_max';
-        const info = await nextPlayerIdInfo(env, 15000);
-        if (info.sheet_max === null) return fail('SHEET_DOWN', 'Could not reach the Google Sheet: ' + (info.sheet_error || 'no reply'), 502, rid);
-        const mx = Number(info.sheet_max) || 0;
-        inSheet = new Set(appPlayers.filter((p) => Number(String(p.username).slice(PLAYER_ID_PREFIX.length)) <= mx).map((p) => String(p.username).toUpperCase()));
-      }
-      const missing = appPlayers.filter((p) => !inSheet!.has(String(p.username).toUpperCase()));
-      await ensureSheetQueue(env);
-      let queued = 0;
-      for (const p of missing) {
-        const row: SheetRow = { code: String(p.username).toUpperCase() };
-        const c = normalizePhone(p.whatsapp) || String(p.whatsapp || '').trim(); if (c) row.contact = c;
-        if (p.paynow_number) row.paynow = String(p.paynow_number).trim();
-        if (p.bank_holder) row.holder = String(p.bank_holder).trim().toUpperCase();
-        if (p.bank_account) row.account = String(p.bank_account).trim();
-        if (p.bank_name) row.bankType = String(p.bank_name).trim().toUpperCase();
-        await env.DB.prepare('INSERT INTO sheet_queue (player_id, payload, last_error) VALUES (?, ?, ?)').bind(p.id, JSON.stringify({ action: 'append', row }), 'queued by backfill').run();
-        queued++;
-      }
-      // Send a first batch now, the rest drain in the background / daily job / Check button.
-      let sent = 0, left = queued;
-      try { const f = await flushSheetQueue(env, 25); sent = f.sent; left = f.left; } catch { /* ignore */ }
-      if (left > 0) ctx.waitUntil(flushSheetQueue(env, 100).catch(() => {}));
-      return json({ ok: true, mode, app_total: appPlayers.length, in_sheet: inSheet!.size, missing: missing.length, queued, sent, left }, 200, rid);
-    }
-
     case '/api/admin/settings/get': {
       const settings = await getSettings(env);
       return json({ ok: true, settings }, 200, rid);
@@ -5988,27 +6785,31 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
 
     case '/api/admin/settings/save': {
       const incoming = (body.settings || {}) as Record<string, unknown>;
-      const allowed = ['checkin_min_deposit', 'tasks_enabled', 'announcement_text', 'contact_url', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'signup_enabled', 'checkin_rewards', 'bank_verify_enabled', 'contact_whatsapp', 'contact_telegram', 'referral_enabled', 'referral_reward', 'referral_min_deposit', 'referral_bonus_every', 'referral_bonus'];
+      const allowed = ['checkin_min_deposit', 'checkin_rewards', 'tasks_enabled', 'announcement_text', 'contact_url', 'contact_whatsapp', 'contact_telegram', 'deposit_point_rate', 'deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder', 'terms_text', 'chat_keep_messages', 'referral_points', 'referral_bonus_every', 'referral_bonus_points', 'referral_min_deposit', 'signup_enabled', 'guest_chat_enabled'];
       const updates: Record<string, string> = {};
       for (const key of allowed) {
         if (incoming[key] === undefined) continue;
         let val = String(incoming[key]);
-        if (key === 'contact_url' || key === 'contact_whatsapp' || key === 'contact_telegram') {
+        if (key === 'contact_url') {
           val = val.trim();
-          if (val && !isSafeExternalUrl(val)) return fail('BAD_URL', 'Contact links must be valid https links (e.g. https://wa.me/6591234567 or https://t.me/yourname).', 400, rid);
+          if (val && !isSafeExternalUrl(val)) return fail('BAD_URL', 'Contact URL must be a valid https link (WhatsApp/Telegram allowed).', 400, rid);
         }
-        if (key === 'announcement_text') val = val.slice(0, 500);
-        if (key === 'signup_enabled') val = val === '0' ? '0' : '1';
-        if (key === 'bank_verify_enabled') val = val === '1' ? '1' : '0';
-        if (key === 'referral_enabled') val = val === '1' ? '1' : '0';
-        if (key === 'referral_reward' || key === 'referral_min_deposit' || key === 'referral_bonus') { const n = Number(val); if (!Number.isFinite(n) || n < 0 || n > 100000) return fail('BAD_REQUEST', 'Referral amounts must be numbers from 0 to 100,000.', 400, rid); val = String(Math.round(n * 100) / 100); }
-        if (key === 'referral_bonus_every') { const n = Math.floor(Number(val)); if (!Number.isFinite(n) || n < 1 || n > 1000) return fail('BAD_REQUEST', 'Bonus every N friends must be 1-1000.', 400, rid); val = String(n); }
+        if (key === 'contact_whatsapp' || key === 'contact_telegram') {
+          val = normalizeContactLink(key, val);
+          if (val === 'BAD') return fail('BAD_URL', key === 'contact_whatsapp' ? 'WhatsApp: enter a phone number (e.g. 6591234567) or an https://wa.me/ link.' : 'Telegram: enter a username (e.g. @le888) or an https://t.me/ link.', 400, rid);
+        }
         if (key === 'checkin_rewards') {
-          const parts = val.split(/[\s,]+/).filter(Boolean).map((x) => Math.floor(Number(x)));
-          if (parts.length !== 7 || !parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 100000)) return fail('BAD_REQUEST', 'Check-in rewards must be 7 whole numbers, e.g. 1,2,3,4,5,8,10', 400, rid);
-          val = parts.join(',');
+          const nums = val.split(/[\s,]+/).filter(Boolean).map((x) => Number(x));
+          if (nums.length !== 7 || !nums.every((n) => Number.isInteger(n) && n >= 0 && n <= 100000)) return fail('BAD_REQUEST', 'Check-in rewards need exactly 7 whole numbers (day 1 to day 7), e.g. 1,2,3,4,5,8,10.', 400, rid);
+          val = nums.join(',');
         }
-        if (key === 'deposit_paynow' || key === 'deposit_name' || key === 'deposit_qr') val = val.trim().slice(0, 300);
+        if (key === 'signup_enabled' || key === 'guest_chat_enabled') val = val === '0' ? '0' : '1';
+        if (key === 'announcement_text') val = val.slice(0, 500);
+        if (key === 'terms_text') val = val.slice(0, 20000);
+        if (key === 'chat_keep_messages') val = String(Math.max(10, Math.min(1000, Math.floor(Number(val)) || CHAT_KEEP_DEFAULT)));
+        if (key === 'deposit_paynow' || key === 'deposit_name' || key === 'deposit_qr' || key === 'deposit_bank_name' || key === 'deposit_bank_account' || key === 'deposit_bank_holder') val = val.trim().slice(0, 300);
+        if (key === 'referral_points' || key === 'referral_bonus_points' || key === 'referral_min_deposit') val = String(Math.max(0, Math.min(1000000, Math.floor(Number(val) || 0))));
+        if (key === 'referral_bonus_every') val = String(Math.max(1, Math.min(1000, Math.floor(Number(val) || 10))));
         if (key === 'checkin_min_deposit' || key === 'deposit_point_rate') {
           val = String(Math.max(0, Math.min(100000, Math.floor(Number(val) || 0))));
         }
@@ -6018,7 +6819,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // apps show a red dot on the Deposit button until each player opens it.
       // Comparing against the current value avoids a false dot when staff hit
       // Save without changing anything.
-      const depKeys = ['deposit_paynow', 'deposit_name', 'deposit_qr'];
+      const depKeys = ['deposit_paynow', 'deposit_name', 'deposit_qr', 'deposit_bank_name', 'deposit_bank_account', 'deposit_bank_holder'];
       if (depKeys.some((k) => updates[k] !== undefined)) {
         const cur = await getSettings(env);
         const changed = depKeys.some((k) => updates[k] !== undefined && String(updates[k]) !== String(cur[k] || ''));
