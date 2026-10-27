@@ -176,3 +176,15 @@
 .pc-fast .pc-dim{position:absolute;inset:0;z-index:4;background:#05040300;background:#050403;opacity:0;pointer-events:none;border-radius:inherit;will-change:opacity}
 .pc-fast.pc-collection:before,.pc-fast .pc-aura,.pc-fast .pc-floor{transition:none!important}
 .pc-fast .pc-aura{will-change:auto}
+
+/* Mini-Games style carousel: front card in the middle, one card peeking each side.
+   The browser animates it (same timing as the Mini Games), so it is steady on phones. */
+.pc-deck.pc-flow .pc-stage{perspective:1000px;--pc-drag:0px}
+.pc-deck.pc-flow .pc-card,.pc-deck.pc-flow .pc-card.pc-selected{top:14px;bottom:20px;height:auto;width:54%;left:23%;visibility:visible;transform:translateX(calc(var(--pc-offset)*66% + var(--pc-drag))) translateZ(calc(var(--pc-distance)*-100px)) rotateY(calc(var(--pc-offset)*-24deg)) rotateZ(calc(var(--pc-offset)*5deg)) scale(calc(1 - var(--pc-distance)*.12));opacity:calc(1 - var(--pc-distance)*.3);z-index:calc(5 - var(--pc-distance));transition:transform .65s cubic-bezier(.2,.75,.2,1),opacity .55s,border-color .55s,box-shadow .55s;pointer-events:auto;cursor:grab}
+.pc-deck.pc-flow .pc-card.pc-selected{opacity:1;border-color:#efd4a1}
+.pc-deck.pc-flow .pc-card.pc-hidden{opacity:0;pointer-events:none}
+.pc-deck.pc-flow .pc-card:not(.pc-selected) .pc-scenery{filter:none}
+.pc-deck.pc-flow .pc-card-bottom{bottom:58px}
+.pc-deck.pc-flow .pc-card-bottom strong{font-size:17px}
+.pc-deck.pc-flow .pc-card .pc-card-explore{left:8px;right:8px;width:calc(100% - 16px);font-size:10.5px;padding:0 9px}
+@media(prefers-reduced-motion:reduce){.pc-deck.pc-flow .pc-card{transition:none}}
