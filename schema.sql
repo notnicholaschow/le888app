@@ -392,6 +392,15 @@ CREATE TABLE IF NOT EXISTS chat_templates (
   updated_by TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_template_trigger ON chat_templates (trigger_key) WHERE trigger_key != '';
+-- Referral link clicks (/r/CODE): one row per visitor per day, n = times opened.
+CREATE TABLE IF NOT EXISTS referral_clicks (
+  referrer_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  visitor TEXT NOT NULL,                     -- hashed (no IP stored)
+  n INTEGER NOT NULL DEFAULT 1,
+  last_at TEXT,
+  PRIMARY KEY (referrer_id, day, visitor)
+);
 -- Guest Live Chat (login page, no account). Their chat rows use player_id = -id.
 CREATE TABLE IF NOT EXISTS chat_guests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
