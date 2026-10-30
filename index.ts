@@ -2355,17 +2355,10 @@ async function ensurePopups(env: Env): Promise<void> {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS popup_notices (id INTEGER PRIMARY KEY AUTOINCREMENT, image_url TEXT NOT NULL, button_text TEXT, button_link TEXT, sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, start_date TEXT, end_date TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
   popupsReady = true;
 }
-// "12:00, 18:00 ,21:30" -> ["12:00","18:00","21:30"] (sorted, unique, max 8). Empty = once a day.
-function parsePopupTimes(v: unknown): string[] | null {
-  const parts = String(v ?? '').split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
-  const out: string[] = [];
-  for (const t of parts) {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(t);
-    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
-    const hh = m[1].padStart(2, '0') + ':' + m[2];
-    if (!out.includes(hh)) out.push(hh);
-  }
-  return out.sort().slice(0, 8);
+// How often the pop-ups show again, in minutes (15 min .. 24 h). Default 30.
+function popupEvery(v: unknown): number {
+  const n = Math.round(Number(v));
+  return n >= 15 && n <= 1440 ? n : 30;
 }
 // Button link: an in-app page ("app:promotions") or a website (https://...).
 const POPUP_APP_PAGES = ['home', 'promotions', 'vip', 'platforms', 'games', 'deposit', 'deposit-bonus', 'rewards', 'missions', 'invite', 'chat', 'wallet'];
@@ -3621,8 +3614,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext, rid:
       await ensurePopups(env);
       const today = sgtDateKey();
       const r = await env.DB.prepare("SELECT id, image_url, button_text, button_link FROM popup_notices WHERE active = 1 AND (start_date IS NULL OR start_date = '' OR start_date <= ?) AND (end_date IS NULL OR end_date = '' OR end_date >= ?) ORDER BY sort_order ASC, id ASC LIMIT 10").bind(today, today).all();
-      const s = await env.DB.prepare("SELECT value FROM settings WHERE key = 'popup_times'").first<{ value: string }>();
-      return json({ ok: true, popups: r.results || [], times: parsePopupTimes(s?.value || '') || [] }, 200, rid);
+      const s = await env.DB.prepare("SELECT value FROM settings WHERE key = 'popup_every_min'").first<{ value: string }>();
+      return json({ ok: true, popups: r.results || [], every_min: popupEvery(s?.value) }, 200, rid);
     } catch { return json({ ok: true, popups: [], times: [] }, 200, rid); }
   }
 
@@ -4669,7 +4662,7 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     // Slot Games launcher (same "rtp" section — the slot/games area).
     '/api/admin/slots/list': 'rtp', '/api/admin/slots/save': 'rtp', '/api/admin/slots/delete': 'rtp', '/api/admin/slots/reorder': 'rtp',
     // Home banners (site display — grouped under "settings").
-    '/api/admin/popups/list': 'settings', '/api/admin/popups/save': 'settings', '/api/admin/popups/delete': 'settings', '/api/admin/popups/reorder': 'settings', '/api/admin/popups/times': 'settings',
+    '/api/admin/popups/list': 'settings', '/api/admin/popups/save': 'settings', '/api/admin/popups/delete': 'settings', '/api/admin/popups/reorder': 'settings', '/api/admin/popups/every': 'settings',
     '/api/admin/banners/list': 'settings', '/api/admin/banners/save': 'settings', '/api/admin/banners/delete': 'settings', '/api/admin/banners/reorder': 'settings',
     // "View app" (act as player) — grantable to trusted staff.
     '/api/admin/player/impersonate': 'view_app',
@@ -6034,8 +6027,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
     case '/api/admin/popups/list': {
       await ensurePopups(env);
       const r = await env.DB.prepare('SELECT id, image_url, button_text, button_link, sort_order, active, start_date, end_date FROM popup_notices ORDER BY sort_order ASC, id ASC').all();
-      const s = await env.DB.prepare("SELECT value FROM settings WHERE key = 'popup_times'").first<{ value: string }>();
-      return json({ ok: true, popups: r.results || [], times: parsePopupTimes(s?.value || '') || [] }, 200, rid);
+      const s = await env.DB.prepare("SELECT value FROM settings WHERE key = 'popup_every_min'").first<{ value: string }>();
+      return json({ ok: true, popups: r.results || [], every_min: popupEvery(s?.value) }, 200, rid);
     }
 
     case '/api/admin/popups/save': {
@@ -6082,11 +6075,11 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       return json({ ok: true }, 200, rid);
     }
 
-    case '/api/admin/popups/times': {
-      const times = parsePopupTimes(body.times);
-      if (!times) return fail('BAD_TIME', 'Use 24-hour times like 12:00, 18:00, 21:30', 400, rid);
-      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('popup_times', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(times.join(',')).run();
-      return json({ ok: true, times }, 200, rid);
+    case '/api/admin/popups/every': {
+      const n = Math.round(Number(body.every_min));
+      if (!(n >= 15 && n <= 1440)) return fail('BAD_VALUE', 'Choose between 15 minutes and 24 hours.', 400, rid);
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('popup_every_min', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(n)).run();
+      return json({ ok: true, every_min: n }, 200, rid);
     }
 
     // ---- Home banners: carousel images (display/link only) ----
