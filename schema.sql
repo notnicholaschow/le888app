@@ -525,3 +525,16 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
   ('announcement_text', ''),
   ('contact_url', ''),
   ('chat_keep_messages', '100');
+
+-- Pop-up notices (image + button) shown when the app opens, at the times set in Admin -> Settings.
+CREATE TABLE IF NOT EXISTS popup_notices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  image_url TEXT NOT NULL,
+  button_text TEXT,
+  button_link TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  start_date TEXT,
+  end_date TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
