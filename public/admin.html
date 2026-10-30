@@ -985,12 +985,16 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         <h2 style="margin-top:0">&#128227; Pop-up notices</h2>
         <p class="muted" style="margin:0 0 4px">A picture with a button that pops up when the app opens (players and guests). Several notices show one after another, in this order.</p>
         <p class="muted" style="margin:0 0 10px;color:var(--gold,#e7c56b)"><b>Recommended image size: 1080 &times; 1350 px</b> (portrait, 4:5). WebP or JPG, under ~400&nbsp;KB. Max 3 MB.</p>
-        <label for="pnTimes">Show times (Singapore time, 24-hour)</label>
+        <label for="pnEvery">Show the pop-ups every</label>
         <div class="row" style="align-items:center">
-          <input id="pnTimes" placeholder="e.g. 12:00, 18:00, 21:00" autocomplete="off" style="flex:1">
-          <button class="btn ghost small" id="pnTimesSave">Save times</button>
+          <select id="pnEvery" style="flex:1">
+            <option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option>
+            <option value="120">2 hours</option><option value="180">3 hours</option><option value="360">6 hours</option>
+            <option value="720">12 hours</option><option value="1440">Once a day (24 hours)</option>
+          </select>
+          <button class="btn ghost small" id="pnEverySave">Save</button>
         </div>
-        <p class="muted" style="margin:6px 0 12px;font-size:12px">After each time passes, the pop-up shows <b>once</b> the next time a player opens the app. Leave empty = once a day.</p>
+        <p class="muted" style="margin:6px 0 12px;font-size:12px">Shows when the player opens the app, then again each time this much time has passed (also while they stay in the app). A <b>new</b> pop-up you add shows straight away.</p>
         <div id="pnList" class="muted">Loading&hellip;</div>
         <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
         <label>Pop-up image</label>
@@ -4069,7 +4073,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     pnInitForms();
     api('/api/admin/popups/list', {}).then(function (r) {
       if (!r || !r.ok) { $('pnList').textContent = (r && r.error) || 'Could not load pop-ups.'; return; }
-      pnCache = r.popups || []; $('pnTimes').value = (r.times || []).join(', '); renderPopups();
+      pnCache = r.popups || []; $('pnEvery').value = String(r.every_min || 30); renderPopups();
     });
   }
   function pnLinkLabel(l) {
@@ -4134,14 +4138,13 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         toast('Image ready. Press Save pop-up.');
       }).catch(function () { toast('Upload failed.', true); });
     };
-    $('pnTimesSave').onclick = function () {
-      busy($('pnTimesSave'), true);
-      api('/api/admin/popups/times', { times: $('pnTimes').value }).then(function (r) {
-        busy($('pnTimesSave'), false);
-        if (!r.ok) { toast(r.error || 'Could not save times.', true); return; }
-        $('pnTimes').value = (r.times || []).join(', ');
-        toast(r.times && r.times.length ? 'Times saved: ' + r.times.join(', ') : 'No times set — pop-ups show once a day.');
-      }).catch(function () { busy($('pnTimesSave'), false); toast('Network error.', true); });
+    $('pnEverySave').onclick = function () {
+      busy($('pnEverySave'), true);
+      api('/api/admin/popups/every', { every_min: Number($('pnEvery').value) }).then(function (r) {
+        busy($('pnEverySave'), false);
+        if (!r.ok) { toast(r.error || 'Could not save.', true); return; }
+        toast('Saved: pop-ups show every ' + $('pnEvery').options[$('pnEvery').selectedIndex].text + '.');
+      }).catch(function () { busy($('pnEverySave'), false); toast('Network error.', true); });
     };
     $('pnSave').onclick = function () {
       if (!$('pnImg').value) { toast('Choose a pop-up image first.', true); return; }
