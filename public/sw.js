@@ -12,7 +12,7 @@
    ============================================================================ */
 'use strict';
 
-var CACHE = 'tr666-v203';
+var CACHE = 'tr666-v204';
 var STATIC = ['/manifest-game.webmanifest', '/icon-192.png', '/icon-512.png', '/icon-180.png', '/icon-maskable-512.png'];
 
 var OFFLINE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#060606"><title>LE888 · Offline</title><style>html,body{margin:0;height:100%;background:#060606;color:#f5ead6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}body{display:grid;place-items:center;padding:24px;box-sizing:border-box;text-align:center}img{width:112px;height:112px;border-radius:26px;box-shadow:0 10px 34px rgba(233,189,90,.35)}h1{margin:22px 0 6px;font-size:22px;color:#ffe3a0}p{margin:0 0 22px;color:#b8ac92;font-size:15px;line-height:1.5}button{border:0;border-radius:999px;padding:14px 28px;font:800 15px inherit;font-family:inherit;color:#1a1206;background:linear-gradient(180deg,#fff0b8,#e9bd5a 55%,#a8742a);box-shadow:0 8px 22px rgba(233,189,90,.35)}</style></head><body><main><img src="/icon-192.png" alt="LE888"><h1>You\u2019re offline</h1><p>Please check your internet connection,<br>then tap Try again.</p><button onclick="location.reload()">Try again</button></main></body></html>';

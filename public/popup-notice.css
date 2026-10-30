@@ -1,0 +1,21 @@
+/* LE888 Pop-up notices */
+.pn-wrap{position:fixed;inset:0;z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px 16px}
+.pn-back{position:absolute;inset:0;background:radial-gradient(90% 60% at 50% 50%,#3a2a0f40,transparent 70%),#000c;backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);animation:pnFade .25s ease}
+.pn-card{position:relative;width:100%;max-width:380px;display:flex;flex-direction:column;align-items:center}
+.pn-card.pn-in{animation:pnPop .38s cubic-bezier(.2,.8,.2,1)}
+.pn-img{width:100%;border-radius:20px;padding:1px;background:linear-gradient(170deg,#f6d58b,#8a6526 40%,#3b2c12 70%,#c79b4c);box-shadow:0 24px 60px #000d,0 0 40px #e3b05222}
+.pn-img img{display:block;width:100%;height:auto;max-height:68vh;object-fit:contain;border-radius:19px;background:#0b0906}
+.pn-img img.pn-tap{cursor:pointer}
+.pn-foot{width:100%;display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:14px}
+.pn-btn{position:relative;width:100%;height:52px;border-radius:16px;border:1px solid #fff0bf;overflow:hidden;background:linear-gradient(170deg,#fff1bd 0%,#f8cd6a 30%,#e3a03a 68%,#b8741f 100%);color:#2a1a04;font-family:inherit;font-weight:800;font-size:15px;line-height:1;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 1px #fff8,0 10px 26px #e5a64530;cursor:pointer}
+.pn-btn:after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-60%;background:linear-gradient(100deg,transparent,#fff8 50%,transparent);transform:skewX(-20deg);animation:pnShine 3.2s ease-in-out .6s infinite}
+.pn-btn:active{transform:translateY(1px)}
+.pn-count{display:flex;gap:6px}
+.pn-count i{width:7px;height:7px;border-radius:50%;background:#ffffff40}
+.pn-count i.on{width:20px;border-radius:7px;background:#f3ce88;box-shadow:0 0 8px #e7b85a66}
+.pn-close{position:absolute;top:-14px;right:-8px;z-index:2;width:38px;height:38px;border-radius:50%;border:1px solid #e9c98577;background:#14110bdd;color:#f6dca2;font-size:24px;line-height:1;cursor:pointer;box-shadow:0 6px 16px #000a}
+.pn-out .pn-back,.pn-out .pn-card{transition:opacity .2s;opacity:0}
+@keyframes pnPop{from{transform:scale(.92) translateY(14px);opacity:0}to{transform:none;opacity:1}}
+@keyframes pnFade{from{opacity:0}to{opacity:1}}
+@keyframes pnShine{0%,55%{left:-60%}85%,100%{left:130%}}
+@media(prefers-reduced-motion:reduce){.pn-card.pn-in,.pn-back{animation:none}.pn-btn:after{display:none}}

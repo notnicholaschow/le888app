@@ -980,6 +980,51 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         </div>
       </div>
 
+      <!-- ===== Pop-up notices ===== -->
+      <div class="card" id="pnCard">
+        <h2 style="margin-top:0">&#128227; Pop-up notices</h2>
+        <p class="muted" style="margin:0 0 4px">A picture with a button that pops up when the app opens (players and guests). Several notices show one after another, in this order.</p>
+        <p class="muted" style="margin:0 0 10px;color:var(--gold,#e7c56b)"><b>Recommended image size: 1080 &times; 1350 px</b> (portrait, 4:5). WebP or JPG, under ~400&nbsp;KB. Max 3 MB.</p>
+        <label for="pnTimes">Show times (Singapore time, 24-hour)</label>
+        <div class="row" style="align-items:center">
+          <input id="pnTimes" placeholder="e.g. 12:00, 18:00, 21:00" autocomplete="off" style="flex:1">
+          <button class="btn ghost small" id="pnTimesSave">Save times</button>
+        </div>
+        <p class="muted" style="margin:6px 0 12px;font-size:12px">After each time passes, the pop-up shows <b>once</b> the next time a player opens the app. Leave empty = once a day.</p>
+        <div id="pnList" class="muted">Loading&hellip;</div>
+        <hr style="border:none;border-top:1px solid var(--border,#222);margin:14px 0">
+        <label>Pop-up image</label>
+        <div class="row" style="align-items:center">
+          <img id="pnPrev" alt="" style="width:56px;height:70px;border-radius:8px;object-fit:cover;background:#111;display:none">
+          <input type="file" id="pnFile" accept="image/*" style="flex:1">
+        </div>
+        <label style="margin-top:8px" for="pnBtnText">Button text (optional)</label>
+        <input id="pnBtnText" maxlength="40" placeholder="e.g. Claim now" autocomplete="off">
+        <label style="margin-top:8px" for="pnAction">When the button (or picture) is tapped</label>
+        <select id="pnAction">
+          <option value="">Just close (no button)</option>
+          <option value="app">Open a page in the app</option>
+          <option value="web">Open a website link</option>
+        </select>
+        <select id="pnPage" style="margin-top:6px;display:none">
+          <option value="promotions">Promotions</option><option value="deposit">Deposit</option><option value="deposit-bonus">Deposit bonus</option>
+          <option value="vip">VIP Club</option><option value="platforms">Slot platforms</option><option value="games">Mini games</option>
+          <option value="rewards">Rewards</option><option value="missions">Daily missions</option><option value="invite">Invite friends</option>
+          <option value="wallet">Wallet</option><option value="chat">Live Chat</option><option value="home">Home</option>
+        </select>
+        <input id="pnUrl" maxlength="500" placeholder="https://&hellip;" autocomplete="off" style="margin-top:6px;display:none">
+        <div class="row" style="margin-top:8px;gap:10px">
+          <div style="flex:1"><label for="pnStart">Start date (optional)</label><input type="date" id="pnStart"></div>
+          <div style="flex:1"><label for="pnEnd">End date (optional)</label><input type="date" id="pnEnd"></div>
+        </div>
+        <input type="hidden" id="pnId"><input type="hidden" id="pnImg">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="pnActive" checked style="width:auto"> Active (shown to players)</label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" id="pnSave">Save pop-up</button>
+          <button class="btn ghost small" id="pnReset">New / clear</button>
+        </div>
+      </div>
+
       <div class="card" id="signupCard">
         <h2 style="margin-top:0">Player sign-up &amp; Google Sheet</h2>
         <label for="sSignupOn">Players can create their own account (login page &rarr; "Create an account")</label>
@@ -4017,6 +4062,102 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
   // ------------------------------------------------------------------
   // Settings
   // ------------------------------------------------------------------
+  // ---- Pop-up notices ----
+  var pnCache = [];
+  var PN_PAGES = { promotions: 'Promotions', deposit: 'Deposit', 'deposit-bonus': 'Deposit bonus', vip: 'VIP Club', platforms: 'Slot platforms', games: 'Mini games', rewards: 'Rewards', missions: 'Daily missions', invite: 'Invite friends', wallet: 'Wallet', chat: 'Live Chat', home: 'Home' };
+  function loadPopups() {
+    pnInitForms();
+    api('/api/admin/popups/list', {}).then(function (r) {
+      if (!r || !r.ok) { $('pnList').textContent = (r && r.error) || 'Could not load pop-ups.'; return; }
+      pnCache = r.popups || []; $('pnTimes').value = (r.times || []).join(', '); renderPopups();
+    });
+  }
+  function pnLinkLabel(l) {
+    if (!l) return 'no button';
+    var m = /^app:(.+)$/.exec(l); if (m) return '&rarr; ' + esc(PN_PAGES[m[1]] || m[1]);
+    return '&rarr; website';
+  }
+  function renderPopups() {
+    var box = $('pnList'); if (!box) return;
+    if (!pnCache.length) { box.innerHTML = '<span class="muted">No pop-ups yet. Add your first one below.</span>'; return; }
+    var today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    box.innerHTML = pnCache.map(function (p, i) {
+      var st = !Number(p.active) ? 'Hidden' : (p.end_date && p.end_date < today) ? 'Ended' : (p.start_date && p.start_date > today) ? 'Starts ' + esc(p.start_date) : 'Active';
+      var dates = (p.start_date || p.end_date) ? ' &middot; ' + esc(p.start_date || '…') + ' to ' + esc(p.end_date || '…') : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border,#222);border-radius:10px;margin-bottom:6px">' +
+        '<img src="' + esc(p.image_url) + '" style="width:40px;height:50px;object-fit:cover;border-radius:6px;background:#111">' +
+        '<div style="flex:1;min-width:0" class="muted"><b style="color:' + (st === 'Active' ? '#7bd88f' : 'inherit') + '">' + st + '</b>' + (p.button_text ? ' &middot; &ldquo;' + esc(p.button_text) + '&rdquo;' : '') + ' ' + pnLinkLabel(p.button_link) + dates + '</div>' +
+        '<button class="btn ghost small" data-pup="' + p.id + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+        '<button class="btn ghost small" data-pdown="' + p.id + '"' + (i === pnCache.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+        '<button class="btn ghost small" data-pedit="' + p.id + '">Edit</button>' +
+        '<button class="btn ghost small" data-pdel="' + p.id + '">Del</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-pedit]'), function (el) { el.onclick = function () { pnEdit(Number(el.getAttribute('data-pedit'))); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-pdel]'), function (el) { el.onclick = function () { pnDel(Number(el.getAttribute('data-pdel'))); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-pup]'), function (el) { el.onclick = function () { pnMove(Number(el.getAttribute('data-pup')), 'up'); }; });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-pdown]'), function (el) { el.onclick = function () { pnMove(Number(el.getAttribute('data-pdown')), 'down'); }; });
+  }
+  function pnShowAction() {
+    var a = $('pnAction').value;
+    $('pnPage').style.display = a === 'app' ? '' : 'none';
+    $('pnUrl').style.display = a === 'web' ? '' : 'none';
+  }
+  function pnEdit(id) {
+    var p = pnCache.filter(function (x) { return x.id === id; })[0]; if (!p) return;
+    $('pnId').value = p.id; $('pnImg').value = p.image_url || ''; $('pnBtnText').value = p.button_text || '';
+    var l = p.button_link || '', m = /^app:(.+)$/.exec(l);
+    $('pnAction').value = !l ? '' : m ? 'app' : 'web';
+    if (m) $('pnPage').value = m[1]; $('pnUrl').value = m ? '' : l;
+    $('pnStart').value = p.start_date || ''; $('pnEnd').value = p.end_date || '';
+    $('pnActive').checked = Number(p.active) === 1;
+    var prev = $('pnPrev'); prev.src = p.image_url; prev.style.display = '';
+    pnShowAction();
+    $('pnCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function pnReset() {
+    ['pnId', 'pnImg', 'pnBtnText', 'pnUrl', 'pnStart', 'pnEnd', 'pnFile'].forEach(function (k) { $(k).value = ''; });
+    $('pnAction').value = ''; $('pnActive').checked = true; $('pnPrev').style.display = 'none'; pnShowAction();
+  }
+  function pnDel(id) {
+    if (!confirm('Delete this pop-up? This cannot be undone.')) return;
+    api('/api/admin/popups/delete', { id: id }).then(function (r) { if (!r.ok) { toast(r.error || 'Delete failed.', true); return; } toast('Pop-up deleted.'); loadPopups(); });
+  }
+  function pnMove(id, dir) { api('/api/admin/popups/reorder', { id: id, dir: dir }).then(function (r) { if (!r.ok) { toast(r.error || 'Reorder failed.', true); return; } loadPopups(); }); }
+  function pnInitForms() {
+    if (pnInitForms._done) return; pnInitForms._done = true;
+    $('pnAction').onchange = pnShowAction;
+    $('pnFile').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return; toast('Uploading image…');
+      rtpUpload(f).then(function (r) {
+        if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
+        $('pnImg').value = r.url; var prev = $('pnPrev'); prev.src = r.url; prev.style.display = '';
+        toast('Image ready. Press Save pop-up.');
+      }).catch(function () { toast('Upload failed.', true); });
+    };
+    $('pnTimesSave').onclick = function () {
+      busy($('pnTimesSave'), true);
+      api('/api/admin/popups/times', { times: $('pnTimes').value }).then(function (r) {
+        busy($('pnTimesSave'), false);
+        if (!r.ok) { toast(r.error || 'Could not save times.', true); return; }
+        $('pnTimes').value = (r.times || []).join(', ');
+        toast(r.times && r.times.length ? 'Times saved: ' + r.times.join(', ') : 'No times set — pop-ups show once a day.');
+      }).catch(function () { busy($('pnTimesSave'), false); toast('Network error.', true); });
+    };
+    $('pnSave').onclick = function () {
+      if (!$('pnImg').value) { toast('Choose a pop-up image first.', true); return; }
+      var a = $('pnAction').value, link = a === 'app' ? 'app:' + $('pnPage').value : a === 'web' ? $('pnUrl').value.trim() : '';
+      if (a === 'web' && !/^https:\/\//i.test(link)) { toast('Website link must start with https://', true); return; }
+      if (a && !$('pnBtnText').value.trim()) { toast('Add button text, e.g. "Claim now".', true); return; }
+      busy($('pnSave'), true);
+      api('/api/admin/popups/save', { id: Number($('pnId').value) || 0, image_url: $('pnImg').value, button_text: a ? $('pnBtnText').value.trim() : '', button_link: link, start_date: $('pnStart').value, end_date: $('pnEnd').value, active: $('pnActive').checked ? 1 : 0 }).then(function (r) {
+        busy($('pnSave'), false);
+        if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
+        toast('Pop-up saved.'); pnReset(); loadPopups();
+      }).catch(function () { busy($('pnSave'), false); toast('Network error.', true); });
+    };
+    $('pnReset').onclick = pnReset;
+  }
+
   // ---- Home Banners (carousel) ----
   var bnCache = [];
   function loadBanners() {
@@ -4117,6 +4258,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     loadBroadcasts();
     if ($('dbCard')) $('dbCard').style.display = isMgr() ? '' : 'none';
     loadBanners();
+    loadPopups();
     api('/api/admin/settings/get').then(function (res) {
       if (!res.ok) return;
       var s = res.settings;
