@@ -5026,6 +5026,8 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       const configured = !!(env.SHEET_URL && env.SHEET_SECRET);
       const info = await nextPlayerIdInfo(env, 20000);
       let queued = 0, sent = 0, stuck = 0, lastError = '';
+      // "Retry failed rows": give rows that failed 50 times a fresh start (e.g. after the Google script was fixed).
+      if (configured && body.retry_stuck === true) { try { await ensureSheetQueue(env); await env.DB.prepare('UPDATE sheet_queue SET tries = 0 WHERE tries >= 50').run(); } catch { /* ignore */ } }
       if (configured) { try { const f = await flushSheetQueue(env, 25); queued = f.left; sent = f.sent; stuck = f.stuck || 0; lastError = f.last_error || ''; } catch { /* ignore */ } }
       return json({ ok: true, configured, connected: info.sheet_live, sheet_max: info.sheet_max, db_max: info.db_max, next: info.next.toUpperCase(), sheet_error: info.sheet_error || null, queued, sent, stuck, last_error: (queued || stuck) ? lastError : '' }, 200, rid);
     }
