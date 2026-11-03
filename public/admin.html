@@ -4375,19 +4375,22 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       toast('Referral settings saved.'); flashDone(btn, 'Saved ✓');
     }).catch(function () { busy(btn, false); toast('Network error.', true); });
   };
-  if ($('sheetCheckBtn')) $('sheetCheckBtn').onclick = function () {
-    var btn = this, st = $('sheetStatus'); busy(btn, true); st.textContent = 'Checking…';
-    api('/api/admin/sheet/status', {}).then(function (r) {
+  function sheetCheck(btn, retry) {
+    var st = $('sheetStatus'); busy(btn, true); st.textContent = retry ? 'Sending failed rows again… (this can take a minute)' : 'Checking…';
+    api('/api/admin/sheet/status', retry ? { retry_stuck: true } : {}).then(function (r) {
       busy(btn, false);
       if (!r.ok) { st.textContent = r.error || 'Check failed.'; return; }
       if (!r.configured) { st.innerHTML = '<span style="color:var(--red)">⚠️ Not set up yet</span> — add SHEET_URL and SHEET_SECRET in Cloudflare. Next ID (system only): <b>' + esc(r.next) + '</b>'; return; }
       if (!r.connected) { st.innerHTML = '<span style="color:var(--red)">❌ Can\u2019t reach the sheet</span> (' + esc(r.sheet_error || 'error') + '). Check the script link + secret.'; return; }
       st.innerHTML = '<span style="color:var(--green)">✅ Connected</span> · highest in sheet <b>LE' + r.sheet_max + '</b> · in system <b>LE' + r.db_max + '</b> · next ID <b>' + esc(r.next) + '</b>' +
         (r.queued ? ' · <span style="color:var(--red)">' + r.queued + ' row(s) waiting to be sent</span>' : '') + (r.sent ? ' · sent ' + r.sent + ' waiting row(s) now' : '') +
-        (r.stuck ? ' · <span style="color:var(--red)">' + r.stuck + ' row(s) failed many times — tell your developer</span>' : '') +
-        (r.last_error ? '<div style="margin-top:6px;font-size:12px;color:var(--red)">Google said: ' + esc(r.last_error) + '</div>' : '');
+        (r.stuck ? ' · <span style="color:var(--red)">' + r.stuck + ' row(s) failed many times</span>' : '') +
+        (r.last_error ? '<div style="margin-top:6px;font-size:12px;color:var(--red)">Google said: ' + esc(r.last_error) + '</div>' : '') +
+        ((r.stuck || r.queued) ? '<div style="margin-top:8px"><button class="btn small" id="sheetRetryBtn">Retry failed rows</button> <span class="muted" style="font-size:12px">Sends about 25 at a time — press again until nothing is left.</span></div>' : '');
+      var rb = $('sheetRetryBtn'); if (rb) rb.onclick = function () { sheetCheck(rb, true); };
     }).catch(function () { busy(btn, false); st.textContent = 'Network error.'; });
-  };
+  }
+  if ($('sheetCheckBtn')) $('sheetCheckBtn').onclick = function () { sheetCheck(this, false); };
   $('settingsSaveBtn').onclick = function () {
     api('/api/admin/settings/save', {
       settings: {
