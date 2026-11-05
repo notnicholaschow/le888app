@@ -6597,9 +6597,15 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
         const binds: unknown[] = [];
         if (status && status !== 'all') { sql += ' AND w.status = ?'; binds.push(status); }
         if (q) { sql += ' AND (lower(p.username) LIKE ? OR CAST(w.player_id AS TEXT) LIKE ?)'; const like = `%${q.toLowerCase()}%`; binds.push(like, like); }
+        const onePlayer = Number(body.player_id) || 0; // History pop-up: one player only
+        if (onePlayer) { sql += ' AND w.player_id = ?'; binds.push(onePlayer); }
         sql += ' ORDER BY w.id DESC LIMIT ? OFFSET ?';
         binds.push(limit, offset);
         const { results } = await env.DB.prepare(sql).bind(...binds).all();
+        if (onePlayer) {
+          const c = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(status='approved') AS approved, SUM(status='rejected') AS rejected, SUM(status='pending') AS pending, COALESCE(SUM(CASE WHEN status='approved' THEN amount_cents END),0) AS approved_cents FROM withdrawals WHERE player_id = ?").bind(onePlayer).first();
+          return json({ ok: true, withdrawals: results || [], counts: c, offset, limit }, 200, rid);
+        }
         const pending = await env.DB.prepare("SELECT COUNT(*) AS c, COALESCE(SUM(amount_cents),0) AS s FROM withdrawals WHERE status = 'pending'").first<{ c: number; s: number }>();
         return json({ ok: true, withdrawals: results || [], pending_count: pending?.c ?? 0, pending_cents: pending?.s ?? 0, offset, limit }, 200, rid);
       } catch { return json({ ok: true, withdrawals: [], pending_count: 0, pending_cents: 0, needs_migration: true }, 200, rid); }
@@ -6683,6 +6689,13 @@ async function handleAdminApi(path: string, request: Request, env: Env, rid: str
       // player can still cancel it; only surface pending rows past that window.
       sql += " AND (pr.status != 'pending' OR pr.created_at <= datetime('now', '-10 seconds'))";
       if (q) { sql += ' AND (lower(p.username) LIKE ? OR CAST(pr.player_id AS TEXT) LIKE ?)'; const like = `%${q.toLowerCase()}%`; binds.push(like, like); }
+      const onePlayer = Number(body.player_id) || 0; // History pop-up: one player only
+      if (onePlayer) {
+        sql += ' AND pr.player_id = ? ORDER BY pr.id DESC LIMIT ? OFFSET ?';
+        const { results: mine } = await env.DB.prepare(sql).bind(...binds, onePlayer, limit, offset).all();
+        const c = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(status='approved') AS approved, SUM(status='rejected') AS rejected, SUM(status='pending') AS pending, COALESCE(SUM(CASE WHEN status='approved' THEN amount_cents END),0) AS approved_cents FROM payout_requests WHERE player_id = ? AND status != 'cancelled'").bind(onePlayer).first();
+        return json({ ok: true, payouts: mine || [], counts: c, offset, limit }, 200, rid);
+      }
       const total = await countRows(env, sql, binds);
       sql += ' ORDER BY pr.id DESC LIMIT ? OFFSET ?';
       binds.push(limit, offset);
