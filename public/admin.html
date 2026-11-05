@@ -2443,7 +2443,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     };
   }
 
-  // ---- History modal (per player): 3 tabs (Points / Credits / Deposits),
+  // ---- History modal (per player): 5 tabs (Points / Credits / Deposits / Free credit / Withdrawals),
   //      SGT date filter, deposits editable/removable ----
   function historyModal(p, startTab) {
     openModal(
@@ -2459,10 +2459,14 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         '<button class="seg-btn" data-his="pts">Points</button>' +
         '<button class="seg-btn" data-his="cred">Credits</button>' +
         '<button class="seg-btn" data-his="dep">Deposits</button>' +
+        '<button class="seg-btn" data-his="fc">Free credit</button>' +
+        '<button class="seg-btn" data-his="wd">Withdrawals</button>' +
       '</div>' +
       '<div id="hisPts" class="muted" style="margin-top:12px">Loading&hellip;</div>' +
       '<div id="hisCred" class="muted hidden" style="margin-top:12px">Loading&hellip;</div>' +
-      '<div id="hisDep" class="muted hidden" style="margin-top:12px">Loading&hellip;</div>'
+      '<div id="hisDep" class="muted hidden" style="margin-top:12px">Loading&hellip;</div>' +
+      '<div id="hisFc" class="muted hidden" style="margin-top:12px">Loading&hellip;</div>' +
+      '<div id="hisWd" class="muted hidden" style="margin-top:12px">Loading&hellip;</div>'
     );
     var cur = startTab || 'pts';
     function switchHis(name) {
@@ -2470,6 +2474,8 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
       $('hisPts').classList.toggle('hidden', name !== 'pts');
       $('hisCred').classList.toggle('hidden', name !== 'cred');
       $('hisDep').classList.toggle('hidden', name !== 'dep');
+      $('hisFc').classList.toggle('hidden', name !== 'fc');
+      $('hisWd').classList.toggle('hidden', name !== 'wd');
       Array.prototype.forEach.call(document.querySelectorAll('[data-his]'), function (b) {
         b.classList.toggle('active', b.getAttribute('data-his') === name);
       });
@@ -2540,6 +2546,48 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         }));
       });
       loadDeps();
+      loadClaims();
+    }
+    // Free credit submissions + withdrawals: totals (all time) + the list (date filter applies to the list).
+    function hisPill(st) {
+      var cls = st === 'approved' ? 'active' : st === 'rejected' ? 'blocked' : 'waiting';
+      var txt = st === 'approved' ? 'Approved' : st === 'rejected' ? 'Rejected' : st === 'pending' ? 'Pending' : esc(st || '');
+      return '<span class="pill ' + cls + '">' + txt + '</span>';
+    }
+    function hisTotals(c, word) {
+      c = c || {};
+      return '<div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:10px">' +
+        '<span>' + word + ' <b>' + Number(c.total || 0) + '</b></span>' +
+        '<span style="color:var(--green)">Approved <b>' + Number(c.approved || 0) + '</b> ($' + ((Number(c.approved_cents) || 0) / 100).toFixed(2) + ')</span>' +
+        '<span style="color:var(--red)">Rejected <b>' + Number(c.rejected || 0) + '</b></span>' +
+        (Number(c.pending) ? '<span style="color:var(--gold,#e7c56b)">Pending <b>' + Number(c.pending) + '</b></span>' : '') +
+        '<span class="muted" style="font-size:12px;flex-basis:100%">Totals are all-time · the list below follows the dates above</span></div>';
+    }
+    function loadClaims() {
+      var from = $('hisFrom').value, to = $('hisTo').value;
+      api('/api/admin/payouts', { player_id: p.id, status: 'all', limit: 100 }).then(function (res) {
+        var el = $('hisFc');
+        if (!res.ok) { el.innerHTML = '<p class="muted">' + esc(res.error || 'Could not load.') + '</p>'; return; }
+        var rows = (res.payouts || []).filter(function (x) { return inRange(x.created_at, from, to); });
+        el.innerHTML = hisTotals(res.counts, 'Submitted') + mini(rows.map(function (x) {
+          return '<tr><td class="muted">' + sgt(x.created_at) + '</td>' +
+            '<td>' + esc(x.game || '—') + (x.game_id ? '<div class="muted" style="font-size:12px">ID ' + esc(x.game_id) + '</div>' : '') + '</td>' +
+            '<td>$' + ((Number(x.amount_cents) || 0) / 100).toFixed(2) + '</td>' +
+            '<td>' + hisPill(x.status) + (x.admin_username ? '<div class="muted" style="font-size:12px">by ' + esc(x.admin_username) + '</div>' : '') + '</td></tr>';
+        }));
+      }).catch(function () { $('hisFc').innerHTML = '<p class="muted">Network error.</p>'; });
+      api('/api/admin/withdrawals', { player_id: p.id, status: 'all', limit: 100 }).then(function (res) {
+        var el = $('hisWd');
+        if (!res.ok) { el.innerHTML = '<p class="muted">' + esc(res.error || 'Could not load.') + '</p>'; return; }
+        var rows = (res.withdrawals || []).filter(function (x) { return inRange(x.created_at, from, to); });
+        el.innerHTML = hisTotals(res.counts, 'Requested') + mini(rows.map(function (x) {
+          var src = x.source_type === 'free_credit' ? 'From free credit' + (x.source_game ? ' · ' + esc(x.source_game) : '') : 'Normal';
+          return '<tr><td class="muted">' + sgt(x.created_at) + '</td>' +
+            '<td>$' + ((Number(x.amount_cents) || 0) / 100).toFixed(2) + '<div class="muted" style="font-size:12px">' + src + '</div></td>' +
+            '<td class="muted" style="font-size:12px">' + esc(x.bank_name || (x.paynow_number ? 'PayNow' : '')) + (x.bank_account ? '<br>' + esc(x.bank_account) : x.paynow_number ? '<br>' + esc(x.paynow_number) : '') + '</td>' +
+            '<td>' + hisPill(x.status) + (x.decided_by ? '<div class="muted" style="font-size:12px">by ' + esc(x.decided_by) + '</div>' : '') + '</td></tr>';
+        }));
+      }).catch(function () { $('hisWd').innerHTML = '<p class="muted">Network error.</p>'; });
     }
     $('hisApply').onclick = loadHis;
     loadHis();
