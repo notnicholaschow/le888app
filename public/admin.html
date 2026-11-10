@@ -764,6 +764,15 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
           <tbody></tbody>
         </table></div>
       </div>
+
+      <div class="page-head" style="margin-top:22px"><h1>&#129511; Angpao events</h1><p>Angpao rain down when players open the app &middot; they tap one to get a gift &middot; <b>once per player per event</b> &middot; times in SGT &middot; logged-in players only</p></div>
+      <div class="card">
+        <button class="btn small" id="apNewBtn" style="margin-bottom:12px">+ New angpao event</button>
+        <div class="tbl-wrap"><table class="tbl" id="apTbl">
+          <thead><tr><th>Event</th><th>Gift</th><th>When (SGT)</th><th>Who</th><th>Claimed</th><th>Status</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
     </section>
 
     <section id="tab-promopages" class="hidden">
@@ -1267,7 +1276,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
     arcade_play: 'Game play', arcade_daily: 'Arcade daily reward', checkin: 'Daily check-in',
     task: 'Task reward', task_complete: 'Task reward', admin_correction: 'Staff correction',
     vip_upgrade: 'VIP tier bonus', vip_weekly: 'VIP weekly bonus', reward_submit: 'Reward submitted', deposit_bonus: 'Deposit bonus',
-    referral: 'Referral reward', referral_bonus: 'Referral bonus (every N friends)'
+    referral: 'Referral reward', referral_bonus: 'Referral bonus (every N friends)', angpao: '🧧 Angpao gift'
   };
   function ptLabel(t) { return PT_LABELS[t] || esc(t); }
   var CRED_LABELS = {
@@ -1360,7 +1369,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
   var loaders = {
     overview: loadOverview, players: loadPlayers, activity: loadActivity,
     credits: loadCredits, deposits: loadDeposits, depreq: loadDepositRequests,
-    payouts: loadPayouts, withdrawals: loadWithdrawals, earn: function () { loadPromos(); loadDepBonus(); }, promopages: loadPromoPages, settings: loadSettings, admins: loadAdmins,
+    payouts: loadPayouts, withdrawals: loadWithdrawals, earn: function () { loadPromos(); loadDepBonus(); loadAngpao(); }, promopages: loadPromoPages, settings: loadSettings, admins: loadAdmins,
     delete: loadDelete, messages: loadChats, games: loadGames, rules: loadRules, vip: loadVipBonuses, templates: loadTemplates,
     domains: loadDomains, rtp: loadSlots
   };
@@ -3675,6 +3684,94 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
   // ---- Deposit bonus tiers ----
   $('dbNewBtn').onclick = function () { dbModal(null); };
   var DB_PERIODS = { lifetime: 'Lifetime', month: 'This month', week: 'This week', today: 'Today' };
+  // ---- Angpao events (Earn page) ----
+  var apCache = [], apNow = '';
+  function apGift(e) { return e.gift_type === 'credits' ? '$' + (Number(e.amount) / 100).toFixed(2) + ' Free credit' : Number(e.amount).toLocaleString('en-US') + ' Points'; }
+  function apWhen(t) { return esc(String(t || '').replace('T', ' ')); }
+  function loadAngpao() {
+    if ($('apNewBtn')) $('apNewBtn').onclick = function () { angpaoModal(null); };
+    api('/api/admin/angpao/list', {}).then(function (r) {
+      var tb = document.querySelector('#apTbl tbody'); if (!tb) return;
+      if (!r.ok) { tb.innerHTML = '<tr><td colspan="7" class="muted">' + esc(r.error || 'Could not load.') + '</td></tr>'; return; }
+      apCache = r.events || []; apNow = r.now || '';
+      if (!apCache.length) { tb.innerHTML = '<tr><td colspan="7" class="muted">No angpao events yet. Press <b>+ New angpao event</b>.</td></tr>'; return; }
+      tb.innerHTML = apCache.map(function (e) {
+        var st = !Number(e.active) ? ['Off', 'blocked'] : (apNow > e.end_at) ? ['Ended', 'blocked'] : (apNow < e.start_at) ? ['Scheduled', 'waiting'] : ['LIVE', 'active'];
+        var given = e.gift_type === 'credits' ? '$' + (Number(e.given) / 100).toFixed(2) : Number(e.given).toLocaleString('en-US') + ' pts';
+        return '<tr><td><b>' + esc(e.name) + '</b></td><td>' + apGift(e) + '</td>' +
+          '<td class="muted" style="font-size:12px">' + apWhen(e.start_at) + '<br>&rarr; ' + apWhen(e.end_at) + '</td>' +
+          '<td>' + (e.target === 'all' ? 'All players' : Number(e.target_count) + ' selected') + '</td>' +
+          '<td><button class="btn ghost small" data-ap-claims="' + e.id + '">' + Number(e.claims) + ' &middot; ' + given + '</button></td>' +
+          '<td><span class="pill ' + st[1] + '">' + st[0] + '</span></td>' +
+          '<td class="act-btns"><button class="btn ghost small" data-ap-edit="' + e.id + '">Edit</button>' +
+          (Number(e.claims) ? '' : '<button class="btn warn small" data-ap-del="' + e.id + '" style="margin-left:5px">Delete</button>') + '</td></tr>';
+      }).join('');
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-ap-edit]'), function (b) { b.onclick = function () { angpaoModal(apCache.filter(function (x) { return String(x.id) === b.getAttribute('data-ap-edit'); })[0]); }; });
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-ap-claims]'), function (b) { b.onclick = function () { angpaoClaims(apCache.filter(function (x) { return String(x.id) === b.getAttribute('data-ap-claims'); })[0]); }; });
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-ap-del]'), function (b) {
+        b.onclick = function () {
+          if (!confirm('Delete this angpao event?')) return;
+          api('/api/admin/angpao/delete', { id: Number(b.getAttribute('data-ap-del')) }).then(function (r) { if (!r.ok) { toast(r.error || 'Delete failed.', true); return; } toast('Angpao event deleted.'); loadAngpao(); });
+        };
+      });
+    });
+  }
+  function angpaoModal(e) {
+    var sgtNowStr = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    var claimed = e && Number(e.claims) > 0;
+    openModal(
+      '<h2>' + (e ? 'Edit angpao event' : 'New angpao event') + '</h2>' +
+      '<label>Event name (shown on the angpao)</label><input id="apName" maxlength="60" placeholder="e.g. 11.11 Angpao" value="' + esc(e ? e.name : '') + '">' +
+      '<div class="row" style="gap:10px"><div style="flex:1"><label>Gift</label><select id="apType"' + (claimed ? ' disabled' : '') + '><option value="points">Points</option><option value="credits">Free credit ($)</option></select></div>' +
+      '<div style="flex:1"><label id="apAmtLbl">Amount</label><input id="apAmt" type="number" min="0" step="1"' + (claimed ? ' disabled' : '') + ' value="' + (e ? (e.gift_type === 'credits' ? (Number(e.amount) / 100).toFixed(2) : Number(e.amount)) : '') + '"></div></div>' +
+      (claimed ? '<p class="muted" style="font-size:12px;margin:4px 0 0">Players already claimed this, so the gift and amount are locked.</p>' : '') +
+      '<p class="muted" style="font-size:12px;margin:4px 0 0">Free credit follows your normal Free Credit / withdraw rules.</p>' +
+      '<div class="row" style="gap:10px"><div style="flex:1"><label>Start (SGT)</label><input id="apStart" type="datetime-local" value="' + esc(e ? e.start_at : sgtNowStr + 'T00:00') + '"></div>' +
+      '<div style="flex:1"><label>End (SGT)</label><input id="apEnd" type="datetime-local" value="' + esc(e ? e.end_at : sgtNowStr + 'T23:59') + '"></div></div>' +
+      '<label>Who gets it</label><select id="apTarget"><option value="all">All players</option><option value="selected">Selected players only</option></select>' +
+      '<div id="apIdsBox" class="hidden"><label>Player IDs (paste — one per line, or separated by commas/spaces)</label><textarea id="apIds" rows="5" placeholder="LE11160&#10;LE11161&#10;LE11162">' + esc(e && e.usernames ? e.usernames.map(function (u) { return String(u).toUpperCase(); }).join('\n') : '') + '</textarea><p class="muted" id="apIdsCount" style="font-size:12px;margin:4px 0 0"></p></div>' +
+      '<label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" id="apActive" style="width:auto"' + (!e || Number(e.active) ? ' checked' : '') + '> On (players can get it during the time above)</label>' +
+      '<button class="btn" id="apSave" style="margin-top:14px;width:100%">Save angpao event</button>'
+    );
+    $('apType').value = e ? e.gift_type : 'points';
+    $('apTarget').value = e ? e.target : 'all';
+    function sync() {
+      var cr = $('apType').value === 'credits';
+      $('apAmtLbl').textContent = cr ? 'Amount ($)' : 'Amount (points)';
+      $('apAmt').step = cr ? '0.01' : '1';
+      $('apIdsBox').classList.toggle('hidden', $('apTarget').value !== 'selected');
+      var n = ($('apIds').value.match(/[A-Za-z0-9_.]+/g) || []).length;
+      $('apIdsCount').textContent = n ? n + ' player ID(s)' : '';
+    }
+    $('apType').onchange = sync; $('apTarget').onchange = sync; $('apIds').oninput = sync; sync();
+    $('apSave').onclick = function () {
+      var btn = this, amt = Number($('apAmt').value);
+      if (!$('apName').value.trim()) { toast('Give the event a name.', true); return; }
+      if (!(amt > 0)) { toast('Enter the gift amount.', true); return; }
+      if (!$('apStart').value || !$('apEnd').value) { toast('Choose the start and end time.', true); return; }
+      if ($('apEnd').value <= $('apStart').value) { toast('End must be after start.', true); return; }
+      if ($('apTarget').value === 'selected' && !$('apIds').value.trim()) { toast('Paste at least one player ID.', true); return; }
+      busy(btn, true);
+      api('/api/admin/angpao/save', { id: e ? e.id : 0, name: $('apName').value.trim(), gift_type: $('apType').value, amount: amt, start_at: $('apStart').value, end_at: $('apEnd').value, target: $('apTarget').value, usernames: $('apIds').value, active: $('apActive').checked ? 1 : 0 }).then(function (r) {
+        busy(btn, false);
+        if (!r.ok) { toast(r.error || 'Save failed.', true); return; }
+        toast('Angpao event saved' + (r.players != null ? ' for ' + r.players + ' player(s).' : ' for all players.'));
+        closeModal(); loadAngpao();
+      }).catch(function () { busy(btn, false); toast('Network error.', true); });
+    };
+  }
+  function angpaoClaims(e) {
+    openModal('<h2>&#129511; ' + esc(e.name) + '</h2><p class="muted">' + apGift(e) + ' &middot; claimed by ' + Number(e.claims) + ' player(s)</p><div id="apClaimList" class="muted" style="margin-top:10px">Loading&hellip;</div>');
+    api('/api/admin/angpao/claims', { id: e.id }).then(function (r) {
+      var el = $('apClaimList'); if (!el) return;
+      if (!r.ok) { el.textContent = r.error || 'Could not load.'; return; }
+      if (!(r.claims || []).length) { el.innerHTML = '<p class="muted">Nobody has claimed it yet.</p>'; return; }
+      el.innerHTML = '<table class="tbl">' + r.claims.map(function (c) {
+        return '<tr><td class="muted">' + sgt(c.claimed_at) + '</td><td><b>' + esc(U(c.username || ('#' + c.player_id))) + '</b> <span class="muted">' + esc(c.display_name || '') + '</span></td><td>' + (c.gift_type === 'credits' ? '$' + (Number(c.amount) / 100).toFixed(2) : '+' + Number(c.amount) + ' pts') + '</td></tr>';
+      }).join('') + '</table>';
+    });
+  }
+
   function loadDepBonus() {
     api('/api/admin/deposit-bonus/list').then(function (res) {
       if (!res.ok) { toast(res.error || 'Could not load deposit bonuses.', true); return; }

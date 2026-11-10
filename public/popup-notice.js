@@ -72,6 +72,7 @@
   }
 
   async function check() {
+    if (window.leAngpaoBusy) { setTimeout(check, 2500); return; } // angpao first, then notices
     if (showing || Date.now() - lastCheck < 50000) return;
     lastCheck = Date.now();
     try {

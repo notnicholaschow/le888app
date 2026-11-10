@@ -1,0 +1,48 @@
+/* LE888 Angpao (red packet) gift */
+.ap-wrap{position:fixed;inset:0;z-index:9600;overflow:hidden;-webkit-user-select:none;user-select:none}
+.ap-back{position:absolute;inset:0;background:radial-gradient(80% 60% at 50% 40%,#6a0d1255,transparent 70%),#000c;animation:apFade .4s ease}
+.ap-out{transition:opacity .25s;opacity:0}
+.ap-hint{position:absolute;left:0;right:0;top:11%;z-index:3;text-align:center;pointer-events:none;animation:apFade .5s ease}
+.ap-hint small{display:block;font-size:11px;letter-spacing:3px;color:#f3c76a}
+.ap-hint b{display:block;margin-top:6px;font-size:28px;font-weight:900;font-style:italic;background:linear-gradient(175deg,#fff6d2,#f6d27e 45%,#c88a2c);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 0 #3d0606)}
+.ap-hint span{display:block;margin-top:6px;font-size:13px;color:#f1dfbd}
+.ap-later{position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;z-index:6;width:38px;height:38px;border-radius:50%;border:1px solid #e9c98566;background:#14110bcc;color:#f6dca2;font-size:24px;line-height:1;cursor:pointer}
+.ap-env{position:absolute;top:-140px;padding:0;border:0;background:none;cursor:pointer;z-index:2;animation:apFall linear forwards;will-change:transform;-webkit-tap-highlight-color:transparent}
+.ap-env img{display:block;width:100%;height:auto;pointer-events:none;filter:drop-shadow(0 8px 12px #000a);animation:apSway ease-in-out infinite alternate}
+.ap-spark{position:absolute;top:-10px;width:6px;height:6px;border-radius:50%;background:#ffd98a;box-shadow:0 0 8px #ffcf6a;opacity:.85;pointer-events:none;animation:apFall linear forwards}
+@keyframes apFall{to{transform:translateY(calc(100vh + 280px)) rotate(var(--r,10deg))}}
+@keyframes apSway{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
+@keyframes apFade{from{opacity:0}to{opacity:1}}
+
+/* the big angpao */
+.ap-stage{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px calc(20px + env(safe-area-inset-bottom))}
+.ap-pack{position:relative;width:min(250px,62vw);aspect-ratio:600/892;animation:apZoom .5s cubic-bezier(.2,.9,.25,1.2) both}
+.ap-pack img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 26px 40px #000c)}
+.ap-closed{animation:apShake .4s .45s ease-in-out 1}
+.ap-open{opacity:0}
+.ap-opened .ap-closed{opacity:0;transition:opacity .18s}
+.ap-opened .ap-open{opacity:1;transition:opacity .18s}
+.ap-opened .ap-pack:after{content:"";position:absolute;left:50%;top:14%;width:150%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(closest-side,#fff3c4,#ffcf6a88 35%,transparent 70%);animation:apFlash .9s ease-out forwards;pointer-events:none}
+.ap-gift{position:absolute;left:8%;right:8%;top:2%;z-index:2;display:flex;flex-direction:column;align-items:center;opacity:0;transform:translateY(40%) scale(.8);pointer-events:none}
+.ap-opened .ap-gift{animation:apRise .6s .15s cubic-bezier(.2,.9,.25,1.15) forwards}
+.ap-gift small{font-size:11px;font-weight:800;letter-spacing:2.4px;color:#fff1c4;text-shadow:0 1px 4px #7a0a10}
+.ap-gift b{font-size:46px;line-height:1.05;font-weight:900;background:linear-gradient(175deg,#fffbe6 10%,#ffd977 45%,#e09a2c 80%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 0 #6b0a0f) drop-shadow(0 0 12px #ffcf6a88)}
+.ap-gift span{margin-top:2px;font-size:13px;font-weight:900;letter-spacing:1.6px;color:#fff3cf;text-shadow:0 1px 5px #7a0a10}
+.ap-foot{width:min(320px,86vw);margin-top:14px;text-align:center;opacity:0;transform:translateY(12px)}
+.ap-opened .ap-foot{animation:apUp .4s .5s ease forwards}
+.ap-title{font-size:22px;font-weight:900;color:#ffe3a1}
+.ap-sub{margin:4px 0 14px;font-size:13px;color:#e6d3b0}
+.ap-claim{position:relative;width:100%;height:54px;border-radius:16px;border:1px solid #fff0bf;overflow:hidden;background:linear-gradient(170deg,#fff1bd,#f8cd6a 30%,#e3a03a 68%,#b8741f);color:#2a1a04;font-family:inherit;font-weight:900;font-size:15px;letter-spacing:1.4px;cursor:pointer;box-shadow:0 10px 26px #e5a64540}
+.ap-claim:after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-60%;background:linear-gradient(100deg,transparent,#fff8 50%,transparent);transform:skewX(-20deg);animation:apShine 2.6s ease-in-out .9s infinite}
+.ap-claim:disabled{opacity:.7}
+.ap-skip{margin-top:6px;padding:8px 14px;border:0;background:none;color:#a99c80;font-family:inherit;font-size:13px;cursor:pointer}
+.ap-done{padding:14px 16px;border-radius:16px;background:#14110bee;border:1px solid #e9c98577;color:#f6dca2;font-weight:800;font-size:16px;animation:apZoom .35s ease}
+.ap-burst{position:absolute;left:50%;top:42%;z-index:4;width:7px;height:7px;border-radius:50%;background:#ffd98a;box-shadow:0 0 8px #ffcf6a;pointer-events:none;animation:apBurst .9s ease-out forwards}
+@keyframes apZoom{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes apShake{0%,100%{transform:rotate(0)}20%{transform:rotate(-7deg)}40%{transform:rotate(6deg)}60%{transform:rotate(-5deg)}80%{transform:rotate(3deg)}}
+@keyframes apFlash{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}30%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.2)}}
+@keyframes apRise{to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes apUp{to{opacity:1;transform:none}}
+@keyframes apShine{0%,55%{left:-60%}85%,100%{left:130%}}
+@keyframes apBurst{to{transform:translate(var(--x),var(--y)) scale(.3);opacity:0}}
+@media(prefers-reduced-motion:reduce){.ap-env img,.ap-closed,.ap-claim:after{animation:none}.ap-pack,.ap-opened .ap-gift,.ap-opened .ap-foot{animation-duration:.01s}}

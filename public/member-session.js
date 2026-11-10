@@ -375,7 +375,7 @@ invite=()=>{const d=refState.data;
  const sh=document.querySelector('#ref-share');if(sh)sh.onclick=async()=>{const d=refState.data||{};const code=String(d.code||'').toUpperCase();const url=location.origin+'/r/'+code;const text='Join me on LE888! 🎁 Sign up with my invite link:';
   try{if(navigator.share){await navigator.share({title:'LE888',text,url});}else{await navigator.clipboard.writeText(text+' '+url);toast('Message copied — paste it to your friend.');}}catch(e){}};
  document.querySelectorAll('#screen .ref-code .dep-copy').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1500);}catch(e){toast('Copy unavailable — long-press the code.');}});};})();
-PT_TYPE.referral='Referral reward';PT_TYPE.referral_bonus='Referral bonus';
+PT_TYPE.referral='Referral reward';PT_TYPE.referral_bonus='Referral bonus';PT_TYPE.angpao='🧧 Angpao gift';
 
 /* ===== PROMOTIONS: view-only promo cards from Admin -> Promotions. Details run in a sandboxed frame; claim through Live Chat. ===== */
 const ppState={list:null,at:0,loading:false};
@@ -449,7 +449,7 @@ window.showVerifyNeeded=showVerifyNeeded;
  async function seen(kind){try{await memberRequest('badges/seen',{kind});}catch(e){}load(true);}
  window.memberBadgesRefresh=()=>load(true);
  // After a claim / check-in / reward submit, update the numbers straight away.
- const mr=window.memberRequest;if(typeof mr==='function'&&!mr.__nb){const w=async function(path,body){const r=await mr.apply(this,arguments);if(body!==undefined&&/^(checkin|vip\/claim-weekly|promos\/claim|deposit-bonus\/claim|reward\/submit|reward\/cancel|task\/complete)/.test(String(path)))setTimeout(()=>load(true),300);return r;};w.__nb=1;window.memberRequest=w;try{memberRequest=w;}catch(e){}}
+ const mr=window.memberRequest;if(typeof mr==='function'&&!mr.__nb){const w=async function(path,body){const r=await mr.apply(this,arguments);if(body!==undefined&&/^(checkin|vip\/claim-weekly|promos\/claim|deposit-bonus\/claim|angpao\/claim|reward\/submit|reward\/cancel|task\/complete)/.test(String(path)))setTimeout(()=>load(true),300);return r;};w.__nb=1;window.memberRequest=w;try{memberRequest=w;}catch(e){}}
  const prev=render;render=function(){prev();paint();const pg=state.page;if(pg!==lastPage){lastPage=pg;const k=SEEN[pg];if(k&&bd&&!window.memberImp){const done=k==='wallet'?Number(bd.detail&&bd.detail.free_credit_done||0):Number(bd[k]||0);if(done>0)seen(k);}load(false);}};
  // Repaint when the menu opens or the header / home is redrawn.
  let raf=0;const soon=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint();});};
