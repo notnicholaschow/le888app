@@ -1,6 +1,7 @@
 /* LE888 Angpao (red packet) gift */
 .ap-wrap{position:fixed;inset:0;z-index:9600;overflow:hidden;-webkit-user-select:none;user-select:none}
-.ap-back{position:absolute;inset:0;background:radial-gradient(80% 60% at 50% 40%,#6a0d1255,transparent 70%),#000c;animation:apFade .4s ease}
+.ap-back{position:absolute;inset:0;background:radial-gradient(80% 60% at 50% 40%,#6a0d1240,transparent 70%),rgba(0,0,0,.42);animation:apFade .4s ease}
+.ap-wrap:has(.ap-stage) .ap-back{background:radial-gradient(80% 60% at 50% 40%,#6a0d1240,transparent 70%),rgba(0,0,0,.55)}
 .ap-out{transition:opacity .25s;opacity:0}
 .ap-hint{position:absolute;left:0;right:0;top:11%;z-index:3;text-align:center;pointer-events:none;animation:apFade .5s ease}
 .ap-hint small{display:block;font-size:11px;letter-spacing:3px;color:#f3c76a}
