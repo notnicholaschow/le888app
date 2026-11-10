@@ -538,3 +538,31 @@ CREATE TABLE IF NOT EXISTS popup_notices (
   end_date TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Angpao (red packet) gift events. Times are Singapore time "YYYY-MM-DDTHH:MM".
+-- gift_type: points | credits (credits amount in cents, free credit with normal withdraw rules).
+CREATE TABLE IF NOT EXISTS angpao_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  gift_type TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  start_at TEXT NOT NULL,
+  end_at TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT 'all',   -- all | selected
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS angpao_targets (
+  event_id INTEGER NOT NULL,
+  player_id INTEGER NOT NULL,
+  PRIMARY KEY (event_id, player_id)
+);
+CREATE TABLE IF NOT EXISTS angpao_claims (
+  event_id INTEGER NOT NULL,
+  player_id INTEGER NOT NULL,
+  gift_type TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  claimed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (event_id, player_id)
+);
