@@ -3373,20 +3373,26 @@ async function sheetUpdatePlayer(env: Env, playerId: number, fields: Partial<She
 async function flushSheetQueue(env: Env, limit = 20): Promise<{ sent: number; left: number; stuck?: number; last_error?: string }> {
   if (!env.SHEET_URL || !env.SHEET_SECRET) return { sent: 0, left: 0 };
   await ensureSheetQueue(env);
-  const { results } = await env.DB.prepare('SELECT id, payload FROM sheet_queue WHERE tries < 50 ORDER BY id LIMIT ?').bind(limit).all<{ id: number; payload: string }>();
-  let sent = 0;
+  // New players (append) go first, then the rows that failed the fewest times, oldest first.
+  // So a pile of failing edits can never block a brand-new sign-up from reaching the sheet.
+  const { results } = await env.DB.prepare(`SELECT id, payload FROM sheet_queue WHERE tries < 50
+    ORDER BY CASE WHEN payload LIKE '%"action":"update"%' THEN 1 ELSE 0 END, tries, id LIMIT ?`).bind(limit).all<{ id: number; payload: string }>();
+  let sent = 0, updatesRefused = false;
   for (const q of results || []) {
     let msg: SheetMsg;
     try { const j = JSON.parse(q.payload); msg = j && j.action ? j : { action: 'append', row: j }; } catch { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); continue; }
+    // The Google script said it does not know "update" -> don't waste tries on the other edits this round.
+    if (updatesRefused && msg.action === 'update') continue;
     const res = await sheetCall(env, { ...msg });
     if (res && res.ok) { await env.DB.prepare('DELETE FROM sheet_queue WHERE id = ?').bind(q.id).run(); sent++; continue; }
+    if (msg.action === 'update' && /unknown action/i.test(String(res?.error || ''))) updatesRefused = true;
     await env.DB.prepare('UPDATE sheet_queue SET tries = tries + 1, last_error = ? WHERE id = ?').bind(String(res?.error || 'failed').slice(0, 200), q.id).run();
     // Google down / slow -> stop for now. The script refused THIS row -> skip it, keep sending the others.
     if (!res || /reach|too long|Bad reply/i.test(String(res.error || ''))) break;
   }
   const left = await env.DB.prepare('SELECT COUNT(*) AS c FROM sheet_queue WHERE tries < 50').first<{ c: number }>();
   const stuck = await env.DB.prepare('SELECT COUNT(*) AS c FROM sheet_queue WHERE tries >= 50').first<{ c: number }>();
-  const le = await env.DB.prepare('SELECT payload, last_error FROM sheet_queue ORDER BY id LIMIT 1').first<{ payload: string; last_error: string }>();
+  const le = await env.DB.prepare("SELECT payload, last_error FROM sheet_queue WHERE last_error IS NOT NULL AND last_error != '' ORDER BY id LIMIT 1").first<{ payload: string; last_error: string }>();
   let lastErr = '';
   if (le) { let code = ''; try { const j = JSON.parse(le.payload); code = String((j.row || j).code || ''); } catch { /* ignore */ } lastErr = (code ? code + ': ' : '') + String(le.last_error || ''); }
   return { sent, left: Number(left?.c || 0), stuck: Number(stuck?.c || 0), last_error: lastErr };
