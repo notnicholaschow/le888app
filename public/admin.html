@@ -4531,6 +4531,7 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         (r.queued ? ' · <span style="color:var(--red)">' + r.queued + ' row(s) waiting to be sent</span>' : '') + (r.sent ? ' · sent ' + r.sent + ' waiting row(s) now' : '') +
         (r.stuck ? ' · <span style="color:var(--red)">' + r.stuck + ' row(s) failed many times</span>' : '') +
         (r.last_error ? '<div style="margin-top:6px;font-size:12px;color:var(--red)">Google said: ' + esc(r.last_error) + '</div>' : '') +
+        (/unknown action/i.test(r.last_error || '') ? '<div style="margin-top:6px;font-size:12px;color:var(--gold,#e7c56b)">&#9888; Your Google script is an <b>old version</b> — it can add new players but cannot <b>edit</b> existing rows. In Apps Script: Deploy &rarr; Manage deployments &rarr; &#9999;&#65039; Edit &rarr; Version: <b>New version</b> &rarr; Deploy. New sign-ups are still sent first.</div>' : '') +
         ((r.stuck || r.queued) ? '<div style="margin-top:8px"><button class="btn small" id="sheetRetryBtn">Retry failed rows</button> <span class="muted" style="font-size:12px">Sends about 25 at a time — press again until nothing is left.</span></div>' : '');
       var rb = $('sheetRetryBtn'); if (rb) rb.onclick = function () { sheetCheck(rb, true); };
     }).catch(function () { busy(btn, false); st.textContent = 'Network error.'; });
