@@ -1757,7 +1757,7 @@ export default {
 
       if (request.method === 'GET' && (url.pathname === '/admin' || url.pathname === '/admin/')) {
         const res = await env.ASSETS.fetch(new Request(new URL('/admin.html', request.url).toString(), request));
-        return decorateAsset(res, true);
+        return allowOfficeFrame(decorateAsset(res, true), env);
       }
 
       const assetRes = await env.ASSETS.fetch(request);
@@ -1774,6 +1774,18 @@ export default {
     }
   },
 };
+
+// Master Office: when the OFFICE_ORIGIN variable is set (e.g. https://master-office.xxx.workers.dev),
+// the admin page may be shown inside that page. Everything else stays un-frameable.
+function allowOfficeFrame(res: Response, env: Env): Response {
+  const origin = String((env as unknown as { OFFICE_ORIGIN?: string }).OFFICE_ORIGIN || '').trim().replace(/\/+$/, '');
+  if (!/^https:\/\/[a-z0-9.-]+$/i.test(origin)) return res;
+  const headers = new Headers(res.headers);
+  headers.delete('X-Frame-Options');
+  const csp = headers.get('Content-Security-Policy') || '';
+  headers.set('Content-Security-Policy', csp.replace(/frame-ancestors[^;]*/, "frame-ancestors 'self' " + origin));
+  return new Response(res.body, { status: res.status, headers });
+}
 
 // Add CSP + security headers to served HTML; leave other assets cacheable.
 function decorateAsset(res: Response, isHtml: boolean): Response {
