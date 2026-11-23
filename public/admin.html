@@ -3346,8 +3346,12 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
               '<br><span class="pr-check">Check this account. Reject if credit is still left.</span></div>'
             : '<div class="pr-last muted">No previous reward — first one.</div>';
         }
-        return '<tr><td class="muted">' + sgt(p.created_at) + '</td><td>' + who + target + lastRw + '</td><td>' + amt + '</td><td>' + statusCell + '</td><td>' + decidedBy + '</td><td>' + action + '</td></tr>';
+        var hisBtn = ' <button class="btn ghost small" data-prhis="' + p.id + '" title="See this player\'s history">History</button>';
+        return '<tr><td class="muted">' + sgt(p.created_at) + '</td><td>' + who + target + lastRw + '</td><td>' + amt + '</td><td>' + statusCell + '</td><td>' + decidedBy + '</td><td>' + action + hisBtn + '</td></tr>';
       }).join('') || '<tr><td colspan="6" class="muted">No payout requests.</td></tr>';
+      Array.prototype.forEach.call(tb.querySelectorAll('[data-prhis]'), function (b) {
+        b.onclick = function () { payoutHistory(res.payouts.find(function (x) { return String(x.id) === b.getAttribute('data-prhis'); }), b); };
+      });
       Array.prototype.forEach.call(tb.querySelectorAll('[data-approve]'), function (b) {
         b.onclick = function () { payoutConfirm(res.payouts.find(function (x) { return String(x.id) === b.getAttribute('data-approve'); }), 'approved'); };
       });
@@ -3358,6 +3362,17 @@ td > select.tag-inline { width: 132px; min-width: 124px; }
         b.onclick = function () { editPayoutId(res.payouts.find(function (x) { return String(x.id) === b.getAttribute('data-editid'); })); };
       });
     }).catch(function () { toast('Network error.', true); });
+  }
+
+  // Reward request -> History pop-up for that player (opens on the Free credit tab).
+  function payoutHistory(pr, btn) {
+    if (!pr || !pr.username) { toast('Player not found.', true); return; }
+    busy(btn, true);
+    api('/api/admin/players', { q: pr.username, limit: 10 }).then(function (res) {
+      busy(btn, false);
+      var pl = res && res.ok && (res.players || []).find(function (x) { return Number(x.id) === Number(pr.player_id); });
+      historyModal(pl || { id: pr.player_id, username: pr.username, points: 0, reward_cents: 0 }, 'fc');
+    }).catch(function () { busy(btn, false); toast('Network error.', true); });
   }
 
   // ---- Withdrawals (request-only; staff verify & pay, then mark decided) ----
